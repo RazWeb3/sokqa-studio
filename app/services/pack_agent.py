@@ -5,6 +5,7 @@ from app.services.document_generator import generate_document_pack
 from app.services.exporter import build_generated_files, build_manifest
 from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
+from app.services.model_resolver import resolve_task_models
 from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
@@ -17,34 +18,50 @@ from app.utils.ids import new_job_id
 
 
 def plan_pack(request: PlanPackRequest):
-    return create_course_plan(request)
+    plan = create_course_plan(request)
+    models = resolve_task_models(plan, request)
+    plan.model = request.model
+    plan.docModel = request.docModel or request.model
+    plan.quizModel = request.quizModel or request.model
+    plan.plannerModel = request.plannerModel or request.model
+    return plan
 
 
 def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs: list[str] = ["Planning"]
     plan = request.plan
+    models = resolve_task_models(plan, request)
+    logs.append(f"Model planner: {models.planner}")
+    logs.append(f"Model document: {models.document}")
+    logs.append(f"Model quiz: {models.quiz}")
 
     logs.append("Generating Documents")
-    document_packs = [generate_document_pack(plan, document) for document in plan.documents]
+    document_packs = [generate_document_pack(plan, document, model=models.document) for document in plan.documents]
     logs.extend(event.message for event in pop_generation_events())
 
     logs.append("Generating Quizzes from Documents")
-    quiz_packs = [generate_quiz_pack(plan, quiz_pack, document_packs) for quiz_pack in plan.quizPacks]
+    quiz_packs = [generate_quiz_pack(plan, quiz_pack, document_packs, model=models.quiz) for quiz_pack in plan.quizPacks]
     logs.extend(event.message for event in pop_generation_events())
 
     files = build_generated_files(document_packs, quiz_packs)
 
     logs.append("Validating")
     validation = validate_files(files)
+    append_validation_logs(logs, validation)
 
     if not validation.valid:
         logs.append("Repairing")
         files = repair_files(files)
         validation = validate_files(files)
+        append_validation_logs(logs, validation)
 
-    logs.append("Optimizing TTS")
-    files = optimize_generated_files(files, plan.ttsRules)
-    validation = validate_files(files)
+    if plan.enableTtsOptimize:
+        logs.append("Optimizing TTS")
+        files = optimize_generated_files(files, plan.ttsRules)
+        validation = validate_files(files)
+        append_validation_logs(logs, validation)
+    else:
+        logs.append("Skipping TTS optimization")
 
     if request.persist:
         logs.append("Persisting generated files")
@@ -73,6 +90,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     files.append(manifest_file)
 
     validation = validate_files(files, manifest)
+    append_validation_logs(logs, validation)
     job_id = new_job_id()
     response = GeneratePackResponse(
         status="completed",
@@ -127,6 +145,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     optimized_files.append(manifest_file)
 
     validation = validate_files(optimized_files, manifest)
+    append_validation_logs(logs, validation)
     revised = GeneratePackResponse(
         status="completed",
         jobId=existing.jobId,
@@ -138,3 +157,10 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     )
     update_job(revised)
     return revised
+
+
+def append_validation_logs(logs: list[str], validation) -> None:
+    if validation.valid:
+        return
+    for error in validation.errors:
+        logs.append(f"validation error: {error.file} {error.path}: {error.message}")

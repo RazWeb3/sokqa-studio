@@ -124,7 +124,13 @@ class PlanPackRequest(BaseModel):
     scale: Scale = "quick"
     language: str = Field(default="ja", min_length=2, max_length=20)
     includeTts: bool = True
+    enableTtsOptimize: bool = True
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+    docModel: str | None = Field(default=None, min_length=1, max_length=120)
+    quizModel: str | None = Field(default=None, min_length=1, max_length=120)
+    plannerModel: str | None = Field(default=None, min_length=1, max_length=120)
     documentCount: int | None = Field(default=None, ge=1, le=20)
+    sectionsPerDocument: int | None = Field(default=None, ge=1, le=100)
     quizPacks: list[QuizPackSpec] | None = None
     userTtsRules: list[TtsRule] = Field(default_factory=list)
 
@@ -185,6 +191,10 @@ class GeneratePackRequest(BaseModel):
     plan: CoursePlan
     outputMode: Literal["manifest"] = "manifest"
     persist: bool = True
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+    docModel: str | None = Field(default=None, min_length=1, max_length=120)
+    quizModel: str | None = Field(default=None, min_length=1, max_length=120)
+    plannerModel: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class ValidatePackRequest(BaseModel):

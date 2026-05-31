@@ -39,6 +39,12 @@ def _question_count(request: PlanPackRequest) -> int:
     return 10 if request.scale == "quick" else 30
 
 
+def _section_count(request: PlanPackRequest) -> int:
+    if request.sectionsPerDocument:
+        return request.sectionsPerDocument
+    return 6 if request.scale == "quick" else 10
+
+
 def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list[PlanQuizPack]:
     if request.quizPacks:
         return [
@@ -84,7 +90,7 @@ def create_course_plan(request: PlanPackRequest) -> CoursePlan:
                     "重要用語",
                     "実務や試験での使われ方",
                 ],
-                targetSectionCount=6 if request.scale == "quick" else 10,
+                targetSectionCount=_section_count(request),
             )
         )
 
@@ -99,6 +105,11 @@ def create_course_plan(request: PlanPackRequest) -> CoursePlan:
         targetUser=request.targetUser,
         difficulty=request.difficulty,
         author=settings.sokqa_author,
+        enableTtsOptimize=request.includeTts and request.enableTtsOptimize,
+        model=request.model,
+        docModel=request.docModel,
+        quizModel=request.quizModel,
+        plannerModel=request.plannerModel,
         documents=documents,
         quizPacks=_build_quiz_packs(request, [document.id for document in documents]),
         ttsRules=tts_rules,

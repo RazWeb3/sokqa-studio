@@ -24,9 +24,11 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifest | None = N
     for file in files:
         try:
             if file.kind == "document":
-                SokqaDocumentPack.model_validate(file.content)
+                pack = SokqaDocumentPack.model_validate(file.content)
+                errors.extend(validate_document_semantics(file.name, pack))
             elif file.kind == "quiz":
-                SokqaQuizPack.model_validate(file.content)
+                pack = SokqaQuizPack.model_validate(file.content)
+                errors.extend(validate_quiz_semantics(file.name, pack))
             elif file.kind == "manifest":
                 PackManifest.model_validate(file.content)
         except ValidationError as exc:
@@ -36,6 +38,94 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifest | None = N
         errors.extend(validate_manifest(manifest).errors)
 
     return ValidationResult(valid=not errors, errors=errors)
+
+
+def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list[ValidationErrorItem]:
+    errors: list[ValidationErrorItem] = []
+    for index, item in enumerate(pack.documents):
+        text = item.text.strip()
+        tts_text = (item.tts.text if item.tts and item.tts.text else "").strip()
+        if not text:
+            errors.append(ValidationErrorItem(file=file_name, path=f"documents.{index}.text", message="document text must not be empty"))
+        if text == pack.title:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"documents.{index}.text",
+                    message="document text must not be only the chapter title",
+                )
+            )
+        if item.id == text or text in {f"{pack.title} {index + 1}", f"{pack.title} 第{index + 1}章"}:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"documents.{index}.text",
+                    message="document text appears to be a placeholder",
+                )
+            )
+        if item.tts is not None and not tts_text:
+            errors.append(ValidationErrorItem(file=file_name, path=f"documents.{index}.tts.text", message="tts.text must not be empty when tts is present"))
+        if tts_text and tts_text == pack.title:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"documents.{index}.tts.text",
+                    message="tts.text must not be only the chapter title",
+                )
+            )
+        if tts_text and not tts_text.endswith("、"):
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"documents.{index}.tts.text",
+                    message="tts.text should end with Japanese comma",
+                    severity="warning",
+                )
+            )
+    return errors
+
+
+def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:
+    errors: list[ValidationErrorItem] = []
+    if pack.questions:
+        answer_indexes = {question.answerIndex for question in pack.questions}
+        if len(answer_indexes) == 1 and len(pack.questions) > 1:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path="questions.answerIndex",
+                    message="answerIndex must not be identical for every question",
+                )
+            )
+
+        explanations = {question.explanation.strip() for question in pack.questions}
+        if len(explanations) == 1 and len(pack.questions) > 1:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path="questions.explanation",
+                    message="explanation must not be identical for every question",
+                )
+            )
+
+    for index, question in enumerate(pack.questions):
+        if question.question.strip() in {pack.title, f"{pack.title} {index + 1}"}:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"questions.{index}.question",
+                    message="question appears to be a placeholder",
+                )
+            )
+        if len(question.choices) != 4 or not all(isinstance(choice, str) and choice.strip() for choice in question.choices):
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"questions.{index}.choices",
+                    message="choices must be a 4-item string array",
+                )
+            )
+    return errors
 
 
 def validate_manifest(manifest: PackManifest) -> ValidationResult:

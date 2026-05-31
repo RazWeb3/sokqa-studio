@@ -219,10 +219,39 @@ Set these when wiring real generation:
 
 ```env
 GEMINI_PROVIDER=gemini
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_MODEL_DOC=gemini-3-flash-preview
+GEMINI_MODEL_QUIZ=gemini-3-flash-preview
+GEMINI_MODEL_PLANNER=gemini-3-flash-preview
 GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
 GOOGLE_CLOUD_LOCATION=global
 GOOGLE_GENAI_USE_VERTEXAI=true
+```
+
+`GEMINI_MODEL` is kept for backward compatibility. If a task-specific model is not set,
+the app falls back to `GEMINI_MODEL`.
+
+Task-specific model usage:
+
+```text
+GEMINI_MODEL_PLANNER -> /plan-pack planning model reservation
+GEMINI_MODEL_DOC     -> document generation
+GEMINI_MODEL_QUIZ    -> quiz generation
+```
+
+At startup, the API logs the provider and all three task model names so you can confirm
+that `.env` changes were picked up after restart.
+
+You can also override models per request. `model` applies to planner/document/quiz unless
+the task-specific fields are set:
+
+```json
+{
+  "model": "gemini-3.5-flash",
+  "docModel": "gemini-3-flash-preview",
+  "quizModel": "gemini-3.5-flash",
+  "plannerModel": "gemini-3-flash-preview"
+}
 ```
 
 For local Google auth, use Application Default Credentials:
@@ -243,3 +272,20 @@ Or run the direct client test:
 ```bash
 python scripts/test_gemini_connection.py
 ```
+
+## Compare Gemini Document Models
+
+Run the same document-generation task across multiple Gemini models without editing `.env`:
+
+```bash
+python scripts/compare_gemini_document_models.py --sections 50
+```
+
+Optional:
+
+```bash
+python scripts/compare_gemini_document_models.py --theme "Git基礎講座" --sections 50 --models gemini-2.5-flash gemini-3-flash-preview gemini-3.5-flash
+```
+
+The script prints a comparison table and saves each generated document JSON under
+`model_comparison_outputs/`.

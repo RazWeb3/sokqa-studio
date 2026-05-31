@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routes import debug, generate, health, jobs, plan
+from app.startup import log_runtime_settings
 
 
 app = FastAPI(
@@ -12,6 +13,11 @@ app = FastAPI(
     version="0.1.0",
     description="Generate, validate, repair, optimize, store, and manifest Sokqa course packs.",
 )
+
+
+@app.on_event("startup")
+def startup_event() -> None:
+    log_runtime_settings()
 
 app.include_router(health.router)
 app.include_router(plan.router)

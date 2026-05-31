@@ -10,7 +10,7 @@ class PlanDocument(BaseModel):
     title: str
     goal: str
     keyPoints: list[str] = Field(default_factory=list)
-    targetSectionCount: int = Field(default=8, ge=1, le=80)
+    targetSectionCount: int = Field(default=8, ge=1, le=120)
 
 
 class PlanQuizPack(BaseModel):
@@ -31,6 +31,11 @@ class CoursePlan(BaseModel):
     difficulty: Difficulty
     author: str = "Sokqa Team"
     version: str = "1.0.0"
+    enableTtsOptimize: bool = True
+    model: str | None = None
+    docModel: str | None = None
+    quizModel: str | None = None
+    plannerModel: str | None = None
     documents: list[PlanDocument]
     quizPacks: list[PlanQuizPack]
     ttsRules: list[TtsRule] = Field(default_factory=list)
@@ -45,7 +50,7 @@ class SokqaDocumentItem(BaseModel):
     id: str
     text: str
     tts: DocumentTts | None = None
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str] | None = None
 
     @field_validator("text")
     @classmethod
@@ -84,7 +89,7 @@ class SokqaQuestion(BaseModel):
     choices: list[str]
     answerIndex: int
     explanation: str
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str] | None = None
     tts: QuizTts | None = None
 
     @model_validator(mode="after")

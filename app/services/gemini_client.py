@@ -16,7 +16,7 @@ class GeminiClient:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def generate_json(self, prompt: str) -> dict[str, Any]:
+    def generate_json(self, prompt: str, model: str | None = None) -> dict[str, Any]:
         if self.settings.gemini_provider == "mock":
             raise RuntimeError("GEMINI_PROVIDER=mock; use deterministic local generators.")
 
@@ -36,7 +36,7 @@ class GeminiClient:
         else:
             client = genai.Client()
         response = client.models.generate_content(
-            model=self.settings.gemini_model,
+            model=model or self.settings.gemini_model,
             contents=prompt,
         )
         text = getattr(response, "text", "") or ""
@@ -44,7 +44,8 @@ class GeminiClient:
 
     def test_connection(self) -> dict[str, Any]:
         return self.generate_json(
-            'Return strict JSON only with this shape: {"ok": true, "provider": "vertex", "message": "connected"}.'
+            'Return strict JSON only with this shape: {"ok": true, "provider": "vertex", "message": "connected"}.',
+            model=self.settings.planner_model,
         )
 
 

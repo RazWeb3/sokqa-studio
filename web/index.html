@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sokqa Course Pack Agent</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --line: #d8dee8;
+        --text: #18202f;
+        --muted: #5f6c80;
+        --accent: #0f766e;
+        --accent-dark: #115e59;
+        --danger: #b42318;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      header {
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .wrap {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      header .wrap {
+        padding: 20px 0 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.45rem;
+      }
+
+      .subtitle {
+        margin: 6px 0 0;
+        color: var(--muted);
+      }
+
+      main {
+        padding: 24px 0 48px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+        gap: 18px;
+        align-items: start;
+      }
+
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 1.05rem;
+      }
+
+      label {
+        display: block;
+        margin: 12px 0;
+        font-weight: 650;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        margin-top: 6px;
+        border: 1px solid #c5cfdd;
+        border-radius: 6px;
+        padding: 10px 11px;
+        font: inherit;
+        background: white;
+        color: var(--text);
+      }
+
+      textarea {
+        min-height: 260px;
+        resize: vertical;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 0.86rem;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+
+      button,
+      a.button {
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        min-height: 42px;
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+      }
+
+      button.secondary,
+      a.button.secondary {
+        background: #334155;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+
+      .status {
+        min-height: 28px;
+        margin: 12px 0 0;
+        color: var(--muted);
+      }
+
+      .error {
+        color: var(--danger);
+      }
+
+      .output {
+        display: grid;
+        gap: 18px;
+      }
+
+      .manifest-link {
+        overflow-wrap: anywhere;
+      }
+
+      .logs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+      }
+
+      .logs li {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 5px 10px;
+        color: var(--muted);
+        background: #f8fafc;
+        font-size: 0.9rem;
+      }
+
+      @media (max-width: 860px) {
+        .grid,
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <h1>Sokqa Course Pack Agent</h1>
+        <p class="subtitle">構成案を確認してから、Sokqa用JSON群とmanifestを生成します。</p>
+      </div>
+    </header>
+
+    <main class="wrap grid">
+      <section>
+        <h2>入力</h2>
+        <label>
+          テーマ
+          <input id="theme" value="ITパスポート試験対策" maxlength="160" />
+        </label>
+        <label>
+          対象者
+          <input id="targetUser" value="IT初心者の社会人" maxlength="160" />
+        </label>
+        <div class="row">
+          <label>
+            規模
+            <select id="scale">
+              <option value="quick">Quick: 2 documents + 1 quiz</option>
+              <option value="standard">Standard: 10 documents + 3 quizzes</option>
+            </select>
+          </label>
+          <label>
+            難易度
+            <select id="difficulty">
+              <option value="beginner">beginner</option>
+              <option value="standard">standard</option>
+              <option value="advanced">advanced</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            言語
+            <input id="language" value="ja" maxlength="20" />
+          </label>
+          <label>
+            TTS補正
+            <select id="includeTts">
+              <option value="true">ON</option>
+              <option value="false">OFF</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button id="planBtn">構成案を作成</button>
+          <button id="generateBtn" class="secondary" disabled>生成する</button>
+        </div>
+        <p id="status" class="status"></p>
+      </section>
+
+      <div class="output">
+        <section>
+          <h2>構成案</h2>
+          <textarea id="planJson" spellcheck="false" placeholder="構成案がここに表示されます。編集してから生成できます。"></textarea>
+        </section>
+
+        <section>
+          <h2>生成結果</h2>
+          <div id="result"></div>
+        </section>
+
+        <section>
+          <h2>TTS読み修正</h2>
+          <label>
+            追加ルール JSON
+            <textarea id="ttsRules" spellcheck="false" style="min-height: 140px;">[
+  { "source": "日本橋", "reading": "にほんばし", "note": "地名として読む場合" }
+]</textarea>
+          </label>
+          <div class="actions">
+            <button id="reviseBtn" class="secondary" disabled>TTSだけ再最適化</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $("status");
+      const planBtn = $("planBtn");
+      const generateBtn = $("generateBtn");
+      const planJson = $("planJson");
+      const result = $("result");
+      let currentJobId = "";
+
+      function setBusy(isBusy, message = "") {
+        planBtn.disabled = isBusy;
+        generateBtn.disabled = isBusy || !planJson.value.trim();
+        statusEl.textContent = message;
+        statusEl.classList.remove("error");
+      }
+
+      function setError(message) {
+        statusEl.textContent = message;
+        statusEl.classList.add("error");
+        planBtn.disabled = false;
+        generateBtn.disabled = !planJson.value.trim();
+      }
+
+      async function requestJson(url, payload) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+        }
+        return data;
+      }
+
+      planBtn.addEventListener("click", async () => {
+        try {
+          result.innerHTML = "";
+          setBusy(true, "Planning...");
+          const plan = await requestJson("/plan-pack", {
+            theme: $("theme").value,
+            targetUser: $("targetUser").value,
+            difficulty: $("difficulty").value,
+            scale: $("scale").value,
+            language: $("language").value,
+            includeTts: $("includeTts").value === "true"
+          });
+          planJson.value = JSON.stringify(plan, null, 2);
+          setBusy(false, "構成案を作成しました。必要なら編集してから生成してください。");
+        } catch (error) {
+          setError(error.message);
+        }
+      });
+
+      generateBtn.addEventListener("click", async () => {
+        try {
+          setBusy(true, "Generating...");
+          const plan = JSON.parse(planJson.value);
+          const generated = await requestJson("/generate-pack", {
+            plan,
+            outputMode: "manifest",
+            persist: true
+          });
+          const manifestUrl = generated.files.find((file) => file.kind === "manifest")?.url;
+          result.innerHTML = `
+            <p><strong>Status:</strong> ${generated.status}</p>
+            <p><strong>Validation:</strong> ${generated.validation.valid ? "valid" : "invalid"}</p>
+            <p><strong>Files:</strong> ${generated.files.length}</p>
+            <p class="manifest-link"><strong>Manifest:</strong> ${
+              manifestUrl ? `<a href="${manifestUrl}" target="_blank" rel="noreferrer">${manifestUrl}</a>` : "not persisted"
+            }</p>
+            <div class="actions">
+              <a class="button" href="/jobs/${generated.jobId}/manifest" target="_blank" rel="noreferrer">manifestを見る</a>
+              <a class="button secondary" href="/jobs/${generated.jobId}" target="_blank" rel="noreferrer">job JSONを見る</a>
+            </div>
+            <h3>Logs</h3>
+            <ul class="logs">${generated.logs.map((log) => `<li>${log}</li>`).join("")}</ul>
+          `;
+          currentJobId = generated.jobId;
+          $("reviseBtn").disabled = false;
+          setBusy(false, "生成が完了しました。");
+        } catch (error) {
+          setError(error.message);
+        }
+      });
+
+      $("reviseBtn").addEventListener("click", async () => {
+        if (!currentJobId) return;
+        try {
+          setBusy(true, "Revising TTS...");
+          const revised = await requestJson("/debug/revise-tts", {
+            jobId: currentJobId,
+            ttsRules: JSON.parse($("ttsRules").value),
+            persist: true
+          });
+          result.insertAdjacentHTML("beforeend", `
+            <p><strong>Revised version:</strong> ${revised.manifest.version}</p>
+            <p><strong>Revision validation:</strong> ${revised.validation.valid ? "valid" : "invalid"}</p>
+          `);
+          setBusy(false, "TTSだけ再最適化しました。");
+          $("reviseBtn").disabled = false;
+        } catch (error) {
+          setError(error.message);
+        }
+      });
+
+      planJson.addEventListener("input", () => {
+        generateBtn.disabled = !planJson.value.trim();
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+import json
+import re
+from typing import Any
+
+from app.config import get_settings
+
+
+class GeminiClient:
+    """Small Gemini JSON adapter.
+
+    The generation services still use deterministic mock content by default.
+    This adapter keeps the boundary ready for replacing each generator step
+    with Vertex/Gemini JSON prompts without changing route contracts.
+    """
+
+    def __init__(self) -> None:
+        self.settings = get_settings()
+
+    def generate_json(self, prompt: str) -> dict[str, Any]:
+        if self.settings.gemini_provider == "mock":
+            raise RuntimeError("GEMINI_PROVIDER=mock; use deterministic local generators.")
+
+        try:
+            from google import genai
+        except ImportError as exc:
+            raise RuntimeError("google-genai is not installed") from exc
+
+        client = genai.Client()
+        response = client.models.generate_content(
+            model=self.settings.gemini_model,
+            contents=prompt,
+        )
+        text = getattr(response, "text", "") or ""
+        return parse_json_response(text)
+
+
+def parse_json_response(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
+    return json.loads(cleaned)

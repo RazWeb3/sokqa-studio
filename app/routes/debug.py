@@ -1,0 +1,36 @@
+from fastapi import APIRouter
+
+from fastapi import HTTPException
+
+from app.schemas.request import OptimizeTtsRequest, RepairPackRequest, ReviseTtsRequest, ValidatePackRequest
+from app.schemas.sokqa import GeneratePackResponse, GeneratedFile, ValidationResult
+from app.services.pack_agent import revise_tts
+from app.services.repairer import repair_files
+from app.services.tts_optimizer import optimize_generated_files
+from app.services.validator import validate_files
+
+
+router = APIRouter(prefix="/debug", tags=["debug"])
+
+
+@router.post("/validate-pack", response_model=ValidationResult)
+def validate_pack(request: ValidatePackRequest) -> ValidationResult:
+    return validate_files(request.files, request.manifest)
+
+
+@router.post("/repair-pack", response_model=list[GeneratedFile])
+def repair_pack(request: RepairPackRequest) -> list[GeneratedFile]:
+    return repair_files(request.files)
+
+
+@router.post("/optimize-tts", response_model=list[GeneratedFile])
+def optimize_tts(request: OptimizeTtsRequest) -> list[GeneratedFile]:
+    return optimize_generated_files(request.files, request.ttsRules)
+
+
+@router.post("/revise-tts", response_model=GeneratePackResponse)
+def revise_job_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
+    try:
+        return revise_tts(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

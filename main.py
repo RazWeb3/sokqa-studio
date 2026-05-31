@@ -1,0 +1,30 @@
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.routes import debug, generate, health, jobs, plan
+
+
+app = FastAPI(
+    title="Sokqa Course Pack Agent",
+    version="0.1.0",
+    description="Generate, validate, repair, optimize, store, and manifest Sokqa course packs.",
+)
+
+app.include_router(health.router)
+app.include_router(plan.router)
+app.include_router(generate.router)
+app.include_router(jobs.router)
+app.include_router(debug.router)
+
+BASE_DIR = Path(__file__).resolve().parent
+generated_dir = BASE_DIR / "generated"
+generated_dir.mkdir(exist_ok=True)
+app.mount("/generated", StaticFiles(directory=generated_dir), name="generated")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    return FileResponse(BASE_DIR / "web" / "index.html")

@@ -100,6 +100,13 @@ def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizP
             answer_index = 0
         fixed["answerIndex"] = min(3, max(0, answer_index))
         fixed["explanation"] = fixed.get("explanation") or "生成済みドキュメント本文に基づく解説です。"
+        tts = fixed.get("tts")
+        if isinstance(tts, str):
+            fixed["tts"] = {"questionText": tts}
+        elif tts is None:
+            fixed["tts"] = {"questionText": fixed["question"]}
+        elif not isinstance(tts, dict):
+            fixed["tts"] = {"questionText": fixed["question"]}
         fixed_questions.append(fixed)
 
     normalized["questions"] = fixed_questions

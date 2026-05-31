@@ -69,6 +69,13 @@ def normalize_document_content(content: dict, plan: CoursePlan, document: PlanDo
         fixed = dict(item)
         fixed["id"] = fixed.get("id") or f"{document.id}_sec_{index:02d}"
         fixed["text"] = text
+        tts = fixed.get("tts")
+        if isinstance(tts, str):
+            fixed["tts"] = {"text": tts}
+        elif tts is None:
+            fixed["tts"] = {"text": text}
+        elif not isinstance(tts, dict):
+            fixed["tts"] = {"text": text}
         fixed.pop("body", None)
         fixed.pop("content", None)
         fixed_documents.append(fixed)

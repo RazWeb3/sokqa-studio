@@ -9,6 +9,7 @@ from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
 from app.services.storage_client import StorageClient
+from app.services.storage_status import pop_storage_events
 from app.services.tts_optimizer import optimize_generated_files
 from app.services.validator import validate_files
 from app.services.versioning import bump_patch
@@ -48,6 +49,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     if request.persist:
         logs.append("Persisting generated files")
         files = StorageClient().save_files(plan.id, files)
+        logs.extend(event.message for event in pop_storage_events())
     else:
         base_url = get_settings().public_base_url.rstrip("/")
         for file in files:
@@ -56,12 +58,13 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs.append("Exporting Manifest")
     manifest = build_manifest(plan, files)
     manifest_file = GeneratedFile(
-        name="pack_manifest.json",
+        name="manifest.json",
         kind="manifest",
         content=manifest.model_dump(exclude_none=True),
     )
     if request.persist:
         manifest_file = StorageClient().save_files(plan.id, [manifest_file])[0]
+        logs.extend(event.message for event in pop_storage_events())
         manifest.items = [
             item.model_copy(update={"url": file.url or item.url})
             for item, file in zip(manifest.items, [f for f in files if f.kind in {"document", "quiz"}])
@@ -104,6 +107,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     if request.persist:
         logs.append("Uploading to Cloud Storage")
         optimized_files = StorageClient().save_files(plan.id, optimized_files)
+        logs.extend(event.message for event in pop_storage_events())
     else:
         base_url = get_settings().public_base_url.rstrip("/")
         for file in optimized_files:
@@ -112,12 +116,13 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     logs.append("Exporting Manifest")
     manifest = build_manifest(plan, optimized_files)
     manifest_file = GeneratedFile(
-        name="pack_manifest.json",
+        name="manifest.json",
         kind="manifest",
         content=manifest.model_dump(exclude_none=True),
     )
     if request.persist:
         manifest_file = StorageClient().save_files(plan.id, [manifest_file])[0]
+        logs.extend(event.message for event in pop_storage_events())
     optimized_files.append(manifest_file)
 
     validation = validate_files(optimized_files, manifest)

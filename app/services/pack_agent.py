@@ -3,6 +3,7 @@ from app.schemas.sokqa import GeneratePackResponse, GeneratedFile
 from app.config import get_settings
 from app.services.document_generator import generate_document_pack
 from app.services.exporter import build_generated_files, build_manifest
+from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
 from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
@@ -24,9 +25,11 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
 
     logs.append("Generating Documents")
     document_packs = [generate_document_pack(plan, document) for document in plan.documents]
+    logs.extend(event.message for event in pop_generation_events())
 
     logs.append("Generating Quizzes from Documents")
     quiz_packs = [generate_quiz_pack(plan, quiz_pack, document_packs) for quiz_pack in plan.quizPacks]
+    logs.extend(event.message for event in pop_generation_events())
 
     files = build_generated_files(document_packs, quiz_packs)
 
@@ -43,7 +46,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     validation = validate_files(files)
 
     if request.persist:
-        logs.append("Uploading to Cloud Storage")
+        logs.append("Persisting generated files")
         files = StorageClient().save_files(plan.id, files)
     else:
         base_url = get_settings().public_base_url.rstrip("/")

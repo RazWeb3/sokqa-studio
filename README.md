@@ -16,6 +16,7 @@ Sokqa Studioの前段となる、Sokqa学習パック生成AgentのMVPです。
   - `POST /debug/repair-pack`
   - `POST /debug/optimize-tts`
   - `POST /debug/revise-tts`
+  - `GET /debug/test-gemini`
 
 ## Run Locally
 
@@ -65,6 +66,9 @@ Set these when wiring real generation:
 ```env
 GEMINI_PROVIDER=gemini
 GEMINI_MODEL=gemini-2.5-flash
+GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+GOOGLE_CLOUD_LOCATION=global
+GOOGLE_GENAI_USE_VERTEXAI=true
 ```
 
 For local Google auth, use Application Default Credentials:
@@ -72,4 +76,16 @@ For local Google auth, use Application Default Credentials:
 ```bash
 gcloud auth application-default login
 gcloud config set project YOUR_PROJECT_ID
+```
+
+Then verify the connection:
+
+```bash
+curl http://127.0.0.1:8000/debug/test-gemini
+```
+
+Or run the direct client test:
+
+```bash
+python scripts/test_gemini_connection.py
 ```

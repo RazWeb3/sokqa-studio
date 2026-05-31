@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 from google.cloud import storage
@@ -19,16 +18,17 @@ class StorageClient:
 
     def _save_local(self, pack_id: str, files: list[GeneratedFile]) -> list[GeneratedFile]:
         base_dir = Path.cwd() / self.settings.local_storage_dir / pack_id
-        ensure_dir(base_dir)
+        storage_available = ensure_dir(base_dir)
         base_url = self.settings.public_base_url.rstrip("/")
         for file in files:
             path = base_dir / file.name
-            try:
-                path.write_text(json.dumps(file.content, ensure_ascii=False, indent=2), encoding="utf-8")
-            except OSError:
-                # Some sandboxed local runtimes can expose read-only Python file IO.
-                # Keep the generation flow usable; Cloud Run/GCS remains the intended persistence path.
-                pass
+            if storage_available:
+                try:
+                    path.write_text(json.dumps(file.content, ensure_ascii=False, indent=2), encoding="utf-8")
+                except OSError:
+                    # Some local runtimes can restrict Python file IO. Keep generation usable;
+                    # Cloud Run/GCS remains the intended persistence path for shared manifests.
+                    storage_available = False
             file.url = f"{base_url}/{pack_id}/{file.name}"
         return files
 
@@ -50,13 +50,9 @@ class StorageClient:
         return files
 
 
-def ensure_dir(path: Path) -> None:
-    current = Path(path.anchor) if path.is_absolute() else Path(".")
-    for part in path.parts[len(current.parts) if path.is_absolute() else 0 :]:
-        current = current / part
-        try:
-            current.mkdir(exist_ok=True)
-        except FileExistsError:
-            continue
-        except OSError:
-            os.makedirs(current, exist_ok=True)
+def ensure_dir(path: Path) -> bool:
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError:
+        return False

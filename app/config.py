@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "local"
     sokqa_author: str = "Sokqa Team"
@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     )
     gemini_provider: Literal["mock", "gemini"] = "mock"
     gemini_model: str = "gemini-2.5-flash"
+    google_cloud_project: str = ""
+    google_cloud_location: str = "global"
+    google_genai_use_vertexai: bool = False
 
     @property
     def allowed_domains(self) -> set[str]:

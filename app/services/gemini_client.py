@@ -25,13 +25,27 @@ class GeminiClient:
         except ImportError as exc:
             raise RuntimeError("google-genai is not installed") from exc
 
-        client = genai.Client()
+        if self.settings.google_genai_use_vertexai:
+            if not self.settings.google_cloud_project:
+                raise RuntimeError("GOOGLE_CLOUD_PROJECT is required for Vertex AI mode")
+            client = genai.Client(
+                vertexai=True,
+                project=self.settings.google_cloud_project,
+                location=self.settings.google_cloud_location,
+            )
+        else:
+            client = genai.Client()
         response = client.models.generate_content(
             model=self.settings.gemini_model,
             contents=prompt,
         )
         text = getattr(response, "text", "") or ""
         return parse_json_response(text)
+
+    def test_connection(self) -> dict[str, Any]:
+        return self.generate_json(
+            'Return strict JSON only with this shape: {"ok": true, "provider": "vertex", "message": "connected"}.'
+        )
 
 
 def parse_json_response(text: str) -> dict[str, Any]:

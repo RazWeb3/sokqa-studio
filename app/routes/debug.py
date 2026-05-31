@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from app.schemas.request import OptimizeTtsRequest, RepairPackRequest, ReviseTtsRequest, ValidatePackRequest
 from app.schemas.sokqa import GeneratePackResponse, GeneratedFile, ValidationResult
 from app.services.pack_agent import revise_tts
+from app.services.gemini_client import GeminiClient
 from app.services.repairer import repair_files
 from app.services.tts_optimizer import optimize_generated_files
 from app.services.validator import validate_files
@@ -34,3 +35,12 @@ def revise_job_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         return revise_tts(request)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/test-gemini")
+def test_gemini() -> dict:
+    try:
+        result = GeminiClient().test_connection()
+        return {"ok": True, "result": result}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

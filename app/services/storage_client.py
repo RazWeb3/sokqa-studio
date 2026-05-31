@@ -70,6 +70,12 @@ def ensure_dir(path: Path) -> bool:
         return True
     except OSError as exc:
         record_storage_event(f"local save skipped: mkdir failed for {path}: {exc}")
+        if os.name == "nt":
+            try:
+                ensure_dir_windows_fallback(path)
+                return True
+            except (OSError, subprocess.CalledProcessError) as fallback_exc:
+                record_storage_event(f"local save skipped: mkdir fallback failed for {path}: {fallback_exc}")
         return False
 
 
@@ -120,3 +126,19 @@ def write_json_file_windows_fallback(path: Path, content: dict) -> None:
     except (OSError, subprocess.CalledProcessError):
         command[0] = "powershell.exe"
         subprocess.run(command, input=payload, text=True, check=True, env=env)
+
+
+def ensure_dir_windows_fallback(path: Path) -> None:
+    command = [
+        "pwsh.exe",
+        "-NoProfile",
+        "-Command",
+        "New-Item -ItemType Directory -Force -Path $env:SOKQA_LOCAL_SAVE_DIR | Out-Null",
+    ]
+    env = os.environ.copy()
+    env["SOKQA_LOCAL_SAVE_DIR"] = str(path)
+    try:
+        subprocess.run(command, check=True, env=env)
+    except (OSError, subprocess.CalledProcessError):
+        command[0] = "powershell.exe"
+        subprocess.run(command, check=True, env=env)

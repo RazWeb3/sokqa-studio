@@ -90,7 +90,7 @@ def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizP
         fixed = dict(item)
         fixed["id"] = fixed.get("id") or f"q-{index}"
         fixed["question"] = fixed.get("question") or fixed.get("prompt") or f"{quiz_plan.title} {index}"
-        fixed["choices"] = list(fixed.get("choices") or [])
+        fixed["choices"] = [normalize_choice(choice) for choice in list(fixed.get("choices") or [])]
         while len(fixed["choices"]) < 4:
             fixed["choices"].append(f"補足選択肢{len(fixed['choices']) + 1}")
         fixed["choices"] = fixed["choices"][:4]
@@ -111,3 +111,11 @@ def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizP
 
     normalized["questions"] = fixed_questions
     return normalized
+
+
+def normalize_choice(choice) -> str:
+    if isinstance(choice, str):
+        return choice
+    if isinstance(choice, dict):
+        return str(choice.get("text") or choice.get("label") or choice.get("choice") or choice.get("value") or "")
+    return str(choice)

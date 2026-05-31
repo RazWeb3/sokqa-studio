@@ -115,6 +115,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
 
     logs.append("Exporting Manifest")
     manifest = build_manifest(plan, optimized_files)
+    manifest.version = plan.version
     manifest_file = GeneratedFile(
         name="manifest.json",
         kind="manifest",

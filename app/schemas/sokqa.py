@@ -126,8 +126,8 @@ class PackManifest(BaseModel):
     title: str
     description: str = ""
     language: str = "ja"
-    author: str = "Sokqa Team"
-    version: str = "1.0.0"
+    author: str | None = "Sokqa Team"
+    version: str | None = None
     globalTags: list[str] = Field(default_factory=list)
     items: list[ManifestItem]
 

@@ -232,9 +232,13 @@ Do not put generic numeric/counter/time/age replacements such as `1本`, `1時`,
 
 Replacement is applied after dictionary merging, with longer `source` strings applied first. This prevents shorter rules from breaking more specific rules, such as `git` before `git init` or `.git` before `.gitignore`.
 
-The system dictionary may include context-independent file and extension readings that are useful for technical learning packs, such as `.git`, `.gitignore`, `.gitattributes`, `.env`, `.json`, `.yaml`, and `.yml`. Casing remains significant: uppercase `JSON` is treated as the general term `ジェイソン`, while lowercase file extension `.json` is treated as `ドット ジェイソン`.
+The system dictionary may include context-independent file and extension readings that are useful for technical learning packs, such as `.git`, `.gitignore`, `.env`, and `.json`. Casing remains significant: uppercase `JSON` is treated as the general term `ジェイソン`, while lowercase file extension `.json` is treated as `ドット ジェイソン`.
 
 Acronym rules are device-dependent and should be kept only when real-device checks, using iPhone as the baseline, show unstable or incorrect readings.
+
+Japanese misreadings with a single correct reading, such as `設定値 -> せっていち`, belong in the system dictionary; context-dependent or preference-dependent readings, such as `20歳 -> にじゅっさい/はたち`, belong in the user dictionary.
+
+Device TTS improves over time, so rules that become unnecessary should be periodically rechecked on real devices and removed from the dictionary.
 
 TTS reading generation is controlled separately from whether TTS is enabled:
 

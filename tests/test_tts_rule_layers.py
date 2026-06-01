@@ -115,8 +115,14 @@ def test_replacement_prefers_longer_sources_for_dot_git_words() -> None:
 
 def test_system_dictionary_dot_words_and_extensions() -> None:
     rules = load_configured_tts_rules()
-    text = _speech_text(".git .env .gitignore .gitattributes config.json file.yaml file.yml", rules)
-    assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア ドット ギットアトリビューツ configドット ジェイソン fileドット ヤムル fileドット ワイエムエル、"
+    text = _speech_text(".git .env .gitignore config.json file.yaml file.yml", rules)
+    assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア configドット ジェイソン file.yaml file.yml、"
+
+
+def test_system_dictionary_japanese_fixed_reading() -> None:
+    rules = load_configured_tts_rules()
+    text = _speech_text("設定値を確認します", rules)
+    assert text == "せっていちを確認します、"
 
 
 def test_json_casing_rules_are_separate() -> None:

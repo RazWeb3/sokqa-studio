@@ -273,6 +273,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         difficulty=request.difficulty,
         author=settings.sokqa_author,
         enableTtsOptimize=request.includeTts and request.enableTtsOptimize,
+        ttsReadingMode=request.ttsReadingMode,
         model=request.model,
         docModel=request.docModel,
         quizModel=request.quizModel,

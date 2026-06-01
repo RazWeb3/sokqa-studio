@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.schemas.common import Difficulty, QuizPurpose, TtsRule
+from app.schemas.common import Difficulty, QuizPurpose, TtsReadingMode, TtsRule
 
 
 class PlanDocument(BaseModel):
@@ -32,6 +32,7 @@ class CoursePlan(BaseModel):
     author: str = "Sokqa Team"
     version: str = "1.0.0"
     enableTtsOptimize: bool = True
+    ttsReadingMode: TtsReadingMode | None = None
     model: str | None = None
     docModel: str | None = None
     quizModel: str | None = None
@@ -156,6 +157,22 @@ class ValidationResult(BaseModel):
     errors: list[ValidationErrorItem] = Field(default_factory=list)
 
 
+class TtsReportItem(BaseModel):
+    file: str
+    itemId: str
+    field: str
+    issueType: Literal["ascii_after_dot_reading", "raw_period", "duplicate_punctuation"]
+    snippet: str
+    recommendation: str
+    suggestedRuleSource: str | None = None
+
+
+class TtsReport(BaseModel):
+    mode: TtsReadingMode
+    issues: list[TtsReportItem] = Field(default_factory=list)
+    llmGeneratedIds: list[str] = Field(default_factory=list)
+
+
 class GeneratePackResponse(BaseModel):
     status: Literal["completed"]
     jobId: str
@@ -163,4 +180,5 @@ class GeneratePackResponse(BaseModel):
     files: list[GeneratedFile]
     manifest: PackManifest
     validation: ValidationResult
+    ttsReport: TtsReport | None = None
     logs: list[str] = Field(default_factory=list)

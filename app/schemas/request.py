@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import Difficulty, Scale, TtsRule
+from app.schemas.common import Difficulty, Scale, TtsReadingMode, TtsRule
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PackManifest
 
 
@@ -125,6 +125,7 @@ class PlanPackRequest(BaseModel):
     language: str = Field(default="ja", min_length=2, max_length=20)
     includeTts: bool = True
     enableTtsOptimize: bool = True
+    ttsReadingMode: TtsReadingMode | None = None
     model: str | None = Field(default=None, min_length=1, max_length=120)
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)
@@ -191,6 +192,7 @@ class GeneratePackRequest(BaseModel):
     plan: CoursePlan
     outputMode: Literal["manifest"] = "manifest"
     persist: bool = True
+    ttsReadingMode: TtsReadingMode | None = None
     model: str | None = Field(default=None, min_length=1, max_length=120)
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)

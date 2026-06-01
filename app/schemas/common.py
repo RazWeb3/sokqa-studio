@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 Scale = Literal["quick", "standard"]
 Difficulty = Literal["beginner", "standard", "advanced"]
 QuizPurpose = Literal["key_concepts", "application", "integrated_review", "custom"]
+TtsReadingMode = Literal["rule", "llm", "auto"]
 
 
 class TtsRule(BaseModel):

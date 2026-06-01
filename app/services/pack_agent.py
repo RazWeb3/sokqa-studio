@@ -11,7 +11,7 @@ from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
 from app.services.storage_client import StorageClient
 from app.services.storage_status import pop_storage_events
-from app.services.tts_optimizer import optimize_generated_files
+from app.services.tts_optimizer import optimize_generated_files, optimize_generated_files_with_report
 from app.services.validator import validate_files
 from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
@@ -56,11 +56,13 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         append_validation_logs(logs, validation)
 
     if plan.enableTtsOptimize:
-        logs.append("Optimizing TTS")
-        files = optimize_generated_files(files, plan.ttsRules)
+        tts_mode = request.ttsReadingMode or plan.ttsReadingMode
+        logs.append(f"Optimizing TTS ({tts_mode or get_settings().tts_reading_mode})")
+        files, tts_report = optimize_generated_files_with_report(files, plan.ttsRules, tts_mode)
         validation = validate_files(files)
         append_validation_logs(logs, validation)
     else:
+        tts_report = None
         logs.append("Skipping TTS optimization")
 
     if request.persist:
@@ -99,6 +101,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         files=files,
         manifest=manifest,
         validation=validation,
+        ttsReport=tts_report,
         logs=logs,
     )
     save_job(response)
@@ -119,7 +122,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         for file in existing.files
         if file.kind in {"document", "quiz"}
     ]
-    optimized_files = optimize_generated_files(content_files, plan.ttsRules)
+    optimized_files = optimize_generated_files(content_files, plan.ttsRules, plan.ttsReadingMode)
 
     logs = [*existing.logs, "Revising TTS", "Optimizing TTS"]
     if request.persist:
@@ -153,6 +156,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         files=optimized_files,
         manifest=manifest,
         validation=validation,
+        ttsReport=None,
         logs=logs,
     )
     update_job(revised)

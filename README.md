@@ -213,6 +213,7 @@ TTS reading rules are split into two configured dictionary files plus plan-speci
 ```env
 TTS_RULES_PATH=tts_rules.json
 TTS_USER_RULES_PATH=tts_user_rules.json
+TTS_READING_MODE=rule
 ```
 
 - System dictionary: `TTS_RULES_PATH`. Shared rules shipped with the repository, such as `Sokqa -> ソッカ` and `git init -> ギット イニット`. Keep only context-independent fixed readings here.
@@ -232,6 +233,21 @@ Do not put generic numeric/counter/time/age replacements such as `1本`, `1時`,
 Replacement is applied after dictionary merging, with longer `source` strings applied first. This prevents shorter rules from breaking more specific rules, such as `git` before `git init` or `.git` before `.gitignore`.
 
 The system dictionary may include context-independent file and extension readings that are useful for technical learning packs, such as `.git`, `.gitignore`, `.gitattributes`, `.env`, `.json`, `.yaml`, and `.yml`. Casing remains significant: uppercase `JSON` is treated as the general term `ジェイソン`, while lowercase file extension `.json` is treated as `ドット ジェイソン`.
+
+TTS reading generation is controlled separately from whether TTS is enabled:
+
+```text
+enableTtsOptimize=false -> no TTS fields are added
+enableTtsOptimize=true  -> use ttsReadingMode
+```
+
+`ttsReadingMode` can be set by `.env` as `TTS_READING_MODE` or per `/generate-pack` request. Supported modes:
+
+- `rule`: dictionary replacement only. This is fastest and cheapest, and never calls Gemini during TTS optimization.
+- `llm`: sends selected text to Gemini to produce reading-friendly `tts` text, then applies system/user/plan dictionary correction.
+- `auto`: starts with `rule`, runs a rule-based TTS report, and only sends problematic items such as `ドット ギットconfig` or raw `.` leftovers to Gemini.
+
+Gemini reading prompts treat a dot as `ドット` only for dot-prefixed ASCII words such as `.gitignore`. Sentence periods and Japanese full stops are normalized to `、`, and numeric dots such as `1.2` are not treated as file-name dots.
 
 ## Gemini Hook
 

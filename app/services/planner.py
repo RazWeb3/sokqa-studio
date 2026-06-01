@@ -2,7 +2,6 @@ import re
 from typing import Any
 
 from app.config import get_settings
-from app.schemas.common import TtsRule
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
@@ -14,24 +13,6 @@ DEFAULT_QUIZ_PACKS = [
     ("quiz_application", "実践理解チェック", "application"),
     ("quiz_integrated_review", "総合復習クイズ", "integrated_review"),
 ]
-
-COMMON_TTS_RULES = [
-    TtsRule(source="Sokqa", reading="ソッカ", note="Product name"),
-    TtsRule(source="AI", reading="エーアイ"),
-    TtsRule(source="IT", reading="アイティー"),
-    TtsRule(source="API", reading="エーピーアイ"),
-    TtsRule(source="UI", reading="ユーアイ"),
-    TtsRule(source="UX", reading="ユーエックス"),
-    TtsRule(source="DB", reading="データベース"),
-    TtsRule(source="SQL", reading="エスキューエル"),
-    TtsRule(source="JSON", reading="ジェイソン"),
-    TtsRule(source="CPU", reading="シーピーユー"),
-    TtsRule(source="1本", reading="いっぽん"),
-    TtsRule(source="1時", reading="いちじ"),
-    TtsRule(source="9時", reading="くじ"),
-    TtsRule(source="20歳", reading="はたち"),
-]
-
 
 def _document_count(request: PlanPackRequest) -> int:
     if request.documentCount:
@@ -281,8 +262,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     if validation_errors:
         raise ValueError("; ".join(validation_errors))
 
-    tts_rules = COMMON_TTS_RULES.copy() if request.includeTts else []
-    tts_rules.extend(request.userTtsRules)
+    tts_rules = request.userTtsRules if request.includeTts else []
 
     return CoursePlan(
         id=pack_id,

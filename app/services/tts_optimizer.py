@@ -11,7 +11,7 @@ from app.schemas.sokqa import (
 )
 from app.services.gemini_client import GeminiClient
 from app.services.tts_text import normalize_tts_text, strip_terminal_punctuation
-from app.services.tts_rules import load_configured_tts_rules
+from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
 
 def _speech_text(value: str, rules: list[TtsRule]) -> str:
@@ -22,8 +22,7 @@ def _speech_text(value: str, rules: list[TtsRule]) -> str:
 
 
 def _combined_rules(rules: list[TtsRule]) -> list[TtsRule]:
-    configured = load_configured_tts_rules()
-    return [*configured, *rules]
+    return merge_tts_rules(load_system_tts_rules(), load_user_tts_rules(), rules)
 
 
 def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
@@ -35,7 +34,7 @@ def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
 def _needs_tts_locally(text: str, rules: list[TtsRule]) -> bool:
     if _has_rule_match(text, rules):
         return True
-    risky_markers = ["API", "AI", "UI", "UX", "SQL", "JSON", "CPU", "PC", "URL", "1時", "9時", "20歳"]
+    risky_markers = ["API", "AI", "UI", "UX", "SQL", "JSON", "CPU", "PC", "URL"]
     if any(marker in text for marker in risky_markers):
         return True
     if re.search(r"`[^`]+`", text):

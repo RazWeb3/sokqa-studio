@@ -206,6 +206,29 @@ PUBLIC_BASE_URL=https://cdn.convly.jp/sokqa/packs
 
 The app should only import manifest URLs from Sokqa-managed domains.
 
+## TTS Dictionaries
+
+TTS reading rules are split into two configured dictionary files plus plan-specific rules.
+
+```env
+TTS_RULES_PATH=tts_rules.json
+TTS_USER_RULES_PATH=tts_user_rules.json
+```
+
+- System dictionary: `TTS_RULES_PATH`. Shared rules shipped with the repository, such as `Sokqa -> ソッカ` and `git init -> ギット イニット`. Keep only context-independent fixed readings here.
+- User dictionary: `TTS_USER_RULES_PATH`. Local/user-maintained rules for device differences, private terms, project-specific readings, context-dependent readings, or preference-dependent readings.
+- Plan rules: `plan.ttsRules`, usually from the request or later TTS revision flow.
+
+Rules are merged in this order, with later sources overriding earlier ones:
+
+```text
+system dictionary -> user dictionary -> plan.ttsRules
+```
+
+If either dictionary file is missing or empty, it is treated as an empty dictionary and generation continues.
+
+Do not put generic numeric/counter/time/age replacements such as `1本`, `1時`, `9時`, or `20歳` in the system dictionary. Those readings depend on context and should be left to the device TTS engine unless a user adds a narrow user dictionary rule for their own pack.
+
 ## Gemini Hook
 
 The MVP uses deterministic mock generators by default. When `GEMINI_PROVIDER=gemini`,

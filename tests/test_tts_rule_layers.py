@@ -1,0 +1,95 @@
+from app.config import get_settings
+from app.schemas.common import TtsRule
+from app.schemas.request import GeneratePackRequest, PlanPackRequest
+from app.services.pack_agent import generate_pack, plan_pack
+from app.services.tts_optimizer import _combined_rules, _speech_text
+from app.services.tts_rules import load_configured_tts_rules
+
+
+def test_system_rules_apply_when_user_rules_missing(tmp_path, monkeypatch) -> None:
+    system_rules = tmp_path / "tts_rules.json"
+    missing_user_rules = tmp_path / "missing_user_rules.json"
+    system_rules.write_text('{"git init": "ギット イニット"}', encoding="utf-8")
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", str(system_rules))
+    monkeypatch.setattr(settings, "tts_user_rules_path", str(missing_user_rules))
+
+    rules = load_configured_tts_rules()
+    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します、"
+
+
+def test_user_rules_override_system_rules(tmp_path, monkeypatch) -> None:
+    system_rules = tmp_path / "tts_rules.json"
+    user_rules = tmp_path / "tts_user_rules.json"
+    system_rules.write_text('{"git init": "ギット イニット"}', encoding="utf-8")
+    user_rules.write_text('{"git init": "ジット イニット"}', encoding="utf-8")
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", str(system_rules))
+    monkeypatch.setattr(settings, "tts_user_rules_path", str(user_rules))
+
+    rules = load_configured_tts_rules()
+    assert _speech_text("git init を実行します", rules) == "ジット イニット を実行します、"
+
+
+def test_empty_user_rules_keep_system_rules(tmp_path, monkeypatch) -> None:
+    system_rules = tmp_path / "tts_rules.json"
+    user_rules = tmp_path / "tts_user_rules.json"
+    system_rules.write_text('{"git init": "ギット イニット"}', encoding="utf-8")
+    user_rules.write_text("", encoding="utf-8")
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", str(system_rules))
+    monkeypatch.setattr(settings, "tts_user_rules_path", str(user_rules))
+
+    rules = load_configured_tts_rules()
+    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します、"
+
+
+def test_plan_rules_override_user_and_system_rules(tmp_path, monkeypatch) -> None:
+    system_rules = tmp_path / "tts_rules.json"
+    user_rules = tmp_path / "tts_user_rules.json"
+    system_rules.write_text('{"git init": "ギット イニット"}', encoding="utf-8")
+    user_rules.write_text('{"git init": "ジット イニット"}', encoding="utf-8")
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", str(system_rules))
+    monkeypatch.setattr(settings, "tts_user_rules_path", str(user_rules))
+
+    rules = _combined_rules([TtsRule(source="git init", reading="ジーアイティー イニット")])
+    assert _speech_text("git init を実行します", rules) == "ジーアイティー イニット を実行します、"
+
+
+def test_enable_tts_optimize_false_keeps_tts_absent() -> None:
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="git init 基礎講座",
+            targetUser="Gitを初めて使う開発者",
+            scale="quick",
+            includeTts=True,
+            enableTtsOptimize=False,
+        )
+    )
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    for file in generated.files:
+        if file.kind == "document":
+            assert all("tts" not in item for item in file.content["documents"])
+        if file.kind == "quiz":
+            assert all("tts" not in item for item in file.content["questions"])
+
+
+def test_system_dictionary_does_not_include_context_dependent_number_rules(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", "tts_rules.json")
+    monkeypatch.setattr(settings, "tts_user_rules_path", "")
+
+    rules = load_configured_tts_rules()
+    sources = {rule.source for rule in rules}
+    assert {"1本", "1時", "9時", "20歳"}.isdisjoint(sources)
+
+    text = _speech_text("1本の資料を1時に確認し、9時に20歳の例を見ます。", rules)
+    assert "1本" in text
+    assert "1時" in text
+    assert "9時" in text
+    assert "20歳" in text

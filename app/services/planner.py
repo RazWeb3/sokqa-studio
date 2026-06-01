@@ -266,8 +266,8 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
 
     return CoursePlan(
         id=pack_id,
-        title=f"{request.theme} 学習パック",
-        description=f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。",
+        title=title,
+        description=description,
         language=request.language,
         targetUser=request.targetUser,
         difficulty=request.difficulty,

@@ -18,11 +18,7 @@ Rules:
 - Do not output tags in document items.
 - Each text must be real explanatory learning content, not just a title or label.
 - Each text should be 2 to 4 Japanese sentences for listening study.
-- Each tts must be an object like {{"text": "..."}}.
-- In tts.text, use Japanese comma "、" as the main pause punctuation.
-- For this Japanese pack, do not use inline language tags such as [ja-JP] or [en-US].
 - Do not copy existing learning materials verbatim.
-- Add tts only when it improves speech.
 
 Course:
 - title: {plan.title}
@@ -80,12 +76,9 @@ Rules:
 - Each question must be a meaningful question sentence based on the source documents. Do not use serial labels such as "{quiz_pack.title} 1".
 - Each choices array must contain 4 meaningful strings, not objects.
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
-- Each tts must be an object with questionText, choicesText, answerText, and explanationText.
-- choicesText format must be "1番、...、2番、...、3番、...、4番、...".
-- answerText format must be "正解は{{n}}番、{{correct choice}}".
+- Do not output tts in the first quiz generation step.
 - Every question must be grounded in the source documents.
 - Do not copy existing exam questions verbatim.
-- Add tts only when it improves speech.
 
 Course:
 - title: {plan.title}
@@ -116,13 +109,7 @@ Required JSON shape:
       "question": "Meaningful question based on source documents.",
       "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
       "answerIndex": 0,
-      "explanation": "Specific explanation grounded in source documents.",
-      "tts": {{
-        "questionText": "question for speech",
-        "choicesText": "1番、choice 1、2番、choice 2、3番、choice 3、4番、choice 4",
-        "answerText": "正解は1番、choice 1",
-        "explanationText": "specific explanation for speech"
-      }}
+      "explanation": "Specific explanation grounded in source documents."
     }}
   ]
 }}

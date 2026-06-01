@@ -3,7 +3,6 @@ from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
 from app.services.prompts import quiz_generation_prompt
-from app.services.tts_text import normalize_tts_text, strip_terminal_punctuation
 
 
 def _source_snippets(document_packs: list[SokqaDocumentPack]) -> list[str]:
@@ -106,15 +105,8 @@ def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizP
             answer_index = 0
         fixed["answerIndex"] = min(3, max(0, answer_index))
         fixed["explanation"] = fixed.get("explanation") or "生成済みドキュメント本文に基づく解説です。"
-        tts = fixed.get("tts")
-        if isinstance(tts, str):
-            fixed["tts"] = complete_quiz_tts({"questionText": tts}, fixed)
-        elif tts is None:
-            fixed["tts"] = complete_quiz_tts({}, fixed)
-        elif isinstance(tts, dict):
-            fixed["tts"] = complete_quiz_tts(tts, fixed)
-        else:
-            fixed["tts"] = complete_quiz_tts({}, fixed)
+        fixed.pop("tts", None)
+        fixed.pop("tags", None)
         fixed_questions.append(fixed)
 
     normalized["questions"] = fixed_questions
@@ -128,18 +120,3 @@ def normalize_choice(choice) -> str:
         return str(choice.get("text") or choice.get("label") or choice.get("choice") or choice.get("value") or "")
     return str(choice)
 
-
-def complete_quiz_tts(tts: dict, question: dict) -> dict:
-    choices = question["choices"]
-    answer_index = question["answerIndex"]
-    choices_text = "".join(
-        f"{index + 1}番、{strip_terminal_punctuation(choice)}、"
-        for index, choice in enumerate(choices)
-    )
-    answer_text = f"正解は{answer_index + 1}番、{strip_terminal_punctuation(choices[answer_index])}"
-    return {
-        "questionText": normalize_tts_text(str(tts.get("questionText") or question["question"])),
-        "choicesText": normalize_tts_text(str(tts.get("choicesText") or choices_text)),
-        "answerText": normalize_tts_text(str(tts.get("answerText") or answer_text)),
-        "explanationText": normalize_tts_text(str(tts.get("explanationText") or question["explanation"])),
-    }

@@ -1,5 +1,6 @@
 import re
 
+from app.config import get_settings
 from app.schemas.common import TtsRule
 from app.schemas.sokqa import (
     DocumentTts,
@@ -8,6 +9,7 @@ from app.schemas.sokqa import (
     SokqaDocumentPack,
     SokqaQuizPack,
 )
+from app.services.gemini_client import GeminiClient
 from app.services.tts_text import normalize_tts_text, strip_terminal_punctuation
 from app.services.tts_rules import load_configured_tts_rules
 
@@ -24,8 +26,14 @@ def _combined_rules(rules: list[TtsRule]) -> list[TtsRule]:
     return [*configured, *rules]
 
 
-def _needs_document_tts(text: str, rules: list[TtsRule]) -> bool:
+def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
     if any(rule.source in text for rule in rules):
+        return True
+    return False
+
+
+def _needs_tts_locally(text: str, rules: list[TtsRule]) -> bool:
+    if _has_rule_match(text, rules):
         return True
     risky_markers = ["API", "AI", "UI", "UX", "SQL", "JSON", "CPU", "PC", "URL", "1時", "9時", "20歳"]
     if any(marker in text for marker in risky_markers):
@@ -37,13 +45,68 @@ def _needs_document_tts(text: str, rules: list[TtsRule]) -> bool:
     return False
 
 
+def _tts_decision_prompt(kind: str, entries: list[tuple[str, str]], rules: list[TtsRule]) -> str:
+    rules_text = "\n".join(f"- {rule.source} -> {rule.reading}" for rule in rules) or "- none"
+    entries_text = "\n".join(f"- id: {entry_id}\n  text: {text}" for entry_id, text in entries)
+    return f"""
+Return strict JSON only. Do not use markdown fences.
+
+Decide which Sokqa {kind} items should receive optional TTS override fields.
+
+Use TTS only when it materially improves speech quality, such as:
+- difficult or ambiguous readings
+- technical terms, acronyms, commands, product names, English words
+- numbers or counters with context-dependent readings
+- text that is likely to be mispronounced on mobile TTS engines
+
+Do not select every item by default. Select only useful items.
+If a configured rule source appears in an item, include that item because rules must be applied.
+
+Configured pronunciation rules:
+{rules_text}
+
+Items:
+{entries_text}
+
+Return this shape:
+{{
+  "ids": ["item-id-that-needs-tts"]
+}}
+""".strip()
+
+
+def _gemini_tts_ids(kind: str, entries: list[tuple[str, str]], rules: list[TtsRule]) -> set[str]:
+    if not entries or get_settings().gemini_provider != "gemini":
+        return set()
+    data = GeminiClient().generate_json(_tts_decision_prompt(kind, entries, rules))
+    ids = data.get("ids", [])
+    if not isinstance(ids, list):
+        return set()
+    valid_ids = {entry_id for entry_id, _ in entries}
+    return {str(item) for item in ids if str(item) in valid_ids}
+
+
+def _select_tts_ids(kind: str, entries: list[tuple[str, str]], rules: list[TtsRule]) -> set[str]:
+    forced_by_rules = {entry_id for entry_id, text in entries if _has_rule_match(text, rules)}
+    try:
+        selected = _gemini_tts_ids(kind, entries, rules)
+    except Exception:
+        selected = {entry_id for entry_id, text in entries if _needs_tts_locally(text, rules)}
+    return selected | forced_by_rules
+
+
 def optimize_document_pack(pack: SokqaDocumentPack, rules: list[TtsRule]) -> SokqaDocumentPack:
     rules = _combined_rules(rules)
-    if not rules and not any(_needs_document_tts(item.text, []) for item in pack.documents):
+    entries = [(item.id, item.text) for item in pack.documents]
+    selected_ids = _select_tts_ids("document", entries, rules)
+    if not selected_ids:
+        for item in pack.documents:
+            item.tags = None
+            item.tts = None
         return pack
     for item in pack.documents:
         item.tags = None
-        if _needs_document_tts(item.text, rules):
+        if item.id in selected_ids:
             speech = _speech_text(item.text, rules)
             item.tts = DocumentTts(text=speech)
         else:
@@ -53,26 +116,32 @@ def optimize_document_pack(pack: SokqaDocumentPack, rules: list[TtsRule]) -> Sok
 
 def optimize_quiz_pack(pack: SokqaQuizPack, rules: list[TtsRule]) -> SokqaQuizPack:
     rules = _combined_rules(rules)
+    entries = [
+        (
+            question.id,
+            " ".join([question.question, *question.choices, question.explanation]),
+        )
+        for question in pack.questions
+    ]
+    selected_ids = _select_tts_ids("quiz question", entries, rules)
     for question in pack.questions:
         question.tags = None
-        question_text = _speech_text(question.question, rules)
-        explanation_text = _speech_text(question.explanation, rules)
-        choices_text = "".join(
-            f"{index + 1}番、{strip_terminal_punctuation(_speech_text(choice, rules))}、"
-            for index, choice in enumerate(question.choices)
-        )
-        answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(_speech_text(question.choices[question.answerIndex], rules))}"
-        if (
-            question_text != question.question
-            or explanation_text != question.explanation
-            or any(_speech_text(choice, rules) != choice for choice in question.choices)
-        ):
+        if question.id in selected_ids:
+            question_text = _speech_text(question.question, rules)
+            explanation_text = _speech_text(question.explanation, rules)
+            choices_text = "".join(
+                f"{index + 1}番、{strip_terminal_punctuation(_speech_text(choice, rules))}、"
+                for index, choice in enumerate(question.choices)
+            )
+            answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(_speech_text(question.choices[question.answerIndex], rules))}"
             question.tts = QuizTts(
                 questionText=question_text,
                 choicesText=normalize_tts_text(choices_text),
                 answerText=normalize_tts_text(answer_text),
                 explanationText=explanation_text,
             )
+        else:
+            question.tts = None
     return pack
 
 

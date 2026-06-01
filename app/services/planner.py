@@ -1,7 +1,11 @@
+import re
+from typing import Any
+
 from app.config import get_settings
 from app.schemas.common import TtsRule
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
+from app.services.gemini_client import GeminiClient
 from app.utils.ids import slugify
 
 
@@ -45,6 +49,74 @@ def _section_count(request: PlanPackRequest) -> int:
     return 6 if request.scale == "quick" else 10
 
 
+def _requested_document_count(request: PlanPackRequest) -> str:
+    if request.documentCount:
+        return (
+            f"{request.documentCount} chapters exactly. "
+            "You must return exactly this many documents."
+        )
+    return (
+        "Not specified. Propose an appropriate number of chapters for the theme, "
+        "target user, difficulty, and scale. Use 2-4 for quick scale and 6-12 for standard scale unless the topic clearly needs otherwise."
+    )
+
+
+def _requested_section_count(request: PlanPackRequest) -> str:
+    if request.sectionsPerDocument:
+        return (
+            f"{request.sectionsPerDocument} sections per document exactly. "
+            "Every document.targetSectionCount must use this number."
+        )
+    return (
+        "Not specified. Propose a suitable targetSectionCount for each chapter. "
+        "Use 4-8 for quick scale and 8-15 for standard scale unless the chapter needs otherwise."
+    )
+
+
+def _planner_prompt(request: PlanPackRequest) -> str:
+    return f"""
+Return strict JSON only. Do not use markdown fences.
+
+Design a Sokqa CoursePlan outline for a learning pack.
+The user will review and edit this outline before generation, so focus on a concrete, useful chapter plan.
+
+Input:
+- theme: {request.theme}
+- targetUser: {request.targetUser}
+- difficulty: {request.difficulty}
+- scale: {request.scale}
+- language: {request.language}
+- requested documentCount: {_requested_document_count(request)}
+- requested sectionsPerDocument: {_requested_section_count(request)}
+
+Rules:
+- The documents array is the most important output.
+- Chapter titles must describe the actual topic content. Do not return generic titles such as "第1章" or "{request.theme} 第1章".
+- The document order must be a natural learning path from basics to application/review.
+- Each document must have a unique, theme-specific title.
+- Each document.goal must describe what the learner will understand in that specific chapter.
+- Each document.keyPoints must be specific to that chapter. Do not reuse the same keyPoints across chapters.
+- If documentCount was specified, return exactly that many documents.
+- If sectionsPerDocument was specified, every targetSectionCount must exactly match it.
+- keyPoints should contain 3 to 6 concise items.
+- targetSectionCount must be an integer from 1 to 120.
+
+Return this JSON shape:
+{{
+  "title": "pack title",
+  "description": "short description, including why this chapter count fits if documentCount was not specified",
+  "documents": [
+    {{
+      "title": "specific chapter title",
+      "goal": "chapter-specific learning goal",
+      "keyPoints": ["specific point 1", "specific point 2", "specific point 3"],
+      "targetSectionCount": 8
+    }}
+  ]
+}}
+""".strip()
+
+
 def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list[PlanQuizPack]:
     if request.quizPacks:
         return [
@@ -73,26 +145,141 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
     ]
 
 
-def create_course_plan(request: PlanPackRequest) -> CoursePlan:
-    settings = get_settings()
-    pack_id = slugify(request.theme, "sokqa_pack")
+def _fallback_documents(request: PlanPackRequest) -> list[PlanDocument]:
     count = _document_count(request)
+    section_count = _section_count(request)
     documents = []
     for index in range(1, count + 1):
         doc_id = f"doc_{index:02d}"
         documents.append(
             PlanDocument(
                 id=doc_id,
-                title=f"{request.theme} 第{index}章",
-                goal=f"{request.targetUser}が{request.theme}の重要ポイント{index}を聞き流しで理解する",
+                title=f"{request.theme}の重要領域 {index}",
+                goal=f"{request.targetUser}が{request.theme}の領域{index}で扱う基本事項と実践上の注意点を理解する",
                 keyPoints=[
-                    f"{request.theme}の基本概念",
-                    "重要用語",
-                    "実務や試験での使われ方",
+                    f"{request.theme}の領域{index}で最初に押さえる用語",
+                    f"領域{index}で起こりやすい誤解",
+                    f"{request.targetUser}が実務や学習で使う場面",
                 ],
-                targetSectionCount=_section_count(request),
+                targetSectionCount=section_count,
             )
         )
+    return documents
+
+
+def _normalize_key_points(value: Any, theme: str, index: int) -> list[str]:
+    if not isinstance(value, list):
+        return [
+            f"{theme}の基本事項",
+            "重要用語",
+            "実践での使い方",
+        ]
+    points = [str(item).strip() for item in value if str(item).strip()]
+    if len(points) < 3:
+        points.extend([f"{theme}の重要ポイント{index}", "関連用語", "確認すべき注意点"])
+    return points[:6]
+
+
+def _sanitize_section_count(value: Any, request: PlanPackRequest) -> int:
+    if request.sectionsPerDocument:
+        return request.sectionsPerDocument
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = _section_count(request)
+    return max(1, min(120, count))
+
+
+def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[PlanDocument]:
+    raw_documents = data.get("documents")
+    if not isinstance(raw_documents, list):
+        return []
+
+    if request.documentCount:
+        raw_documents = raw_documents[: request.documentCount]
+
+    documents = []
+    for index, raw in enumerate(raw_documents, start=1):
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or "").strip()
+        goal = str(raw.get("goal") or "").strip()
+        if not title or not goal:
+            continue
+        documents.append(
+            PlanDocument(
+                id=f"doc_{index:02d}",
+                title=title,
+                goal=goal,
+                keyPoints=_normalize_key_points(raw.get("keyPoints"), request.theme, index),
+                targetSectionCount=_sanitize_section_count(raw.get("targetSectionCount"), request),
+            )
+        )
+    return documents
+
+
+def _key_points_signature(document: PlanDocument) -> tuple[str, ...]:
+    return tuple(point.strip().lower() for point in document.keyPoints)
+
+
+def _is_generic_title(title: str, theme: str) -> bool:
+    compact = re.sub(r"\s+", "", title)
+    theme_compact = re.sub(r"\s+", "", theme)
+    generic_patterns = [
+        r"^第\d+章$",
+        r"^第[一二三四五六七八九十]+章$",
+        rf"^{re.escape(theme_compact)}第\d+章$",
+        rf"^{re.escape(theme_compact)}第[一二三四五六七八九十]+章$",
+    ]
+    return any(re.match(pattern, compact) for pattern in generic_patterns)
+
+
+def _validate_planned_documents(documents: list[PlanDocument], request: PlanPackRequest) -> list[str]:
+    errors = []
+    if not documents:
+        errors.append("documents must not be empty")
+    if request.documentCount and len(documents) != request.documentCount:
+        errors.append(f"documents must contain exactly {request.documentCount} items")
+    if documents:
+        signatures = {_key_points_signature(document) for document in documents}
+        if len(documents) > 1 and len(signatures) == 1:
+            errors.append("keyPoints must not be identical across all documents")
+        for document in documents:
+            if _is_generic_title(document.title, request.theme):
+                errors.append(f"document title is too generic: {document.title}")
+    return errors
+
+
+def _gemini_documents(request: PlanPackRequest, model: str | None) -> tuple[str | None, str | None, list[PlanDocument]]:
+    data = GeminiClient().generate_json(_planner_prompt(request), model=model)
+    title = str(data.get("title") or "").strip() or None
+    description = str(data.get("description") or "").strip() or None
+    documents = _documents_from_planner_response(data, request)
+    errors = _validate_planned_documents(documents, request)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return title, description, documents
+
+
+def create_course_plan(request: PlanPackRequest, model: str | None = None) -> CoursePlan:
+    settings = get_settings()
+    pack_id = slugify(request.theme, "sokqa_pack")
+    title = f"{request.theme} 学習パック"
+    description = f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。"
+
+    if settings.gemini_provider == "gemini":
+        try:
+            planned_title, planned_description, documents = _gemini_documents(request, model)
+            title = planned_title or title
+            description = planned_description or description
+        except Exception:
+            documents = _fallback_documents(request)
+    else:
+        documents = _fallback_documents(request)
+
+    validation_errors = _validate_planned_documents(documents, request)
+    if validation_errors:
+        raise ValueError("; ".join(validation_errors))
 
     tts_rules = COMMON_TTS_RULES.copy() if request.includeTts else []
     tts_rules.extend(request.userTtsRules)

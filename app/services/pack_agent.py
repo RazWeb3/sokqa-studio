@@ -18,8 +18,8 @@ from app.utils.ids import new_job_id
 
 
 def plan_pack(request: PlanPackRequest):
-    plan = create_course_plan(request)
-    models = resolve_task_models(plan, request)
+    models = resolve_task_models(request=request)
+    plan = create_course_plan(request, model=models.planner)
     plan.model = request.model
     plan.docModel = request.docModel or request.model
     plan.quizModel = request.quizModel or request.model

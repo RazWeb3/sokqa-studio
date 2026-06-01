@@ -135,8 +135,15 @@ def _gemini_tts_ids(kind: str, entries: list[tuple[str, str]], rules: list[TtsRu
     return {str(item) for item in ids if str(item) in valid_ids}
 
 
-def _select_tts_ids(kind: str, entries: list[tuple[str, str]], rules: list[TtsRule]) -> set[str]:
+def _select_tts_ids(
+    kind: str,
+    entries: list[tuple[str, str]],
+    rules: list[TtsRule],
+    allow_gemini: bool = True,
+) -> set[str]:
     forced_by_rules = {entry_id for entry_id, text in entries if _has_rule_match(text, rules)}
+    if not allow_gemini:
+        return forced_by_rules | {entry_id for entry_id, text in entries if _needs_tts_locally(text, rules)}
     try:
         selected = _gemini_tts_ids(kind, entries, rules)
     except Exception:
@@ -255,7 +262,11 @@ def optimize_document_pack(
     active_mode = _mode_or_default(mode)
     llm_ids = llm_ids if llm_ids is not None else []
     entries = [(item.id, item.text) for item in pack.documents]
-    selected_ids = {entry_id for entry_id, _ in entries} if active_mode == "llm" else _select_tts_ids("document", entries, rules)
+    selected_ids = (
+        {entry_id for entry_id, _ in entries}
+        if active_mode == "llm"
+        else _select_tts_ids("document", entries, rules, allow_gemini=False)
+    )
     if not selected_ids:
         for item in pack.documents:
             item.tags = None
@@ -287,7 +298,11 @@ def optimize_quiz_pack(
         )
         for question in pack.questions
     ]
-    selected_ids = {entry_id for entry_id, _ in entries} if active_mode == "llm" else _select_tts_ids("quiz question", entries, rules)
+    selected_ids = (
+        {entry_id for entry_id, _ in entries}
+        if active_mode == "llm"
+        else _select_tts_ids("quiz question", entries, rules, allow_gemini=False)
+    )
     for question in pack.questions:
         question.tags = None
         if question.id in selected_ids:

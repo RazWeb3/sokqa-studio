@@ -234,6 +234,8 @@ Replacement is applied after dictionary merging, with longer `source` strings ap
 
 The system dictionary may include context-independent file and extension readings that are useful for technical learning packs, such as `.git`, `.gitignore`, `.gitattributes`, `.env`, `.json`, `.yaml`, and `.yml`. Casing remains significant: uppercase `JSON` is treated as the general term `ジェイソン`, while lowercase file extension `.json` is treated as `ドット ジェイソン`.
 
+Acronym rules are device-dependent and should be kept only when real-device checks, using iPhone as the baseline, show unstable or incorrect readings.
+
 TTS reading generation is controlled separately from whether TTS is enabled:
 
 ```text

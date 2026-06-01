@@ -16,7 +16,7 @@ from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, m
 
 def _speech_text(value: str, rules: list[TtsRule]) -> str:
     result = value
-    for rule in rules:
+    for rule in sorted(rules, key=lambda item: len(item.source), reverse=True):
         result = result.replace(rule.source, rule.reading)
     return normalize_tts_text(result)
 

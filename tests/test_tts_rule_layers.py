@@ -93,3 +93,33 @@ def test_system_dictionary_does_not_include_context_dependent_number_rules(monke
     assert "1時" in text
     assert "9時" in text
     assert "20歳" in text
+
+
+def test_replacement_prefers_longer_sources_for_git_commands() -> None:
+    rules = [
+        TtsRule(source="git", reading="ギット"),
+        TtsRule(source="git init", reading="ギット イニット"),
+    ]
+    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します、"
+
+
+def test_replacement_prefers_longer_sources_for_dot_git_words() -> None:
+    rules = [
+        TtsRule(source=".git", reading="ドット ギット"),
+        TtsRule(source=".gitignore", reading="ドット ギットイグノア"),
+        TtsRule(source=".gitattributes", reading="ドット ギットアトリビューツ"),
+    ]
+    text = _speech_text(".gitignore と .gitattributes と .git を確認します", rules)
+    assert text == "ドット ギットイグノア と ドット ギットアトリビューツ と ドット ギット を確認します、"
+
+
+def test_system_dictionary_dot_words_and_extensions() -> None:
+    rules = load_configured_tts_rules()
+    text = _speech_text(".git .env .gitignore .gitattributes config.json file.yaml file.yml", rules)
+    assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア ドット ギットアトリビューツ configドット ジェイソン fileドット ヤムル fileドット ワイエムエル、"
+
+
+def test_json_casing_rules_are_separate() -> None:
+    rules = load_configured_tts_rules()
+    text = _speech_text("JSON と config.json と json を確認します", rules)
+    assert text == "ジェイソン と configドット ジェイソン と json を確認します、"

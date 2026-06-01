@@ -229,6 +229,10 @@ If either dictionary file is missing or empty, it is treated as an empty diction
 
 Do not put generic numeric/counter/time/age replacements such as `1本`, `1時`, `9時`, or `20歳` in the system dictionary. Those readings depend on context and should be left to the device TTS engine unless a user adds a narrow user dictionary rule for their own pack.
 
+Replacement is applied after dictionary merging, with longer `source` strings applied first. This prevents shorter rules from breaking more specific rules, such as `git` before `git init` or `.git` before `.gitignore`.
+
+The system dictionary may include context-independent file and extension readings that are useful for technical learning packs, such as `.git`, `.gitignore`, `.gitattributes`, `.env`, `.json`, `.yaml`, and `.yml`. Casing remains significant: uppercase `JSON` is treated as the general term `ジェイソン`, while lowercase file extension `.json` is treated as `ドット ジェイソン`.
+
 ## Gemini Hook
 
 The MVP uses deterministic mock generators by default. When `GEMINI_PROVIDER=gemini`,

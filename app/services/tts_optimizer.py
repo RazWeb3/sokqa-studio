@@ -16,6 +16,9 @@ from app.services.tts_text import normalize_tts_text, strip_terminal_punctuation
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
 
+MAX_TTS_BATCH_CHARS = 12000
+
+
 def _apply_rule_replacements(value: str, rules: list[TtsRule]) -> str:
     result = value
     for rule in sorted(rules, key=lambda item: len(item.source), reverse=True):
@@ -54,7 +57,7 @@ def _needs_tts_locally(text: str, rules: list[TtsRule]) -> bool:
 
 
 def _tts_reading_prompt(text: str, rules: list[TtsRule]) -> str:
-    rules_text = "\n".join(f"- {rule.source} -> {rule.reading}" for rule in rules) or "- none"
+    rules_text = _rules_text(rules)
     return f"""
 Return strict JSON only. Do not use markdown fences.
 
@@ -86,12 +89,183 @@ Return this shape:
 """.strip()
 
 
+def _rules_text(rules: list[TtsRule]) -> str:
+    return "\n".join(f"- {rule.source} -> {rule.reading}" for rule in rules) or "- none"
+
+
+def _tts_reading_rules_block(rules: list[TtsRule]) -> str:
+    return f"""
+Rules:
+- Preserve the meaning and sentence order.
+- Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
+- A dot is read as "ドット" only when it is immediately followed by an ASCII letter, matching \\.[a-zA-Z].
+- Do not read sentence periods or punctuation separators as "ドット"; normalize sentence endings "。" and "." to "、".
+- Do not read dots between digits as "ドット"; for example, 1.2 should be read like "いってんに".
+- If an unfamiliar dot-prefixed word or acronym appears, infer a natural katakana reading from the examples.
+
+Contrast examples:
+- .gitignore -> ドット ギットイグノア
+- 〜します。 -> 〜します、
+- 1.2 -> いってんに
+
+Pronunciation examples. Treat these as normative examples, not as the only allowed replacements:
+{_rules_text(rules)}
+""".strip()
+
+
 def _gemini_speech_text(value: str, rules: list[TtsRule]) -> str:
     data = GeminiClient().generate_json(_tts_reading_prompt(value, rules))
     text = data.get("text", "")
     if not isinstance(text, str) or not text.strip():
         return _speech_text(value, rules)
     return _speech_text(text, rules)
+
+
+def _chunk_entries(entries: list[tuple[str, str]], max_chars: int = MAX_TTS_BATCH_CHARS) -> list[list[tuple[str, str]]]:
+    chunks: list[list[tuple[str, str]]] = []
+    current: list[tuple[str, str]] = []
+    current_chars = 0
+    for entry_id, text in entries:
+        entry_chars = len(entry_id) + len(text)
+        if current and current_chars + entry_chars > max_chars:
+            chunks.append(current)
+            current = []
+            current_chars = 0
+        current.append((entry_id, text))
+        current_chars += entry_chars
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _tts_batch_document_prompt(entries: list[tuple[str, str]], rules: list[TtsRule]) -> str:
+    entries_text = "\n".join(f"- id: {entry_id}\n  text: {text}" for entry_id, text in entries)
+    return f"""
+Return strict JSON only. Do not use markdown fences.
+
+Create Sokqa TTS reading texts for the fixed source texts.
+
+{_tts_reading_rules_block(rules)}
+
+Source texts:
+{entries_text}
+
+Return the same ids exactly. Do not add, remove, reorder, or rename ids.
+Return this shape:
+{{
+  "items": [
+    {{"id": "source-id", "text": "tts reading text"}}
+  ]
+}}
+""".strip()
+
+
+def _gemini_document_speech_map(entries: list[tuple[str, str]], rules: list[TtsRule]) -> dict[str, str]:
+    readings: dict[str, str] = {}
+    source_by_id = {entry_id: text for entry_id, text in entries}
+    for chunk in _chunk_entries(entries):
+        data = GeminiClient().generate_json(_tts_batch_document_prompt(chunk, rules))
+        items = data.get("items", [])
+        if not isinstance(items, list):
+            items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            entry_id = str(item.get("id", ""))
+            text = item.get("text", "")
+            if entry_id in source_by_id and isinstance(text, str) and text.strip():
+                readings[entry_id] = _speech_text(text, rules)
+        for entry_id, source_text in chunk:
+            readings.setdefault(entry_id, _speech_text(source_text, rules))
+    return readings
+
+
+def _tts_quiz_question_prompt(question_id: str, question: str, choices: list[str], explanation: str, rules: list[TtsRule]) -> str:
+    choices_text = "\n".join(f"- index: {index}\n  text: {choice}" for index, choice in enumerate(choices))
+    return f"""
+Return strict JSON only. Do not use markdown fences.
+
+Create Sokqa TTS reading texts for one fixed quiz question.
+
+{_tts_reading_rules_block(rules)}
+
+Question id: {question_id}
+Question text:
+{question}
+
+Choices:
+{choices_text}
+
+Explanation text:
+{explanation}
+
+Return the same question id exactly. Return each choice by its original index.
+Return this shape:
+{{
+  "id": "{question_id}",
+  "questionText": "tts reading text",
+  "choices": [
+    {{"index": 0, "text": "tts reading text"}}
+  ],
+  "explanationText": "tts reading text"
+}}
+""".strip()
+
+
+def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
+    total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
+    if total_chars > MAX_TTS_BATCH_CHARS:
+        question_text = _gemini_speech_text(question.question, rules)
+        explanation_text = _gemini_speech_text(question.explanation, rules)
+        choice_readings = [_gemini_speech_text(choice, rules) for choice in question.choices]
+        choices_text = "".join(
+            f"{index + 1}番、{strip_terminal_punctuation(reading)}、"
+            for index, reading in enumerate(choice_readings)
+        )
+        answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+        return QuizTts(
+            questionText=question_text,
+            choicesText=normalize_tts_text(choices_text),
+            answerText=normalize_tts_text(answer_text),
+            explanationText=explanation_text,
+        )
+
+    data = GeminiClient().generate_json(
+        _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules)
+    )
+    question_text = data.get("questionText", "")
+    explanation_text = data.get("explanationText", "")
+    choices = data.get("choices", [])
+
+    choice_readings = [_speech_text(choice, rules) for choice in question.choices]
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            try:
+                index = int(choice.get("index"))
+            except (TypeError, ValueError):
+                continue
+            text = choice.get("text", "")
+            if 0 <= index < len(choice_readings) and isinstance(text, str) and text.strip():
+                choice_readings[index] = _speech_text(text, rules)
+
+    if not isinstance(question_text, str) or not question_text.strip():
+        question_text = question.question
+    if not isinstance(explanation_text, str) or not explanation_text.strip():
+        explanation_text = question.explanation
+
+    choices_text = "".join(
+        f"{index + 1}番、{strip_terminal_punctuation(reading)}、"
+        for index, reading in enumerate(choice_readings)
+    )
+    answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+    return QuizTts(
+        questionText=_speech_text(question_text, rules),
+        choicesText=normalize_tts_text(choices_text),
+        answerText=normalize_tts_text(answer_text),
+        explanationText=_speech_text(explanation_text, rules),
+    )
 
 
 def _tts_decision_prompt(kind: str, entries: list[tuple[str, str]], rules: list[TtsRule]) -> str:
@@ -238,20 +412,6 @@ def validate_tts_files(files: list[GeneratedFile], mode: TtsReadingMode, llm_ids
     return TtsReport(mode=mode, issues=issues, llmGeneratedIds=sorted(set(llm_ids or [])))
 
 
-def _document_speech(item_id: str, text: str, rules: list[TtsRule], mode: TtsReadingMode, llm_ids: list[str]) -> str:
-    if mode == "llm":
-        llm_ids.append(item_id)
-        return _gemini_speech_text(text, rules)
-    return _speech_text(text, rules)
-
-
-def _quiz_speech(item_id: str, text: str, rules: list[TtsRule], mode: TtsReadingMode, llm_ids: list[str]) -> str:
-    if mode == "llm":
-        llm_ids.append(item_id)
-        return _gemini_speech_text(text, rules)
-    return _speech_text(text, rules)
-
-
 def optimize_document_pack(
     pack: SokqaDocumentPack,
     rules: list[TtsRule],
@@ -272,10 +432,15 @@ def optimize_document_pack(
             item.tags = None
             item.tts = None
         return pack
+    llm_readings: dict[str, str] = {}
+    if active_mode == "llm":
+        selected_entries = [(item.id, item.text) for item in pack.documents if item.id in selected_ids]
+        llm_readings = _gemini_document_speech_map(selected_entries, rules)
+        llm_ids.extend(entry_id for entry_id, _ in selected_entries)
     for item in pack.documents:
         item.tags = None
         if item.id in selected_ids:
-            speech = _document_speech(item.id, item.text, rules, active_mode, llm_ids)
+            speech = llm_readings.get(item.id, _speech_text(item.text, rules)) if active_mode == "llm" else _speech_text(item.text, rules)
             item.tts = DocumentTts(text=speech)
         else:
             item.tts = None
@@ -306,21 +471,24 @@ def optimize_quiz_pack(
     for question in pack.questions:
         question.tags = None
         if question.id in selected_ids:
-            question_key = f"{question.id}:question"
-            explanation_key = f"{question.id}:explanation"
-            question_text = _quiz_speech(question_key, question.question, rules, active_mode, llm_ids)
-            explanation_text = _quiz_speech(explanation_key, question.explanation, rules, active_mode, llm_ids)
-            choices_text = "".join(
-                f"{index + 1}番、{strip_terminal_punctuation(_quiz_speech(f'{question.id}:choice:{index}', choice, rules, active_mode, llm_ids))}、"
-                for index, choice in enumerate(question.choices)
-            )
-            answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(_quiz_speech(f'{question.id}:answer', question.choices[question.answerIndex], rules, active_mode, llm_ids))}"
-            question.tts = QuizTts(
-                questionText=question_text,
-                choicesText=normalize_tts_text(choices_text),
-                answerText=normalize_tts_text(answer_text),
-                explanationText=explanation_text,
-            )
+            if active_mode == "llm":
+                llm_ids.append(question.id)
+                question.tts = _gemini_quiz_question_tts(question, rules)
+            else:
+                question_text = _speech_text(question.question, rules)
+                explanation_text = _speech_text(question.explanation, rules)
+                choice_readings = [_speech_text(choice, rules) for choice in question.choices]
+                choices_text = "".join(
+                    f"{index + 1}番、{strip_terminal_punctuation(reading)}、"
+                    for index, reading in enumerate(choice_readings)
+                )
+                answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+                question.tts = QuizTts(
+                    questionText=question_text,
+                    choicesText=normalize_tts_text(choices_text),
+                    answerText=normalize_tts_text(answer_text),
+                    explanationText=explanation_text,
+                )
         else:
             question.tts = None
     return pack
@@ -332,10 +500,12 @@ def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: 
     if file.kind == "document":
         pack = SokqaDocumentPack.model_validate(file.content)
         combined = _combined_rules(rules)
+        entries = [(item.id, item.text) for item in pack.documents if item.id in issue_item_ids and item.tts]
+        readings = _gemini_document_speech_map(entries, combined)
+        llm_ids.extend(entry_id for entry_id, _ in entries)
         for item in pack.documents:
             if item.id in issue_item_ids and item.tts:
-                llm_ids.append(item.id)
-                item.tts = DocumentTts(text=_gemini_speech_text(item.text, combined))
+                item.tts = DocumentTts(text=readings.get(item.id, _speech_text(item.text, combined)))
         file.content = pack.model_dump(exclude_none=True)
     elif file.kind == "quiz":
         pack = SokqaQuizPack.model_validate(file.content)
@@ -344,19 +514,7 @@ def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: 
             if question.id not in issue_item_ids or not question.tts:
                 continue
             llm_ids.append(question.id)
-            question.tts = QuizTts(
-                questionText=_gemini_speech_text(question.question, combined),
-                choicesText=normalize_tts_text(
-                    "".join(
-                        f"{index + 1}番、{strip_terminal_punctuation(_gemini_speech_text(choice, combined))}、"
-                        for index, choice in enumerate(question.choices)
-                    )
-                ),
-                answerText=normalize_tts_text(
-                    f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(_gemini_speech_text(question.choices[question.answerIndex], combined))}"
-                ),
-                explanationText=_gemini_speech_text(question.explanation, combined),
-            )
+            question.tts = _gemini_quiz_question_tts(question, combined)
         file.content = pack.model_dump(exclude_none=True)
 
 

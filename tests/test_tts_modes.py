@@ -29,6 +29,46 @@ def _doc_file() -> GeneratedFile:
     )
 
 
+def _quiz_file() -> GeneratedFile:
+    return GeneratedFile(
+        name="quiz_01.json",
+        kind="quiz",
+        content={
+            "id": "pack_quiz_01",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "Git確認クイズ",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "git init の説明として正しいものはどれですか？",
+                    "choices": [
+                        "リポジトリを初期化する",
+                        ".gitignore を削除する",
+                        "設定値を表示する",
+                        "DBを作成する",
+                    ],
+                    "answerIndex": 0,
+                    "explanation": "git init は現在のディレクトリをGitリポジトリとして初期化します。",
+                },
+                {
+                    "id": "q-2",
+                    "question": ".gitconfig を確認する理由は何ですか？",
+                    "choices": [
+                        "ユーザー設定を確認するため",
+                        "JSONを削除するため",
+                        "CPUを交換するため",
+                        "UIを隠すため",
+                    ],
+                    "answerIndex": 0,
+                    "explanation": ".gitconfig にはGitのユーザー設定などが保存されます。",
+                },
+            ],
+        },
+    )
+
+
 def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
@@ -46,11 +86,22 @@ def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch)
 def test_llm_mode_generates_kana_for_unknown_dot_words_and_keeps_core_rules(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
+    calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict[str, str]:
-        if ".gitconfig" in prompt:
-            return {"text": "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、"}
-        return {"text": ".gitignore と .env と git init を確認します。"}
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        calls.append(prompt)
+        return {
+            "items": [
+                {
+                    "id": "doc-2",
+                    "text": ".gitignore と .env と git init を確認します。",
+                },
+                {
+                    "id": "doc-1",
+                    "text": "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、",
+                },
+            ]
+        }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
@@ -62,6 +113,7 @@ def test_llm_mode_generates_kana_for_unknown_dot_words_and_keeps_core_rules(monk
     assert report.issues == []
     assert "doc-1" in report.llmGeneratedIds
     assert "doc-2" in report.llmGeneratedIds
+    assert len(calls) == 1
 
 
 def test_auto_mode_reruns_only_items_with_tts_report_issues(monkeypatch) -> None:
@@ -69,9 +121,16 @@ def test_auto_mode_reruns_only_items_with_tts_report_issues(monkeypatch) -> None
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict[str, str]:
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
         calls.append(prompt)
-        return {"text": "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、"}
+        return {
+            "items": [
+                {
+                    "id": "doc-1",
+                    "text": "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、",
+                }
+            ]
+        }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
@@ -114,8 +173,13 @@ def test_plan_rules_still_override_llm_output(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict[str, str]:
-        return {"text": ".git を確認します。"}
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {"id": "doc-1", "text": ".git を確認します。"},
+                {"id": "doc-2", "text": ".git を確認します。"},
+            ]
+        }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
@@ -126,3 +190,78 @@ def test_plan_rules_still_override_llm_output(monkeypatch) -> None:
     )
 
     assert "ドット ジット" in files[0].content["documents"][0]["tts"]["text"]
+
+
+def test_llm_quiz_batches_one_question_and_reuses_answer_choice(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    calls: list[str] = []
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        calls.append(prompt)
+        if "Question id: q-1" in prompt:
+            return {
+                "id": "q-1",
+                "questionText": "ギット イニット の説明として正しいものはどれですか？",
+                "choices": [
+                    {"index": 0, "text": "リポジトリを初期化する"},
+                    {"index": 1, "text": "ドット ギットイグノア を削除する"},
+                    {"index": 2, "text": "せっていちを表示する"},
+                    {"index": 3, "text": "データベースを作成する"},
+                ],
+                "explanationText": "ギット イニット は現在のディレクトリをギットリポジトリとして初期化します。",
+            }
+        return {
+            "id": "q-2",
+            "questionText": "ドット ギットコンフィグ を確認する理由は何ですか？",
+            "choices": [
+                {"index": 0, "text": "ユーザー設定を確認するため"},
+                {"index": 1, "text": "ジェイソンを削除するため"},
+                {"index": 2, "text": "CPUを交換するため"},
+                {"index": 3, "text": "ユーアイを隠すため"},
+            ],
+            "explanationText": "ドット ギットコンフィグ にはギットのユーザー設定などが保存されます。",
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([_quiz_file()], [], mode="llm")
+    questions = files[0].content["questions"]
+
+    assert len(calls) == 2
+    assert questions[0]["tts"]["answerText"] == "正解は1番、リポジトリを初期化する、"
+    assert "リポジトリを初期化する" in questions[0]["tts"]["choicesText"]
+    assert "ドット ギットイグノア" in questions[0]["tts"]["choicesText"]
+    assert report.llmGeneratedIds == ["q-1", "q-2"]
+
+
+def test_auto_quiz_reruns_only_question_with_report_issue(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    calls: list[str] = []
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        calls.append(prompt)
+        assert "Question id: q-2" in prompt
+        return {
+            "id": "q-2",
+            "questionText": "ドット ギットコンフィグ を確認する理由は何ですか？",
+            "choices": [
+                {"index": 0, "text": "ユーザー設定を確認するため"},
+                {"index": 1, "text": "ジェイソンを削除するため"},
+                {"index": 2, "text": "CPUを交換するため"},
+                {"index": 3, "text": "ユーアイを隠すため"},
+            ],
+            "explanationText": "ドット ギットコンフィグ にはギットのユーザー設定などが保存されます。",
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([_quiz_file()], [], mode="auto")
+    questions = files[0].content["questions"]
+
+    assert len(calls) == 1
+    assert "ドット ギットconfig" not in str(questions[1]["tts"])
+    assert "ドット ギットコンフィグ" in questions[1]["tts"]["questionText"]
+    assert report.issues == []
+    assert report.llmGeneratedIds == ["q-2"]

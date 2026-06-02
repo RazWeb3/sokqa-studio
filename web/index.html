@@ -235,6 +235,25 @@
             </select>
           </label>
         </div>
+        <label>
+          TTS読みモード
+          <select id="ttsReadingMode">
+            <option value="rule">rule</option>
+            <option value="llm">llm</option>
+            <option value="auto">auto</option>
+          </select>
+        </label>
+        <label>
+          参考資料テキスト
+          <textarea id="sourceText" spellcheck="false" placeholder="貼り付けた資料からコンテンツを生成します（任意）"></textarea>
+        </label>
+        <label>
+          資料の使い方
+          <select id="sourceMode" disabled>
+            <option value="document_reference">資料を参考に</option>
+            <option value="document_only">資料のみ</option>
+          </select>
+        </label>
         <div class="actions">
           <button id="planBtn">構成案を作成</button>
           <button id="generateBtn" class="secondary" disabled>生成する</button>
@@ -277,6 +296,31 @@
       const result = $("result");
       let currentJobId = "";
 
+      function isTtsEnabled() {
+        return $("includeTts").value === "true";
+      }
+
+      function sourcePayload() {
+        const sourceText = $("sourceText").value.trim();
+        if (!sourceText) return {};
+        return {
+          sourceText,
+          sourceMode: $("sourceMode").value
+        };
+      }
+
+      function ttsPayload() {
+        if (!isTtsEnabled()) return {};
+        return {
+          ttsReadingMode: $("ttsReadingMode").value
+        };
+      }
+
+      function syncInputState() {
+        $("sourceMode").disabled = !$("sourceText").value.trim();
+        $("ttsReadingMode").disabled = !isTtsEnabled();
+      }
+
       function setBusy(isBusy, message = "") {
         planBtn.disabled = isBusy;
         generateBtn.disabled = isBusy || !planJson.value.trim();
@@ -314,7 +358,10 @@
             difficulty: $("difficulty").value,
             scale: $("scale").value,
             language: $("language").value,
-            includeTts: $("includeTts").value === "true"
+            includeTts: isTtsEnabled(),
+            enableTtsOptimize: isTtsEnabled(),
+            ...ttsPayload(),
+            ...sourcePayload()
           });
           planJson.value = JSON.stringify(plan, null, 2);
           setBusy(false, "構成案を作成しました。必要なら編集してから生成してください。");
@@ -330,7 +377,9 @@
           const generated = await requestJson("/generate-pack", {
             plan,
             outputMode: "manifest",
-            persist: true
+            persist: true,
+            ...ttsPayload(),
+            ...sourcePayload()
           });
           const manifestUrl = generated.files.find((file) => file.kind === "manifest")?.url;
           result.innerHTML = `
@@ -378,6 +427,10 @@
       planJson.addEventListener("input", () => {
         generateBtn.disabled = !planJson.value.trim();
       });
+
+      $("sourceText").addEventListener("input", syncInputState);
+      $("includeTts").addEventListener("change", syncInputState);
+      syncInputState();
     </script>
   </body>
 </html>

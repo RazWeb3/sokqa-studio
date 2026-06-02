@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sokqa Course Pack Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <style>
       :root {
         color-scheme: light;
@@ -158,6 +159,14 @@
 
       .manifest-link {
         overflow-wrap: anywhere;
+      }
+
+      .share-url {
+        overflow-wrap: anywhere;
+      }
+
+      #qrcode {
+        margin-top: 12px;
       }
 
       .logs {
@@ -382,6 +391,7 @@
             ...sourcePayload()
           });
           const manifestUrl = generated.files.find((file) => file.kind === "manifest")?.url;
+          const shareUrl = manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(manifestUrl)}` : "";
           result.innerHTML = `
             <p><strong>Status:</strong> ${generated.status}</p>
             <p><strong>Validation:</strong> ${generated.validation.valid ? "valid" : "invalid"}</p>
@@ -389,6 +399,15 @@
             <p class="manifest-link"><strong>Manifest:</strong> ${
               manifestUrl ? `<a href="${manifestUrl}" target="_blank" rel="noreferrer">${manifestUrl}</a>` : "not persisted"
             }</p>
+            ${
+              shareUrl
+                ? `<p class="share-url"><strong>Sokqa取り込み用URL:</strong> ${shareUrl}</p>
+                   <div class="actions">
+                     <button id="copyShareUrlBtn" type="button" class="secondary">URLをコピー</button>
+                   </div>
+                   <div id="qrcode"></div>`
+                : ""
+            }
             <div class="actions">
               <a class="button" href="/jobs/${generated.jobId}/manifest" target="_blank" rel="noreferrer">manifestを見る</a>
               <a class="button secondary" href="/jobs/${generated.jobId}" target="_blank" rel="noreferrer">job JSONを見る</a>
@@ -396,6 +415,21 @@
             <h3>Logs</h3>
             <ul class="logs">${generated.logs.map((log) => `<li>${log}</li>`).join("")}</ul>
           `;
+          if (shareUrl) {
+            const qrCodeTarget = $("qrcode");
+            if (qrCodeTarget && window.QRCode) {
+              new QRCode(qrCodeTarget, { text: shareUrl, width: 180, height: 180 });
+            }
+            $("copyShareUrlBtn")?.addEventListener("click", async (event) => {
+              const button = event.currentTarget;
+              await navigator.clipboard.writeText(shareUrl);
+              const originalText = button.textContent;
+              button.textContent = "コピーしました";
+              setTimeout(() => {
+                button.textContent = originalText;
+              }, 1600);
+            });
+          }
           currentJobId = generated.jobId;
           $("reviseBtn").disabled = false;
           setBusy(false, "生成が完了しました。");

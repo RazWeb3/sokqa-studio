@@ -1,8 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import Difficulty, Scale, TtsReadingMode, TtsRule
+from app.schemas.common import Difficulty, Scale, SourceMode, TtsReadingMode, TtsRule
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PackManifest
 
 
@@ -134,6 +134,16 @@ class PlanPackRequest(BaseModel):
     sectionsPerDocument: int | None = Field(default=None, ge=1, le=100)
     quizPacks: list[QuizPackSpec] | None = None
     userTtsRules: list[TtsRule] = Field(default_factory=list)
+    sourceText: str | None = Field(default=None, max_length=50000)
+    sourceMode: SourceMode | None = None
+
+    @field_validator("sourceText")
+    @classmethod
+    def blank_source_text_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class GeneratePackRequest(BaseModel):
@@ -193,10 +203,20 @@ class GeneratePackRequest(BaseModel):
     outputMode: Literal["manifest"] = "manifest"
     persist: bool = True
     ttsReadingMode: TtsReadingMode | None = None
+    sourceText: str | None = Field(default=None, max_length=50000)
+    sourceMode: SourceMode | None = None
     model: str | None = Field(default=None, min_length=1, max_length=120)
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)
     plannerModel: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("sourceText")
+    @classmethod
+    def blank_source_text_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class ValidatePackRequest(BaseModel):

@@ -124,6 +124,26 @@ generated/{pack_id}/manifest.json
 
 Standard mode creates 10 document files, 3 quiz files, and `manifest.json`.
 
+### Source Text
+
+`/plan-pack` and `/generate-pack` accept optional source material fields for pasted text references:
+
+```json
+{
+  "theme": "社内手順の学習",
+  "targetUser": "新入社員",
+  "sourceText": "ここに参考資料テキストを貼り付けます。",
+  "sourceMode": "document_reference"
+}
+```
+
+- `sourceText` empty or omitted: use the existing theme-only generation flow.
+- `sourceText` present and `sourceMode` omitted: defaults to `document_reference`.
+- `document_only`: generate the outline and document content only from the pasted material; do not add facts or terms that are absent from it.
+- `document_reference`: use the pasted material as the primary foundation and supplement it when useful without drifting from its intent.
+
+`sourceText` and `sourceMode` are internal generation inputs. They are not written into generated Sokqa document, quiz, or manifest JSON files.
+
 ### Manifest Shape
 
 `generated/{pack_id}/manifest.json` uses the Sokqa pack manifest format:

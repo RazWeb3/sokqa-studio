@@ -9,6 +9,7 @@ from app.services.model_resolver import resolve_task_models
 from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
+from app.services.source_material import normalize_source
 from app.services.storage_client import StorageClient
 from app.services.storage_status import pop_storage_events
 from app.services.tts_optimizer import optimize_generated_files, optimize_generated_files_with_report
@@ -30,6 +31,12 @@ def plan_pack(request: PlanPackRequest):
 def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs: list[str] = ["Planning"]
     plan = request.plan
+    source_text, source_mode = normalize_source(
+        request.sourceText if request.sourceText is not None else plan.sourceText,
+        request.sourceMode if request.sourceMode is not None else plan.sourceMode,
+    )
+    plan.sourceText = source_text
+    plan.sourceMode = source_mode
     models = resolve_task_models(plan, request)
     logs.append(f"Model planner: {models.planner}")
     logs.append(f"Model document: {models.document}")

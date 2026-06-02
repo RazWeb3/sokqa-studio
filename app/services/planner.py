@@ -5,6 +5,7 @@ from app.config import get_settings
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
+from app.services.source_material import normalize_source, source_prompt_block
 from app.utils.ids import slugify
 
 
@@ -55,6 +56,8 @@ def _requested_section_count(request: PlanPackRequest) -> str:
 
 
 def _planner_prompt(request: PlanPackRequest) -> str:
+    source_block = source_prompt_block(request.sourceText, request.sourceMode)
+    source_section = f"\n\n{source_block}" if source_block else ""
     return f"""
 Return strict JSON only. Do not use markdown fences.
 
@@ -69,6 +72,7 @@ Input:
 - language: {request.language}
 - requested documentCount: {_requested_document_count(request)}
 - requested sectionsPerDocument: {_requested_section_count(request)}
+{source_section}
 
 Rules:
 - The documents array is the most important output.
@@ -247,6 +251,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     pack_id = slugify(request.theme, "sokqa_pack")
     title = f"{request.theme} 学習パック"
     description = f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。"
+    source_text, source_mode = normalize_source(request.sourceText, request.sourceMode)
 
     if settings.gemini_provider == "gemini":
         try:
@@ -278,6 +283,8 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         docModel=request.docModel,
         quizModel=request.quizModel,
         plannerModel=request.plannerModel,
+        sourceText=source_text,
+        sourceMode=source_mode,
         documents=documents,
         quizPacks=_build_quiz_packs(request, [document.id for document in documents]),
         ttsRules=tts_rules,

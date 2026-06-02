@@ -1,7 +1,10 @@
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack, SokqaDocumentPack
+from app.services.source_material import source_prompt_block
 
 
 def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
+    source_block = source_prompt_block(plan.sourceText, plan.sourceMode)
+    source_section = f"\n\n{source_block}" if source_block else ""
     return f"""Create one Sokqa document JSON.
 
 Rules:
@@ -24,6 +27,7 @@ Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
 - difficulty: {plan.difficulty}
+{source_section}
 
 Document:
 - id: {document.id}

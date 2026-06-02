@@ -27,13 +27,23 @@ def generate_document_pack(plan: CoursePlan, document: PlanDocument, model: str 
 
 def generate_mock_document_pack(plan: CoursePlan, document: PlanDocument) -> SokqaDocumentPack:
     items: list[SokqaDocumentItem] = []
+    source_excerpt = (plan.sourceText or "").strip()
     for index in range(1, document.targetSectionCount + 1):
         point = document.keyPoints[(index - 1) % len(document.keyPoints)]
-        text = (
-            f"{document.title}のセクション{index}です。"
-            f"{point}について、{plan.targetUser}にも分かるように短く確認します。"
-            f"{plan.title}では、用語の意味と実際の使われ方を結びつけて覚えることが大切です。"
-        )
+        if source_excerpt and plan.sourceMode == "document_only":
+            text = f"{source_excerpt[:240]}。"
+        elif source_excerpt and plan.sourceMode == "document_reference":
+            text = (
+                f"{source_excerpt[:180]}。"
+                f"{point}について、{plan.targetUser}にも分かるように補足して整理します。"
+                f"{plan.title}では、資料の趣旨を土台にして学習しやすい順序で理解します。"
+            )
+        else:
+            text = (
+                f"{document.title}のセクション{index}です。"
+                f"{point}について、{plan.targetUser}にも分かるように短く確認します。"
+                f"{plan.title}では、用語の意味と実際の使われ方を結びつけて覚えることが大切です。"
+            )
         items.append(SokqaDocumentItem(id=f"doc-{index}", text=text))
 
     return SokqaDocumentPack(

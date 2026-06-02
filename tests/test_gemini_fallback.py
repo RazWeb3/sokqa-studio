@@ -17,4 +17,7 @@ def test_gemini_provider_falls_back_to_mock(monkeypatch) -> None:
     generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
 
     assert generated.validation.valid is True
-    assert len(generated.manifest.items) == 3
+    assert len(plan.documents) >= 1
+    assert len(generated.manifest.items) == len(plan.documents) + len(plan.quizPacks)
+    assert sum(1 for item in generated.manifest.items if item.kind == "document") == len(plan.documents)
+    assert sum(1 for item in generated.manifest.items if item.kind == "quiz") == len(plan.quizPacks)

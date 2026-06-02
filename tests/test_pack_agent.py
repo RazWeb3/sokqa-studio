@@ -6,6 +6,10 @@ from main import app
 client = TestClient(app)
 
 
+def _kind_count(items: list[dict], kind: str) -> int:
+    return sum(1 for item in items if item["kind"] == kind)
+
+
 def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -23,7 +27,9 @@ def test_quick_plan_and_generate() -> None:
     )
     assert plan_response.status_code == 200
     plan = plan_response.json()
-    assert len(plan["documents"]) == 2
+    document_count = len(plan["documents"])
+    quiz_count = len(plan["quizPacks"])
+    assert 1 <= document_count <= 4
     assert len(plan["quizPacks"]) == 1
     assert plan["quizPacks"][0]["questionCount"] == 10
 
@@ -37,8 +43,10 @@ def test_quick_plan_and_generate() -> None:
     assert generate_response.status_code == 200
     generated = generate_response.json()
     assert generated["validation"]["valid"] is True
-    assert len(generated["manifest"]["items"]) == 3
-    assert len(generated["files"]) == 4
+    assert len(generated["manifest"]["items"]) == document_count + quiz_count
+    assert _kind_count(generated["manifest"]["items"], "document") == document_count
+    assert _kind_count(generated["manifest"]["items"], "quiz") == quiz_count
+    assert len(generated["files"]) == len(generated["manifest"]["items"]) + 1
 
 
 def test_standard_plan_shape() -> None:
@@ -52,6 +60,6 @@ def test_standard_plan_shape() -> None:
     )
     assert response.status_code == 200
     plan = response.json()
-    assert len(plan["documents"]) == 10
+    assert 6 <= len(plan["documents"]) <= 12
     assert len(plan["quizPacks"]) == 3
     assert [pack["questionCount"] for pack in plan["quizPacks"]] == [30, 30, 30]

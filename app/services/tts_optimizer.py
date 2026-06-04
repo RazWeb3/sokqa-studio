@@ -212,23 +212,51 @@ Return this shape:
 """.strip()
 
 
+def _quiz_question_source_text(question) -> str:
+    return " ".join([question.question, *question.choices, question.explanation])
+
+
+def _quiz_question_char_count(question) -> int:
+    return len(question.id) + len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
+
+
+def _quiz_tts_from_readings(
+    question,
+    question_text: str,
+    choice_readings: list[str],
+    explanation_text: str,
+    rules: list[TtsRule],
+) -> QuizTts:
+    choices_text = "".join(
+        f"{strip_terminal_punctuation(reading)}、"
+        for reading in choice_readings
+    )
+    answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+    return QuizTts(
+        questionText=_speech_text(question_text, rules),
+        choicesText=normalize_tts_text(choices_text),
+        answerText=normalize_tts_text(answer_text),
+        explanationText=_speech_text(explanation_text, rules),
+    )
+
+
+def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
+    return _quiz_tts_from_readings(
+        question,
+        question.question,
+        [_speech_text(choice, rules) for choice in question.choices],
+        question.explanation,
+        rules,
+    )
+
+
 def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
     total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
     if total_chars > MAX_TTS_BATCH_CHARS:
         question_text = _gemini_speech_text(question.question, rules)
         explanation_text = _gemini_speech_text(question.explanation, rules)
         choice_readings = [_gemini_speech_text(choice, rules) for choice in question.choices]
-        choices_text = "".join(
-            f"{strip_terminal_punctuation(reading)}、"
-            for reading in choice_readings
-        )
-        answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
-        return QuizTts(
-            questionText=question_text,
-            choicesText=normalize_tts_text(choices_text),
-            answerText=normalize_tts_text(answer_text),
-            explanationText=explanation_text,
-        )
+        return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
 
     data = GeminiClient().generate_json(
         _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules)
@@ -255,17 +283,106 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
     if not isinstance(explanation_text, str) or not explanation_text.strip():
         explanation_text = question.explanation
 
-    choices_text = "".join(
-        f"{strip_terminal_punctuation(reading)}、"
-        for reading in choice_readings
+    return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
+
+
+def _tts_batch_quiz_prompt(questions, rules: list[TtsRule]) -> str:
+    questions_text = "\n\n".join(
+        "\n".join(
+            [
+                f"- id: {question.id}",
+                f"  question: {question.question}",
+                "  choices:",
+                *[f"    - index: {index}\n      text: {choice}" for index, choice in enumerate(question.choices)],
+                f"  explanation: {question.explanation}",
+            ]
+        )
+        for question in questions
     )
-    answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
-    return QuizTts(
-        questionText=_speech_text(question_text, rules),
-        choicesText=normalize_tts_text(choices_text),
-        answerText=normalize_tts_text(answer_text),
-        explanationText=_speech_text(explanation_text, rules),
-    )
+    return f"""
+Return strict JSON only. Do not use markdown fences.
+
+Create Sokqa TTS reading texts for the fixed quiz questions.
+
+{_tts_reading_rules_block(rules)}
+
+Questions:
+{questions_text}
+
+Return the same question ids exactly. Do not add, remove, reorder, or rename ids.
+Return each choice by its original index.
+Return this shape:
+{{
+  "items": [
+    {{
+      "id": "question-id",
+      "questionText": "tts reading text",
+      "choices": [
+        {{"index": 0, "text": "tts reading text"}}
+      ],
+      "explanationText": "tts reading text"
+    }}
+  ]
+}}
+""".strip()
+
+
+def _quiz_tts_from_item(question, item: dict, rules: list[TtsRule]) -> QuizTts:
+    question_text = item.get("questionText", "")
+    explanation_text = item.get("explanationText", "")
+    choices = item.get("choices", [])
+
+    choice_readings = [_speech_text(choice, rules) for choice in question.choices]
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            try:
+                index = int(choice.get("index"))
+            except (TypeError, ValueError):
+                continue
+            text = choice.get("text", "")
+            if 0 <= index < len(choice_readings) and isinstance(text, str) and text.strip():
+                choice_readings[index] = _speech_text(text, rules)
+
+    if not isinstance(question_text, str) or not question_text.strip():
+        question_text = question.question
+    if not isinstance(explanation_text, str) or not explanation_text.strip():
+        explanation_text = question.explanation
+
+    return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
+
+
+def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_BATCH_CHARS):
+    entries = [(question.id, _quiz_question_source_text(question)) for question in questions]
+    chunks = _chunk_entries(entries, max_chars)
+    questions_by_id = {question.id: question for question in questions}
+    return [[questions_by_id[entry_id] for entry_id, _ in chunk] for chunk in chunks]
+
+
+def _gemini_quiz_tts_map(questions, rules: list[TtsRule]) -> dict[str, QuizTts]:
+    readings: dict[str, QuizTts] = {}
+    for chunk in _chunk_quiz_questions(questions):
+        if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
+            question = chunk[0]
+            readings[question.id] = _gemini_quiz_question_tts(question, rules)
+            continue
+
+        data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules))
+        items = data.get("items", [])
+        if not isinstance(items, list):
+            items = []
+        source_by_id = {question.id: question for question in chunk}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            question_id = str(item.get("id", ""))
+            question = source_by_id.get(question_id)
+            if question is not None:
+                readings[question_id] = _quiz_tts_from_item(question, item, rules)
+        for question in chunk:
+            readings.setdefault(question.id, _rule_quiz_question_tts(question, rules))
+    return readings
 
 
 def _tts_decision_prompt(kind: str, entries: list[tuple[str, str]], rules: list[TtsRule]) -> str:
@@ -468,27 +585,18 @@ def optimize_quiz_pack(
         if active_mode == "llm"
         else _select_tts_ids("quiz question", entries, rules, allow_gemini=False)
     )
+    llm_readings: dict[str, QuizTts] = {}
+    if active_mode == "llm":
+        selected_questions = [question for question in pack.questions if question.id in selected_ids]
+        llm_readings = _gemini_quiz_tts_map(selected_questions, rules)
+        llm_ids.extend(question.id for question in selected_questions)
     for question in pack.questions:
         question.tags = None
         if question.id in selected_ids:
             if active_mode == "llm":
-                llm_ids.append(question.id)
-                question.tts = _gemini_quiz_question_tts(question, rules)
+                question.tts = llm_readings.get(question.id, _rule_quiz_question_tts(question, rules))
             else:
-                question_text = _speech_text(question.question, rules)
-                explanation_text = _speech_text(question.explanation, rules)
-                choice_readings = [_speech_text(choice, rules) for choice in question.choices]
-                choices_text = "".join(
-                    f"{strip_terminal_punctuation(reading)}、"
-                    for reading in choice_readings
-                )
-                answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
-                question.tts = QuizTts(
-                    questionText=question_text,
-                    choicesText=normalize_tts_text(choices_text),
-                    answerText=normalize_tts_text(answer_text),
-                    explanationText=explanation_text,
-                )
+                question.tts = _rule_quiz_question_tts(question, rules)
         else:
             question.tts = None
     return pack
@@ -510,11 +618,17 @@ def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: 
     elif file.kind == "quiz":
         pack = SokqaQuizPack.model_validate(file.content)
         combined = _combined_rules(rules)
+        selected_questions = [
+            question
+            for question in pack.questions
+            if question.id in issue_item_ids and question.tts
+        ]
+        readings = _gemini_quiz_tts_map(selected_questions, combined)
+        llm_ids.extend(question.id for question in selected_questions)
         for question in pack.questions:
             if question.id not in issue_item_ids or not question.tts:
                 continue
-            llm_ids.append(question.id)
-            question.tts = _gemini_quiz_question_tts(question, combined)
+            question.tts = readings.get(question.id, _rule_quiz_question_tts(question, combined))
         file.content = pack.model_dump(exclude_none=True)
 
 

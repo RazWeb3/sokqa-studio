@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.schemas.common import Difficulty, QuizPurpose, SourceMode, TtsReadingMode, TtsRule
+from app.schemas.common import Difficulty, QuizPurpose, Scale, SourceMode, TtsReadingMode, TtsRule
 
 
 class PlanDocument(BaseModel):
@@ -29,6 +29,7 @@ class CoursePlan(BaseModel):
     language: str = "ja"
     targetUser: str
     difficulty: Difficulty
+    scale: Scale | None = None
     author: str = "Sokqa Team"
     version: str = "1.0.0"
     enableTtsOptimize: bool = True
@@ -136,6 +137,7 @@ class PackManifest(BaseModel):
     language: str = "ja"
     author: str | None = "Sokqa Team"
     version: str | None = None
+    scale: Scale | None = None
     globalTags: list[str] = Field(default_factory=list)
     items: list[ManifestItem]
 

@@ -29,6 +29,7 @@ def build_manifest(plan: CoursePlan, files: list[GeneratedFile]) -> PackManifest
         description=plan.description,
         language=plan.language,
         author=plan.author,
+        scale=plan.scale,
         globalTags=[plan.id, plan.difficulty],
         items=[
             ManifestItem(kind=file.kind, url=file.url or "")

@@ -109,6 +109,37 @@
         gap: 12px;
       }
 
+      .field-label {
+        display: block;
+        margin: 12px 0;
+        font-weight: 650;
+      }
+
+      .radio-group {
+        display: grid;
+        gap: 8px;
+        margin-top: 6px;
+      }
+
+      .radio-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 0;
+        font-weight: 500;
+      }
+
+      .radio-option input {
+        width: auto;
+        margin-top: 4px;
+      }
+
+      .radio-option small {
+        display: block;
+        color: var(--muted);
+        font-weight: 400;
+      }
+
       .actions {
         display: flex;
         gap: 10px;
@@ -215,13 +246,23 @@
           <input id="targetUser" value="IT初心者の社会人" maxlength="160" />
         </label>
         <div class="row">
-          <label>
+          <div class="field-label">
             規模
-            <select id="scale">
-              <option value="quick">Quick: 2 documents + 1 quiz</option>
-              <option value="standard">Standard: 10 documents + 3 quizzes</option>
-            </select>
-          </label>
+            <div class="radio-group" role="radiogroup" aria-label="規模">
+              <label class="radio-option">
+                <input type="radio" name="scale" value="quick" checked />
+                <span>クイック <small>3〜5章</small></span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="scale" value="standard" />
+                <span>スタンダード <small>6〜10章</small></span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="scale" value="auto" />
+                <span>おまかせ <small>範囲制約なし</small></span>
+              </label>
+            </div>
+          </div>
           <label>
             難易度
             <select id="difficulty">
@@ -305,6 +346,10 @@
       const result = $("result");
       let currentJobId = "";
 
+      function radioValue(name) {
+        return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
+      }
+
       function isTtsEnabled() {
         return $("includeTts").value === "true";
       }
@@ -365,7 +410,7 @@
             theme: $("theme").value,
             targetUser: $("targetUser").value,
             difficulty: $("difficulty").value,
-            scale: $("scale").value,
+            scale: radioValue("scale"),
             language: $("language").value,
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),

@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-Scale = Literal["quick", "standard"]
+Scale = Literal["quick", "standard", "auto"]
 Difficulty = Literal["beginner", "standard", "advanced"]
 QuizPurpose = Literal["key_concepts", "application", "integrated_review", "custom"]
 TtsReadingMode = Literal["rule", "llm", "auto"]

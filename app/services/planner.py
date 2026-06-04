@@ -9,16 +9,18 @@ from app.services.source_material import normalize_source, source_prompt_block
 from app.utils.ids import slugify
 
 
-DEFAULT_QUIZ_PACKS = [
-    ("quiz_key_concepts", "基礎理解チェック", "key_concepts"),
-    ("quiz_application", "実践理解チェック", "application"),
-    ("quiz_integrated_review", "総合復習クイズ", "integrated_review"),
-]
-
 SCALE_CHAPTER_RANGES = {
     "quick": (3, 5),
     "standard": (6, 10),
 }
+
+RANGE_TITLES = {
+    2: ["前半の理解チェック", "後半の理解チェック"],
+    3: ["前半の理解チェック", "中盤の理解チェック", "後半の理解チェック"],
+    4: ["序盤の理解チェック", "前半の理解チェック", "後半の理解チェック", "終盤の理解チェック"],
+}
+
+RANGE_PURPOSES = ["key_concepts", "application", "application", "application"]
 
 
 def _document_count(request: PlanPackRequest) -> int:
@@ -32,7 +34,31 @@ def _document_count(request: PlanPackRequest) -> int:
 
 
 def _question_count(request: PlanPackRequest) -> int:
-    return 10 if request.scale == "quick" else 30
+    return 20 if request.scale == "quick" else 30
+
+
+def _range_quiz_pack_count(scale: str, document_count: int) -> int:
+    if scale in {"quick", "standard"}:
+        return 2
+    if document_count <= 6:
+        return 2
+    if document_count <= 10:
+        return 3
+    return 4
+
+
+def _split_document_ids(document_ids: list[str], chunk_count: int) -> list[list[str]]:
+    if chunk_count <= 0:
+        return []
+    base_size, remainder = divmod(len(document_ids), chunk_count)
+    chunks = []
+    start = 0
+    for index in range(chunk_count):
+        size = base_size + (1 if index < remainder else 0)
+        end = start + size
+        chunks.append(document_ids[start:end])
+        start = end
+    return chunks
 
 
 def _section_count(request: PlanPackRequest) -> int:
@@ -136,18 +162,31 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
             for spec in request.quizPacks
         ]
 
-    packs = DEFAULT_QUIZ_PACKS[:1] if request.scale == "quick" else DEFAULT_QUIZ_PACKS
-    return [
+    range_count = _range_quiz_pack_count(request.scale, len(document_ids))
+    chunks = _split_document_ids(document_ids, range_count)
+    question_count = _question_count(request)
+    quiz_packs = [
         PlanQuizPack(
-            id=pack_id,
-            title=title,
-            purpose=purpose,
-            questionCount=_question_count(request),
+            id=f"quiz_range_{index + 1:02d}",
+            title=RANGE_TITLES[range_count][index],
+            purpose=RANGE_PURPOSES[index],
+            questionCount=question_count,
+            difficulty=request.difficulty,
+            sourceDocumentIds=chunk,
+        )
+        for index, chunk in enumerate(chunks)
+    ]
+    quiz_packs.append(
+        PlanQuizPack(
+            id="quiz_integrated_review",
+            title="総合・応用クイズ",
+            purpose="integrated_review",
+            questionCount=question_count,
             difficulty=request.difficulty,
             sourceDocumentIds=document_ids,
         )
-        for pack_id, title, purpose in packs
-    ]
+    )
+    return quiz_packs
 
 
 def _fallback_documents(request: PlanPackRequest) -> list[PlanDocument]:

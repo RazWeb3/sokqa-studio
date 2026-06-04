@@ -73,15 +73,6 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
                     message="tts.text must not be only the chapter title",
                 )
             )
-        if tts_text and not tts_text.endswith("、"):
-            errors.append(
-                ValidationErrorItem(
-                    file=file_name,
-                    path=f"documents.{index}.tts.text",
-                    message="tts.text should end with Japanese comma",
-                    severity="warning",
-                )
-            )
     return errors
 
 

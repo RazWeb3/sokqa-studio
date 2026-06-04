@@ -2,7 +2,7 @@ from app.config import get_settings
 from app.schemas.common import TtsRule
 from app.schemas.sokqa import GeneratedFile
 from app.services.gemini_client import GeminiClient
-from app.services.tts_optimizer import optimize_generated_files_with_report, validate_tts_files
+from app.services.tts_optimizer import _tts_reading_prompt, _tts_reading_rules_block, optimize_generated_files_with_report, validate_tts_files
 
 
 def _doc_file() -> GeneratedFile:
@@ -78,9 +78,32 @@ def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch)
     first = files[0].content["documents"][0]["tts"]["text"]
     assert "ドット ギットconfig" in first
     assert "ドット ギットlog" in first
+    assert first.endswith("確認します。")
+    assert ". バージョン 1.2" in first
     assert any(issue.issueType == "ascii_after_dot_reading" for issue in report.issues)
     assert any(issue.suggestedRuleSource == ".gitconfig" for issue in report.issues)
     assert report.llmGeneratedIds == []
+
+
+def test_rule_mode_applies_document_rules_without_extra_punctuation_conversion(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    files, _ = optimize_generated_files_with_report([_doc_file()], [], mode="rule")
+    docs = files[0].content["documents"]
+
+    assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します。"
+
+
+def test_llm_prompt_keeps_original_punctuation_instruction() -> None:
+    prompt = _tts_reading_prompt("確認します。", [])
+    rules_block = _tts_reading_rules_block([])
+
+    for text in [prompt, rules_block]:
+        assert 'Keep the original Japanese punctuation as-is. Do not convert sentence-ending "。" to "、", and do not add or remove punctuation.' in text
+        assert 'A period "." between digits or inside numbers/codes must stay as the source; do not convert it.' in text
+        assert 'normalize sentence endings "。" and "." to "、"' not in text
+        assert "〜します。 -> 〜します、" not in text
 
 
 def test_llm_mode_generates_kana_for_unknown_dot_words_and_keeps_core_rules(monkeypatch) -> None:
@@ -109,7 +132,7 @@ def test_llm_mode_generates_kana_for_unknown_dot_words_and_keeps_core_rules(monk
     docs = files[0].content["documents"]
 
     assert docs[0]["tts"]["text"] == "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、"
-    assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します、"
+    assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します。"
     assert report.issues == []
     assert "doc-1" in report.llmGeneratedIds
     assert "doc-2" in report.llmGeneratedIds
@@ -138,7 +161,7 @@ def test_auto_mode_reruns_only_items_with_tts_report_issues(monkeypatch) -> None
     docs = files[0].content["documents"]
 
     assert docs[0]["tts"]["text"] == "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、"
-    assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します、"
+    assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します。"
     assert len(calls) == 1
     assert report.issues == []
     assert report.llmGeneratedIds == ["doc-1"]
@@ -229,10 +252,27 @@ def test_llm_quiz_batches_one_question_and_reuses_answer_choice(monkeypatch) -> 
     questions = files[0].content["questions"]
 
     assert len(calls) == 2
-    assert questions[0]["tts"]["answerText"] == "正解は1番、リポジトリを初期化する、"
+    assert questions[0]["tts"]["answerText"] == "正解は、リポジトリを初期化する"
     assert "リポジトリを初期化する" in questions[0]["tts"]["choicesText"]
     assert "ドット ギットイグノア" in questions[0]["tts"]["choicesText"]
+    assert "番" not in questions[0]["tts"]["choicesText"]
+    assert "番" not in questions[0]["tts"]["answerText"]
     assert report.llmGeneratedIds == ["q-1", "q-2"]
+
+
+def test_rule_mode_applies_quiz_rules_and_keeps_choice_delimiters(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    files, _ = optimize_generated_files_with_report([_quiz_file()], [], mode="rule")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts["questionText"] == "ギット イニット の説明として正しいものはどれですか？"
+    assert tts["choicesText"].startswith("リポジトリを初期化する、ドット ギットイグノア を削除する、")
+    assert tts["choicesText"].endswith("データベースを作成する、")
+    assert "番" not in tts["choicesText"]
+    assert tts["answerText"] == "正解は、リポジトリを初期化する"
+    assert "番" not in tts["answerText"]
 
 
 def test_auto_quiz_reruns_only_question_with_report_issue(monkeypatch) -> None:

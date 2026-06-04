@@ -67,13 +67,13 @@ Rules:
 - Preserve the meaning and sentence order.
 - Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
 - A dot is read as "ドット" only when it is immediately followed by an ASCII letter, matching \\.[a-zA-Z].
-- Do not read sentence periods or punctuation separators as "ドット"; normalize sentence endings "。" and "." to "、".
+- Keep the original Japanese punctuation as-is. Do not convert sentence-ending "。" to "、", and do not add or remove punctuation.
+- A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
 - Do not read dots between digits as "ドット"; for example, 1.2 should be read like "いってんに".
 - If an unfamiliar dot-prefixed word or acronym appears, infer a natural katakana reading from the examples.
 
 Contrast examples:
 - .gitignore -> ドット ギットイグノア
-- 〜します。 -> 〜します、
 - 1.2 -> いってんに
 
 Pronunciation examples. Treat these as normative examples, not as the only allowed replacements:
@@ -99,13 +99,13 @@ Rules:
 - Preserve the meaning and sentence order.
 - Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
 - A dot is read as "ドット" only when it is immediately followed by an ASCII letter, matching \\.[a-zA-Z].
-- Do not read sentence periods or punctuation separators as "ドット"; normalize sentence endings "。" and "." to "、".
+- Keep the original Japanese punctuation as-is. Do not convert sentence-ending "。" to "、", and do not add or remove punctuation.
+- A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
 - Do not read dots between digits as "ドット"; for example, 1.2 should be read like "いってんに".
 - If an unfamiliar dot-prefixed word or acronym appears, infer a natural katakana reading from the examples.
 
 Contrast examples:
 - .gitignore -> ドット ギットイグノア
-- 〜します。 -> 〜します、
 - 1.2 -> いってんに
 
 Pronunciation examples. Treat these as normative examples, not as the only allowed replacements:
@@ -219,10 +219,10 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
         explanation_text = _gemini_speech_text(question.explanation, rules)
         choice_readings = [_gemini_speech_text(choice, rules) for choice in question.choices]
         choices_text = "".join(
-            f"{index + 1}番、{strip_terminal_punctuation(reading)}、"
-            for index, reading in enumerate(choice_readings)
+            f"{strip_terminal_punctuation(reading)}、"
+            for reading in choice_readings
         )
-        answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+        answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
         return QuizTts(
             questionText=question_text,
             choicesText=normalize_tts_text(choices_text),
@@ -256,10 +256,10 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
         explanation_text = question.explanation
 
     choices_text = "".join(
-        f"{index + 1}番、{strip_terminal_punctuation(reading)}、"
-        for index, reading in enumerate(choice_readings)
+        f"{strip_terminal_punctuation(reading)}、"
+        for reading in choice_readings
     )
-    answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+    answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
     return QuizTts(
         questionText=_speech_text(question_text, rules),
         choicesText=normalize_tts_text(choices_text),
@@ -479,10 +479,10 @@ def optimize_quiz_pack(
                 explanation_text = _speech_text(question.explanation, rules)
                 choice_readings = [_speech_text(choice, rules) for choice in question.choices]
                 choices_text = "".join(
-                    f"{index + 1}番、{strip_terminal_punctuation(reading)}、"
-                    for index, reading in enumerate(choice_readings)
+                    f"{strip_terminal_punctuation(reading)}、"
+                    for reading in choice_readings
                 )
-                answer_text = f"正解は{question.answerIndex + 1}番、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
+                answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
                 question.tts = QuizTts(
                     questionText=question_text,
                     choicesText=normalize_tts_text(choices_text),

@@ -65,6 +65,13 @@ def quiz_generation_prompt(
         f"- {doc.title}: " + " ".join(item.text for item in doc.documents[:5])
         for doc in source_documents
     )
+    integration_rules = ""
+    if quiz_pack.purpose == "integrated_review":
+        integration_rules = """
+- This is the integrated quiz pack. Do not create simple knowledge-check questions that can be answered within a single document.
+- Limit questions to integrated, applied, or practical scenario questions that connect multiple documents or fields.
+- Avoid repeating the same topics, angles, or issues covered by the range-specific quiz packs.
+"""
     return f"""Create one Sokqa quiz JSON from the provided document content.
 
 Rules:
@@ -83,6 +90,7 @@ Rules:
 - Do not output tts in the first quiz generation step.
 - Every question must be grounded in the source documents.
 - Do not copy existing exam questions verbatim.
+{integration_rules}
 
 Course:
 - title: {plan.title}

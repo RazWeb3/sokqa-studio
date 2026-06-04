@@ -24,4 +24,4 @@ def test_generation_logs_include_source() -> None:
     )
     logs = response.json()["logs"]
     assert any("Document doc_01" in log for log in logs)
-    assert any("Quiz quiz_key_concepts" in log for log in logs)
+    assert any("Quiz quiz_range_01" in log for log in logs)

@@ -16,7 +16,7 @@ def test_system_rules_apply_when_user_rules_missing(tmp_path, monkeypatch) -> No
     monkeypatch.setattr(settings, "tts_user_rules_path", str(missing_user_rules))
 
     rules = load_configured_tts_rules()
-    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します、"
+    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します"
 
 
 def test_user_rules_override_system_rules(tmp_path, monkeypatch) -> None:
@@ -30,7 +30,7 @@ def test_user_rules_override_system_rules(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "tts_user_rules_path", str(user_rules))
 
     rules = load_configured_tts_rules()
-    assert _speech_text("git init を実行します", rules) == "ジット イニット を実行します、"
+    assert _speech_text("git init を実行します", rules) == "ジット イニット を実行します"
 
 
 def test_empty_user_rules_keep_system_rules(tmp_path, monkeypatch) -> None:
@@ -44,7 +44,7 @@ def test_empty_user_rules_keep_system_rules(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "tts_user_rules_path", str(user_rules))
 
     rules = load_configured_tts_rules()
-    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します、"
+    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します"
 
 
 def test_plan_rules_override_user_and_system_rules(tmp_path, monkeypatch) -> None:
@@ -58,7 +58,7 @@ def test_plan_rules_override_user_and_system_rules(tmp_path, monkeypatch) -> Non
     monkeypatch.setattr(settings, "tts_user_rules_path", str(user_rules))
 
     rules = _combined_rules([TtsRule(source="git init", reading="ジーアイティー イニット")])
-    assert _speech_text("git init を実行します", rules) == "ジーアイティー イニット を実行します、"
+    assert _speech_text("git init を実行します", rules) == "ジーアイティー イニット を実行します"
 
 
 def test_enable_tts_optimize_false_keeps_tts_absent() -> None:
@@ -100,7 +100,7 @@ def test_replacement_prefers_longer_sources_for_git_commands() -> None:
         TtsRule(source="git", reading="ギット"),
         TtsRule(source="git init", reading="ギット イニット"),
     ]
-    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します、"
+    assert _speech_text("git init を実行します", rules) == "ギット イニット を実行します"
 
 
 def test_replacement_prefers_longer_sources_for_dot_git_words() -> None:
@@ -110,22 +110,22 @@ def test_replacement_prefers_longer_sources_for_dot_git_words() -> None:
         TtsRule(source=".gitattributes", reading="ドット ギットアトリビューツ"),
     ]
     text = _speech_text(".gitignore と .gitattributes と .git を確認します", rules)
-    assert text == "ドット ギットイグノア と ドット ギットアトリビューツ と ドット ギット を確認します、"
+    assert text == "ドット ギットイグノア と ドット ギットアトリビューツ と ドット ギット を確認します"
 
 
 def test_system_dictionary_dot_words_and_extensions() -> None:
     rules = load_configured_tts_rules()
     text = _speech_text(".git .env .gitignore config.json file.yaml file.yml", rules)
-    assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア configドット ジェイソン file.yaml file.yml、"
+    assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア configドット ジェイソン file.yaml file.yml"
 
 
 def test_system_dictionary_japanese_fixed_reading() -> None:
     rules = load_configured_tts_rules()
     text = _speech_text("設定値を確認します", rules)
-    assert text == "せっていちを確認します、"
+    assert text == "せっていちを確認します"
 
 
 def test_json_casing_rules_are_separate() -> None:
     rules = load_configured_tts_rules()
     text = _speech_text("JSON と config.json と json を確認します", rules)
-    assert text == "ジェイソン と configドット ジェイソン と json を確認します、"
+    assert text == "ジェイソン と configドット ジェイソン と json を確認します"

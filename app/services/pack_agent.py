@@ -18,6 +18,21 @@ from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
 
 
+def _document_packs_for_quiz(plan, quiz_pack, document_packs):
+    if not quiz_pack.sourceDocumentIds:
+        return document_packs
+    packs_by_document_id = {
+        document.id: document_pack
+        for document, document_pack in zip(plan.documents, document_packs)
+    }
+    selected = [
+        packs_by_document_id[document_id]
+        for document_id in quiz_pack.sourceDocumentIds
+        if document_id in packs_by_document_id
+    ]
+    return selected or document_packs
+
+
 def plan_pack(request: PlanPackRequest):
     models = resolve_task_models(request=request)
     plan = create_course_plan(request, model=models.planner)
@@ -47,7 +62,15 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs.extend(event.message for event in pop_generation_events())
 
     logs.append("Generating Quizzes from Documents")
-    quiz_packs = [generate_quiz_pack(plan, quiz_pack, document_packs, model=models.quiz) for quiz_pack in plan.quizPacks]
+    quiz_packs = [
+        generate_quiz_pack(
+            plan,
+            quiz_pack,
+            _document_packs_for_quiz(plan, quiz_pack, document_packs),
+            model=models.quiz,
+        )
+        for quiz_pack in plan.quizPacks
+    ]
     logs.extend(event.message for event in pop_generation_events())
 
     files = build_generated_files(document_packs, quiz_packs)

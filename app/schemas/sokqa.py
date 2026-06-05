@@ -78,6 +78,7 @@ class SokqaDocumentPack(BaseModel):
 
 class QuizTts(BaseModel):
     questionText: str | None = None
+    choiceTexts: list[str] | None = None
     choicesText: str | None = None
     answerText: str | None = None
     explanationText: str | None = None

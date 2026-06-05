@@ -12,7 +12,7 @@ from app.schemas.sokqa import (
     TtsReportItem,
 )
 from app.services.gemini_client import GeminiClient
-from app.services.tts_text import normalize_tts_text, strip_terminal_punctuation
+from app.services.tts_text import normalize_tts_text, strip_choice_separator
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
 
@@ -180,7 +180,14 @@ def _gemini_document_speech_map(entries: list[tuple[str, str]], rules: list[TtsR
     return readings
 
 
-def _tts_quiz_question_prompt(question_id: str, question: str, choices: list[str], explanation: str, rules: list[TtsRule]) -> str:
+def _tts_quiz_question_prompt(
+    question_id: str,
+    question: str,
+    choices: list[str],
+    explanation: str,
+    rules: list[TtsRule],
+    language: str = "ja",
+) -> str:
     choices_text = "\n".join(f"- index: {index}\n  text: {choice}" for index, choice in enumerate(choices))
     return f"""
 Return strict JSON only. Do not use markdown fences.
@@ -188,6 +195,16 @@ Return strict JSON only. Do not use markdown fences.
 Create Sokqa TTS reading texts for one fixed quiz question.
 
 {_tts_reading_rules_block(rules)}
+
+Quiz punctuation rules:
+- Keep questionText and explanationText punctuation as natural speech cues. Do not remove sentence-final "?", "？", "!", "！", "." or Japanese punctuation.
+- Choice readings are independent tracks. Do not add trailing separator commas to choice texts, but keep meaningful final ".", "?", "？", "!", and "！".
+
+Language tag rules:
+- The scenario default language is "{language}". Default-language text should not start with a language tag.
+- Add a tag such as [ja-JP] or [en-US] only when a span switches to a non-default language.
+- Add the default-language tag only when returning from a non-default language to the default language.
+- A text item may end while still in a non-default language; the next item starts in the default language automatically.
 
 Question id: {question_id}
 Question text:
@@ -220,6 +237,11 @@ def _quiz_question_char_count(question) -> int:
     return len(question.id) + len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
 
 
+def _choice_texts_match_source(question, choice_texts: list[str], rules: list[TtsRule]) -> bool:
+    source_texts = [normalize_tts_text(_apply_rule_replacements(choice, rules)) for choice in question.choices]
+    return choice_texts == source_texts
+
+
 def _quiz_tts_from_readings(
     question,
     question_text: str,
@@ -227,15 +249,20 @@ def _quiz_tts_from_readings(
     explanation_text: str,
     rules: list[TtsRule],
 ) -> QuizTts:
-    choices_text = "".join(
-        f"{strip_terminal_punctuation(reading)}、"
+    choice_texts = [
+        normalize_tts_text(strip_choice_separator(reading))
         for reading in choice_readings
+    ]
+    choice_texts_output = None if _choice_texts_match_source(question, choice_texts, rules) else choice_texts
+    choices_text = "".join(
+        f"{choice_text}、"
+        for choice_text in choice_texts
     )
-    answer_text = f"正解は、{strip_terminal_punctuation(choice_readings[question.answerIndex])}"
     return QuizTts(
         questionText=_speech_text(question_text, rules),
+        choiceTexts=choice_texts_output,
         choicesText=normalize_tts_text(choices_text),
-        answerText=normalize_tts_text(answer_text),
+        answerText=None,
         explanationText=_speech_text(explanation_text, rules),
     )
 
@@ -250,7 +277,7 @@ def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
     )
 
 
-def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
+def _gemini_quiz_question_tts(question, rules: list[TtsRule], language: str = "ja") -> QuizTts:
     total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
     if total_chars > MAX_TTS_BATCH_CHARS:
         question_text = _gemini_speech_text(question.question, rules)
@@ -259,7 +286,7 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
         return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
 
     data = GeminiClient().generate_json(
-        _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules)
+        _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules, language)
     )
     question_text = data.get("questionText", "")
     explanation_text = data.get("explanationText", "")
@@ -286,7 +313,7 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
     return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
 
 
-def _tts_batch_quiz_prompt(questions, rules: list[TtsRule]) -> str:
+def _tts_batch_quiz_prompt(questions, rules: list[TtsRule], language: str = "ja") -> str:
     questions_text = "\n\n".join(
         "\n".join(
             [
@@ -305,6 +332,16 @@ Return strict JSON only. Do not use markdown fences.
 Create Sokqa TTS reading texts for the fixed quiz questions.
 
 {_tts_reading_rules_block(rules)}
+
+Quiz punctuation rules:
+- Keep questionText and explanationText punctuation as natural speech cues. Do not remove sentence-final "?", "？", "!", "！", "." or Japanese punctuation.
+- Choice readings are independent tracks. Do not add trailing separator commas to choice texts, but keep meaningful final ".", "?", "？", "!", and "！".
+
+Language tag rules:
+- The scenario default language is "{language}". Default-language text should not start with a language tag.
+- Add a tag such as [ja-JP] or [en-US] only when a span switches to a non-default language.
+- Add the default-language tag only when returning from a non-default language to the default language.
+- A text item may end while still in a non-default language; the next item starts in the default language automatically.
 
 Questions:
 {questions_text}
@@ -360,15 +397,15 @@ def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_BATCH_CHARS):
     return [[questions_by_id[entry_id] for entry_id, _ in chunk] for chunk in chunks]
 
 
-def _gemini_quiz_tts_map(questions, rules: list[TtsRule]) -> dict[str, QuizTts]:
+def _gemini_quiz_tts_map(questions, rules: list[TtsRule], language: str = "ja") -> dict[str, QuizTts]:
     readings: dict[str, QuizTts] = {}
     for chunk in _chunk_quiz_questions(questions):
         if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
             question = chunk[0]
-            readings[question.id] = _gemini_quiz_question_tts(question, rules)
+            readings[question.id] = _gemini_quiz_question_tts(question, rules, language)
             continue
 
-        data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules))
+        data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules, language))
         items = data.get("items", [])
         if not isinstance(items, list):
             items = []
@@ -519,6 +556,10 @@ def validate_tts_file(file: GeneratedFile) -> list[TtsReportItem]:
                 value = getattr(question.tts, field_name)
                 if value:
                     issues.extend(_field_issues(file.name, question.id, field_name, source, value))
+            if question.tts.choiceTexts:
+                for index, value in enumerate(question.tts.choiceTexts):
+                    if value:
+                        issues.extend(_field_issues(file.name, question.id, f"choiceTexts.{index}", source, value))
     return issues
 
 
@@ -588,7 +629,7 @@ def optimize_quiz_pack(
     llm_readings: dict[str, QuizTts] = {}
     if active_mode == "llm":
         selected_questions = [question for question in pack.questions if question.id in selected_ids]
-        llm_readings = _gemini_quiz_tts_map(selected_questions, rules)
+        llm_readings = _gemini_quiz_tts_map(selected_questions, rules, pack.language)
         llm_ids.extend(question.id for question in selected_questions)
     for question in pack.questions:
         question.tags = None
@@ -623,7 +664,7 @@ def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: 
             for question in pack.questions
             if question.id in issue_item_ids and question.tts
         ]
-        readings = _gemini_quiz_tts_map(selected_questions, combined)
+        readings = _gemini_quiz_tts_map(selected_questions, combined, pack.language)
         llm_ids.extend(question.id for question in selected_questions)
         for question in pack.questions:
             if question.id not in issue_item_ids or not question.tts:

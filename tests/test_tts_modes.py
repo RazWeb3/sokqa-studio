@@ -1,6 +1,6 @@
 from app.config import get_settings
 from app.schemas.common import TtsRule
-from app.schemas.sokqa import GeneratedFile
+from app.schemas.sokqa import GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import _tts_reading_prompt, _tts_reading_rules_block, optimize_generated_files_with_report, validate_tts_files
 
@@ -128,6 +128,34 @@ def _plain_quiz_file() -> GeneratedFile:
     )
 
 
+def _ai_quiz_file() -> GeneratedFile:
+    return GeneratedFile(
+        name="ai_quiz_integrated_review.json",
+        kind="quiz",
+        content={
+            "id": "ai_quiz_integrated_review",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "AI総合・応用クイズ",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-20",
+                    "question": "AI 活用で最も適切な対応はどれですか?",
+                    "choices": [
+                        "AIの提案を業務要件と照合する",
+                        "AIの出力を無条件に採用する",
+                        "記録を残さずAIだけで判断する",
+                        "担当者に確認する",
+                    ],
+                    "answerIndex": 0,
+                    "explanation": "AI の出力は業務要件や責任分担と照らして確認します。",
+                }
+            ],
+        },
+    )
+
+
 def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
@@ -163,6 +191,11 @@ def test_llm_prompt_keeps_original_punctuation_instruction() -> None:
         assert 'A period "." between digits or inside numbers/codes must stay as the source; do not convert it.' in text
         assert 'normalize sentence endings "。" and "." to "、"' not in text
         assert "〜します。 -> 〜します、" not in text
+
+
+def test_quiz_tts_schema_keeps_answer_text_but_removes_choices_text() -> None:
+    assert "answerText" in QuizTts.model_fields
+    assert "choicesText" not in QuizTts.model_fields
 
 
 def test_llm_mode_generates_kana_for_unknown_dot_words_and_keeps_core_rules(monkeypatch) -> None:
@@ -287,7 +320,7 @@ def test_llm_quiz_batches_questions_and_reuses_answer_choice(monkeypatch) -> Non
                     "id": "q-1",
                     "questionText": "ギット イニット の説明として正しいものはどれですか？",
                     "choices": [
-                        {"index": 0, "text": "リポジトリを初期化する"},
+                        {"index": 0, "text": "リポジトリをしょきかする"},
                         {"index": 1, "text": "ドット ギットイグノア を削除する"},
                         {"index": 2, "text": "せっていちを表示する"},
                         {"index": 3, "text": "データベースを作成する"},
@@ -318,9 +351,9 @@ def test_llm_quiz_batches_questions_and_reuses_answer_choice(monkeypatch) -> Non
     assert "- id: q-1" in calls[0]
     assert "- id: q-2" in calls[0]
     assert questions[0]["tts"].get("answerText") is None
-    assert "リポジトリを初期化する" in questions[0]["tts"]["choicesText"]
-    assert "ドット ギットイグノア" in questions[0]["tts"]["choicesText"]
-    assert "番" not in questions[0]["tts"]["choicesText"]
+    assert "choicesText" not in questions[0]["tts"]
+    assert questions[0]["tts"]["choiceTexts"][0] == "リポジトリをしょきかする"
+    assert questions[0]["tts"]["choiceTexts"][1] == "ドット ギットイグノア を削除する"
     assert "answerText" not in questions[0]["tts"]
     assert report.llmGeneratedIds == ["q-1", "q-2"]
 
@@ -342,7 +375,7 @@ def test_llm_quiz_uses_chunk_count_instead_of_question_count(monkeypatch) -> Non
                     "id": question_id,
                     "questionText": f"ギット イニット の確認問題 {index} ですか？",
                     "choices": [
-                        {"index": 0, "text": "リポジトリを初期化する"},
+                        {"index": 0, "text": f"リポジトリをしょきかする {index}"},
                         {"index": 1, "text": "ドット ギットイグノア を削除する"},
                         {"index": 2, "text": "せっていちを表示する"},
                         {"index": 3, "text": "データベースを作成する"},
@@ -361,10 +394,11 @@ def test_llm_quiz_uses_chunk_count_instead_of_question_count(monkeypatch) -> Non
     assert len(calls) == 1
     assert len(calls) < len(questions)
     assert all(question["tts"]["questionText"] for question in questions)
-    assert all(question["tts"]["choicesText"] for question in questions)
+    assert all("choicesText" not in question["tts"] for question in questions)
+    assert all(question["tts"]["choiceTexts"] for question in questions)
     assert all(question["tts"].get("answerText") is None for question in questions)
     assert all(question["tts"]["explanationText"] for question in questions)
-    assert all("番" not in question["tts"]["choicesText"] for question in questions)
+    assert all("番" not in "".join(question["tts"]["choiceTexts"]) for question in questions)
     assert all("answerText" not in question["tts"] for question in questions)
     assert report.llmGeneratedIds == sorted(f"q-{index}" for index in range(1, 13))
 
@@ -396,8 +430,8 @@ def test_llm_quiz_omits_choice_texts_when_choices_match_source(monkeypatch) -> N
     tts = files[0].content["questions"][0]["tts"]
 
     assert "choiceTexts" not in tts
+    assert "choicesText" not in tts
     assert tts.get("answerText") is None
-    assert tts["choicesText"] == "保存します、確認します、終了します、開始します、"
     assert tts["questionText"].endswith("?")
     assert tts["explanationText"].endswith(".")
 
@@ -430,7 +464,7 @@ def test_llm_quiz_outputs_choice_texts_and_preserves_meaningful_punctuation_and_
     tts = files[0].content["questions"][0]["tts"]
 
     assert tts["choiceTexts"] == ["[en-US]Save it", "OK.", "続けます?", "本当です？"]
-    assert tts["choicesText"] == "[en-US]Save it、OK.、続けます?、本当です？、"
+    assert "choicesText" not in tts
     assert tts["questionText"].endswith("?")
     assert tts["explanationText"] == "[en-US]Save it? [ja-JP]を選びます."
     assert tts.get("answerText") is None
@@ -469,7 +503,7 @@ def test_llm_quiz_falls_back_to_rules_when_batch_response_omits_question(monkeyp
     assert questions[1]["tts"]["questionText"] == "ドット ギットconfig を確認する理由は何ですか？"
     assert "ドット ギットconfig" in questions[1]["tts"]["questionText"]
     assert questions[1]["tts"].get("answerText") is None
-    assert "番" not in questions[1]["tts"]["choicesText"]
+    assert "choicesText" not in questions[1]["tts"]
     assert "answerText" not in questions[1]["tts"]
     assert report.llmGeneratedIds == ["q-1", "q-2"]
 
@@ -482,15 +516,69 @@ def test_rule_mode_applies_quiz_rules_and_keeps_choice_delimiters(monkeypatch) -
     tts = files[0].content["questions"][0]["tts"]
 
     assert tts["questionText"] == "ギット イニット の説明として正しいものはどれですか？"
-    assert tts["choicesText"].startswith("リポジトリを初期化する、ドット ギットイグノア を削除する、")
-    assert tts["choicesText"].endswith("データベースを作成する、")
-    assert "番" not in tts["choicesText"]
+    assert "choicesText" not in tts
+    assert tts["choiceTexts"][1] == "ドット ギットイグノア を削除する"
     assert tts.get("answerText") is None
     assert "answerText" not in tts
-    assert "choiceTexts" not in tts
 
 
-def test_rule_mode_outputs_choice_texts_when_choice_separators_are_removed(monkeypatch) -> None:
+def test_rule_mode_outputs_choice_texts_when_choice_rule_changes_reading(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    rules = [TtsRule(source="AI", reading="エーアイ")]
+
+    files, _ = optimize_generated_files_with_report([_ai_quiz_file()], rules, mode="rule")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts["choiceTexts"] == [
+        "エーアイの提案を業務要件と照合する",
+        "エーアイの出力を無条件に採用する",
+        "記録を残さずエーアイだけで判断する",
+        "担当者に確認する",
+    ]
+    assert "choicesText" not in tts
+    assert tts.get("answerText") is None
+
+
+def test_llm_batch_outputs_choice_texts_when_choice_reading_differs_from_source(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    rules = [TtsRule(source="AI", reading="エーアイ")]
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert "- id: q-20" in prompt
+        return {
+            "items": [
+                {
+                    "id": "q-20",
+                    "questionText": "エーアイ 活用で最も適切な対応はどれですか?",
+                    "choices": [
+                        {"index": 0, "text": "エーアイの提案を業務要件と照合する"},
+                        {"index": 1, "text": "エーアイの出力を無条件に採用する"},
+                        {"index": 2, "text": "記録を残さずエーアイだけで判断する"},
+                        {"index": 3, "text": "担当者に確認する"},
+                    ],
+                    "explanationText": "エーアイ の出力は業務要件や責任分担と照らして確認します。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_ai_quiz_file()], rules, mode="llm")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts["choiceTexts"] == [
+        "エーアイの提案を業務要件と照合する",
+        "エーアイの出力を無条件に採用する",
+        "記録を残さずエーアイだけで判断する",
+        "担当者に確認する",
+    ]
+    assert "choicesText" not in tts
+    assert tts.get("answerText") is None
+
+
+def test_rule_mode_omits_choice_texts_when_only_choice_separators_differ(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     file = GeneratedFile(
@@ -519,8 +607,8 @@ def test_rule_mode_outputs_choice_texts_when_choice_separators_are_removed(monke
 
     assert tts["questionText"].endswith("?")
     assert tts["explanationText"].endswith("?")
-    assert tts["choiceTexts"] == ["保存します", "OK.", "続けます?", "本当です？"]
-    assert tts["choicesText"] == "保存します、OK.、続けます?、本当です？、"
+    assert "choiceTexts" not in tts
+    assert "choicesText" not in tts
     assert tts.get("answerText") is None
 
 

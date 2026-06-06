@@ -237,8 +237,11 @@ def _quiz_question_char_count(question) -> int:
     return len(question.id) + len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
 
 
-def _choice_texts_match_source(question, choice_texts: list[str], rules: list[TtsRule]) -> bool:
-    source_texts = [normalize_tts_text(_apply_rule_replacements(choice, rules)) for choice in question.choices]
+def _choice_texts_match_source(question, choice_texts: list[str]) -> bool:
+    source_texts = [
+        normalize_tts_text(strip_choice_separator(choice))
+        for choice in question.choices
+    ]
     return choice_texts == source_texts
 
 
@@ -253,15 +256,10 @@ def _quiz_tts_from_readings(
         normalize_tts_text(strip_choice_separator(reading))
         for reading in choice_readings
     ]
-    choice_texts_output = None if _choice_texts_match_source(question, choice_texts, rules) else choice_texts
-    choices_text = "".join(
-        f"{choice_text}、"
-        for choice_text in choice_texts
-    )
+    choice_texts_output = None if _choice_texts_match_source(question, choice_texts) else choice_texts
     return QuizTts(
         questionText=_speech_text(question_text, rules),
         choiceTexts=choice_texts_output,
-        choicesText=normalize_tts_text(choices_text),
         answerText=None,
         explanationText=_speech_text(explanation_text, rules),
     )
@@ -552,7 +550,7 @@ def validate_tts_file(file: GeneratedFile) -> list[TtsReportItem]:
             if not question.tts:
                 continue
             source = " ".join([question.question, *question.choices, question.explanation])
-            for field_name in ["questionText", "choicesText", "answerText", "explanationText"]:
+            for field_name in ["questionText", "answerText", "explanationText"]:
                 value = getattr(question.tts, field_name)
                 if value:
                     issues.extend(_field_issues(file.name, question.id, field_name, source, value))

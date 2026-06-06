@@ -234,6 +234,58 @@ def test_llm_mode_omits_document_tts_when_reading_matches_source(monkeypatch) ->
     assert "tts" not in doc
 
 
+def test_llm_mode_omits_matching_document_tts_and_keeps_changed_document_tts(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_mixed.json",
+        kind="document",
+        content={
+            "id": "pack_doc_mixed",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "混在文書",
+            "language": "ja",
+            "documents": [
+                {
+                    "id": "doc-plain",
+                    "text": "保存する操作を確認します。",
+                },
+                {
+                    "id": "doc-ai",
+                    "text": "AI の出力を確認します。",
+                },
+            ],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "doc-plain",
+                    "text": "保存する操作を確認します。",
+                },
+                {
+                    "id": "doc-ai",
+                    "text": "エーアイ の出力を確認します。",
+                },
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report(
+        [file],
+        [TtsRule(source="AI", reading="エーアイ")],
+        mode="llm",
+    )
+    docs = files[0].content["documents"]
+
+    assert "tts" not in docs[0]
+    assert docs[1]["tts"]["text"] == "エーアイ の出力を確認します。"
+
+
 def test_llm_prompt_keeps_original_punctuation_instruction() -> None:
     prompt = _tts_reading_prompt("確認します。", [])
     rules_block = _tts_reading_rules_block([])

@@ -24,6 +24,10 @@ class PlanQuizPack(BaseModel):
 
 class CoursePlan(BaseModel):
     id: str
+    creatorId: str | None = None
+    creatorDisplayName: str | None = None
+    contentId: str | None = None
+    slug: str | None = None
     title: str
     description: str
     language: str = "ja"
@@ -128,11 +132,22 @@ class ManifestItem(BaseModel):
     url: str
 
 
+class ManifestCreator(BaseModel):
+    id: str
+    displayName: str | None = None
+
+
 class PackManifest(BaseModel):
     id: str
     type: Literal["pack_manifest"] = "pack_manifest"
     schemaVersion: int = 1
-    title: str
+    contentId: str | None = None
+    slug: str | None = None
+    versionId: str | None = None
+    buildId: str | None = None
+    generatedAt: str | None = None
+    creator: ManifestCreator | None = None
+    title: str | None = None
     description: str = ""
     language: str = "ja"
     author: str | None = "Sokqa Team"

@@ -6,6 +6,7 @@ from app.services.exporter import build_generated_files, build_manifest
 from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
 from app.services.model_resolver import resolve_task_models
+from app.services.pack_metadata import build_pack_metadata, resolve_plan_identity
 from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
@@ -36,6 +37,7 @@ def _document_packs_for_quiz(plan, quiz_pack, document_packs):
 def plan_pack(request: PlanPackRequest):
     models = resolve_task_models(request=request)
     plan = create_course_plan(request, model=models.planner)
+    plan = resolve_plan_identity(plan)
     plan.model = request.model
     plan.docModel = request.docModel or request.model
     plan.quizModel = request.quizModel or request.model
@@ -45,7 +47,27 @@ def plan_pack(request: PlanPackRequest):
 
 def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs: list[str] = ["Planning"]
-    plan = request.plan
+    plan = resolve_plan_identity(
+        request.plan.model_copy(
+            update={
+                key: value
+                for key, value in {
+                    "creatorId": request.creatorId,
+                    "creatorDisplayName": request.creatorDisplayName,
+                    "contentId": request.contentId,
+                    "slug": request.slug,
+                }.items()
+                if value is not None
+            }
+        )
+    )
+    metadata = build_pack_metadata(
+        plan,
+        creator_id=request.creatorId,
+        creator_display_name=request.creatorDisplayName,
+        content_id=request.contentId,
+        slug=request.slug,
+    )
     source_text, source_mode = normalize_source(
         request.sourceText if request.sourceText is not None else plan.sourceText,
         request.sourceMode if request.sourceMode is not None else plan.sourceMode,
@@ -97,28 +119,27 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
 
     if request.persist:
         logs.append("Persisting generated files")
-        files = StorageClient().save_files(plan.id, files)
+        files = StorageClient().save_files(plan.id, files, metadata.storage_prefix)
         logs.extend(event.message for event in pop_storage_events())
     else:
         base_url = get_settings().public_base_url.rstrip("/")
         for file in files:
-            file.url = f"{base_url}/{plan.id}/{file.name}"
+            file.url = f"{base_url}/{metadata.storage_prefix}/{file.name}"
 
     logs.append("Exporting Manifest")
-    manifest = build_manifest(plan, files)
+    manifest = build_manifest(plan, files, metadata)
     manifest_file = GeneratedFile(
         name="manifest.json",
         kind="manifest",
         content=manifest.model_dump(exclude_none=True),
     )
     if request.persist:
-        manifest_file = StorageClient().save_files(plan.id, [manifest_file])[0]
+        manifest_file = StorageClient().save_files(plan.id, [manifest_file], metadata.storage_prefix)[0]
         logs.extend(event.message for event in pop_storage_events())
-        manifest.items = [
-            item.model_copy(update={"url": file.url or item.url})
-            for item, file in zip(manifest.items, [f for f in files if f.kind in {"document", "quiz"}])
-        ]
         manifest_file.content = manifest.model_dump(exclude_none=True)
+    else:
+        base_url = get_settings().public_base_url.rstrip("/")
+        manifest_file.url = f"{base_url}/{metadata.storage_prefix}/{manifest_file.name}"
     files.append(manifest_file)
 
     validation = validate_files(files, manifest)
@@ -143,7 +164,8 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     if not existing:
         raise ValueError("job not found")
 
-    plan = existing.plan.model_copy(deep=True)
+    plan = resolve_plan_identity(existing.plan.model_copy(deep=True))
+    metadata = build_pack_metadata(plan)
     plan.version = bump_patch(plan.version)
     plan.ttsRules.extend(request.ttsRules)
 
@@ -157,15 +179,15 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     logs = [*existing.logs, "Revising TTS", "Optimizing TTS"]
     if request.persist:
         logs.append("Uploading to Cloud Storage")
-        optimized_files = StorageClient().save_files(plan.id, optimized_files)
+        optimized_files = StorageClient().save_files(plan.id, optimized_files, metadata.storage_prefix)
         logs.extend(event.message for event in pop_storage_events())
     else:
         base_url = get_settings().public_base_url.rstrip("/")
         for file in optimized_files:
-            file.url = f"{base_url}/{plan.id}/{file.name}"
+            file.url = f"{base_url}/{metadata.storage_prefix}/{file.name}"
 
     logs.append("Exporting Manifest")
-    manifest = build_manifest(plan, optimized_files)
+    manifest = build_manifest(plan, optimized_files, metadata)
     manifest.version = plan.version
     manifest_file = GeneratedFile(
         name="manifest.json",
@@ -173,8 +195,11 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         content=manifest.model_dump(exclude_none=True),
     )
     if request.persist:
-        manifest_file = StorageClient().save_files(plan.id, [manifest_file])[0]
+        manifest_file = StorageClient().save_files(plan.id, [manifest_file], metadata.storage_prefix)[0]
         logs.extend(event.message for event in pop_storage_events())
+    else:
+        base_url = get_settings().public_base_url.rstrip("/")
+        manifest_file.url = f"{base_url}/{metadata.storage_prefix}/{manifest_file.name}"
     optimized_files.append(manifest_file)
 
     validation = validate_files(optimized_files, manifest)

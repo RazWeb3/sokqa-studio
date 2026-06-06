@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
 
+from app.config import get_settings
+from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.schemas.sokqa import CoursePlan, PackManifest
+from app.services.pack_agent import generate_pack, plan_pack
+from app.services.pack_metadata import build_pack_metadata
 from main import app
 
 
@@ -73,6 +77,112 @@ def test_quick_plan_and_generate() -> None:
     assert _kind_count(generated["manifest"]["items"], "document") == document_count
     assert _kind_count(generated["manifest"]["items"], "quiz") == quiz_count
     assert len(generated["files"]) == len(generated["manifest"]["items"]) + 1
+
+
+def test_creator_id_resolution_request_env_and_default(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "default_creator_id", "creator_env")
+
+    request_plan = plan_pack(
+        PlanPackRequest(
+            theme="Creator Request",
+            targetUser="Learners",
+            creatorId="creator_request",
+        )
+    )
+    assert request_plan.creatorId == "creator_request"
+
+    env_plan = plan_pack(PlanPackRequest(theme="Creator Env", targetUser="Learners"))
+    assert env_plan.creatorId == "creator_env"
+
+    monkeypatch.setattr(settings, "default_creator_id", "")
+    default_plan = plan_pack(PlanPackRequest(theme="Creator Default", targetUser="Learners"))
+    assert default_plan.creatorId == "creator_default"
+
+
+def test_manifest_identity_and_storage_path_for_generated_pack(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "https://cdn.convly.jp")
+    monkeypatch.setattr(settings, "gcs_prefix", "sokqa")
+
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="IT Passport",
+            targetUser="Learners",
+            creatorId="creator_8f3a2c9d",
+            creatorDisplayName="Demo Creator",
+            contentId="cnt_8f3a2c9d7e",
+            slug="it-passport-basic",
+            scale="quick",
+        )
+    )
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    manifest = generated.manifest
+
+    assert manifest.id == "cnt_8f3a2c9d7e_manifest"
+    assert manifest.contentId == "cnt_8f3a2c9d7e"
+    assert manifest.slug == "it-passport-basic"
+    assert manifest.creator
+    assert manifest.creator.id == "creator_8f3a2c9d"
+    assert manifest.creator.displayName == "Demo Creator"
+    assert manifest.versionId
+    assert manifest.versionId.startswith("v")
+    assert manifest.buildId == manifest.versionId.replace("v", "build_", 1)
+    assert manifest.generatedAt
+    assert manifest.generatedAt.endswith("+09:00")
+
+    expected_prefix = f"https://cdn.convly.jp/sokqa/creators/creator_8f3a2c9d/packs/cnt_8f3a2c9d7e/versions/{manifest.versionId}"
+    manifest_file = next(file for file in generated.files if file.kind == "manifest")
+    assert manifest_file.url == f"{expected_prefix}/manifest.json"
+    assert all(item.url.startswith(f"{expected_prefix}/") for item in manifest.items)
+
+
+def test_legacy_gcs_prefix_is_normalized_to_production_storage_path(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gcs_prefix", "sokqa/packs")
+
+    plan = CoursePlan.model_validate(
+        {
+            "id": "pack",
+            "creatorId": "creator_demo",
+            "contentId": "cnt_demo",
+            "slug": "demo-pack",
+            "title": "Demo",
+            "description": "Demo",
+            "targetUser": "Learners",
+            "difficulty": "beginner",
+            "documents": [],
+            "quizPacks": [],
+        }
+    )
+    metadata = build_pack_metadata(plan)
+
+    assert metadata.storage_prefix == f"sokqa/creators/creator_demo/packs/cnt_demo/versions/{metadata.version_id}"
+
+
+def test_same_content_id_generates_distinct_version_paths(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "https://cdn.convly.jp")
+    monkeypatch.setattr(settings, "gcs_prefix", "sokqa")
+
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="Cache Check",
+            targetUser="Learners",
+            creatorId="creator_demo",
+            contentId="cnt_cache_check",
+            slug="cache-check",
+            scale="quick",
+        )
+    )
+
+    first = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    second = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+
+    assert first.manifest.contentId == second.manifest.contentId == "cnt_cache_check"
+    assert first.manifest.slug == second.manifest.slug == "cache-check"
+    assert first.manifest.versionId != second.manifest.versionId
+    assert first.files[-1].url != second.files[-1].url
 
 
 def test_standard_plan_shape() -> None:

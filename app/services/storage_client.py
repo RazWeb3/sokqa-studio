@@ -15,13 +15,14 @@ class StorageClient:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def save_files(self, pack_id: str, files: list[GeneratedFile]) -> list[GeneratedFile]:
+    def save_files(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         if self.settings.storage_backend == "gcs":
-            return self._save_gcs(pack_id, files)
-        return self._save_local(pack_id, files)
+            return self._save_gcs(pack_id, files, storage_prefix)
+        return self._save_local(pack_id, files, storage_prefix)
 
-    def _save_local(self, pack_id: str, files: list[GeneratedFile]) -> list[GeneratedFile]:
-        base_dir = Path.cwd() / self.settings.local_storage_dir / pack_id
+    def _save_local(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
+        relative_prefix = (storage_prefix or pack_id).strip("/")
+        base_dir = Path.cwd() / self.settings.local_storage_dir / relative_prefix
         storage_available = ensure_dir(base_dir)
         if not storage_available and base_dir.exists() and base_dir.is_dir():
             storage_available = True
@@ -42,25 +43,25 @@ class StorageClient:
                     storage_available = False
             else:
                 record_storage_event(f"local save skipped: {file.name}: storage unavailable")
-            file.url = f"{base_url}/{pack_id}/{file.name}"
+            file.url = f"{base_url}/{relative_prefix}/{file.name}"
         return files
 
-    def _save_gcs(self, pack_id: str, files: list[GeneratedFile]) -> list[GeneratedFile]:
+    def _save_gcs(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         if not self.settings.gcs_bucket:
             raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
         client = storage.Client()
         bucket = client.bucket(self.settings.gcs_bucket)
-        prefix = self.settings.gcs_prefix.strip("/")
+        prefix = (storage_prefix or f"{self.settings.gcs_prefix.strip('/')}/{pack_id}").strip("/")
         public_base = self.settings.public_base_url.rstrip("/")
         for file in files:
-            blob_name = f"{prefix}/{pack_id}/{file.name}"
+            blob_name = f"{prefix}/{file.name}"
             blob = bucket.blob(blob_name)
             blob.upload_from_string(
                 json.dumps(file.content, ensure_ascii=False, indent=2),
                 content_type="application/json; charset=utf-8",
             )
             record_storage_event(f"gcs saved: {blob_name}")
-            file.url = f"{public_base}/{pack_id}/{file.name}"
+            file.url = f"{public_base}/{prefix}/{file.name}"
         return files
 
 

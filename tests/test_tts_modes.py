@@ -128,6 +128,26 @@ def _plain_quiz_file() -> GeneratedFile:
     )
 
 
+def _plain_doc_file() -> GeneratedFile:
+    return GeneratedFile(
+        name="doc_plain.json",
+        kind="document",
+        content={
+            "id": "pack_doc_plain",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "通常文書",
+            "language": "ja",
+            "documents": [
+                {
+                    "id": "doc-plain",
+                    "text": "保存する操作を確認します。",
+                }
+            ],
+        },
+    )
+
+
 def _ai_quiz_file() -> GeneratedFile:
     return GeneratedFile(
         name="ai_quiz_integrated_review.json",
@@ -180,6 +200,38 @@ def test_rule_mode_applies_document_rules_without_extra_punctuation_conversion(m
     docs = files[0].content["documents"]
 
     assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します。"
+
+
+def test_rule_mode_omits_document_tts_when_reading_matches_source(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    files, _ = optimize_generated_files_with_report([_plain_doc_file()], [], mode="rule")
+    doc = files[0].content["documents"][0]
+
+    assert "tts" not in doc
+
+
+def test_llm_mode_omits_document_tts_when_reading_matches_source(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "doc-plain",
+                    "text": "保存する操作を確認します。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_plain_doc_file()], [], mode="llm")
+    doc = files[0].content["documents"][0]
+
+    assert "tts" not in doc
 
 
 def test_llm_prompt_keeps_original_punctuation_instruction() -> None:
@@ -427,13 +479,9 @@ def test_llm_quiz_omits_choice_texts_when_choices_match_source(monkeypatch) -> N
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
     files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="llm")
-    tts = files[0].content["questions"][0]["tts"]
+    question = files[0].content["questions"][0]
 
-    assert "choiceTexts" not in tts
-    assert "choicesText" not in tts
-    assert tts.get("answerText") is None
-    assert tts["questionText"].endswith("?")
-    assert tts["explanationText"].endswith(".")
+    assert "tts" not in question
 
 
 def test_llm_quiz_outputs_choice_texts_and_preserves_meaningful_punctuation_and_tags(monkeypatch) -> None:
@@ -465,7 +513,7 @@ def test_llm_quiz_outputs_choice_texts_and_preserves_meaningful_punctuation_and_
 
     assert tts["choiceTexts"] == ["[en-US]Save it", "OK.", "続けます?", "本当です？"]
     assert "choicesText" not in tts
-    assert tts["questionText"].endswith("?")
+    assert "questionText" not in tts
     assert tts["explanationText"] == "[en-US]Save it? [ja-JP]を選びます."
     assert tts.get("answerText") is None
 
@@ -519,6 +567,50 @@ def test_rule_mode_applies_quiz_rules_and_keeps_choice_delimiters(monkeypatch) -
     assert "choicesText" not in tts
     assert tts["choiceTexts"][1] == "ドット ギットイグノア を削除する"
     assert tts.get("answerText") is None
+    assert "answerText" not in tts
+
+
+def test_rule_mode_omits_quiz_tts_when_all_fields_match_source(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="rule")
+    question = files[0].content["questions"][0]
+
+    assert "tts" not in question
+
+
+def test_rule_mode_outputs_only_changed_quiz_tts_fields(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    rules = [TtsRule(source="AI", reading="エーアイ")]
+    file = GeneratedFile(
+        name="quiz_partial.json",
+        kind="quiz",
+        content={
+            "id": "pack_quiz_partial",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "部分補正クイズ",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-partial",
+                    "question": "次の説明として正しいものはどれですか?",
+                    "choices": ["保存します", "確認します", "終了します", "開始します"],
+                    "answerIndex": 0,
+                    "explanation": "AI の出力を確認します。",
+                }
+            ],
+        },
+    )
+
+    files, _ = optimize_generated_files_with_report([file], rules, mode="rule")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert "questionText" not in tts
+    assert "choiceTexts" not in tts
+    assert tts["explanationText"] == "エーアイ の出力を確認します。"
     assert "answerText" not in tts
 
 
@@ -603,13 +695,9 @@ def test_rule_mode_omits_choice_texts_when_only_choice_separators_differ(monkeyp
     )
 
     files, _ = optimize_generated_files_with_report([file], [], mode="rule")
-    tts = files[0].content["questions"][0]["tts"]
+    question = files[0].content["questions"][0]
 
-    assert tts["questionText"].endswith("?")
-    assert tts["explanationText"].endswith("?")
-    assert "choiceTexts" not in tts
-    assert "choicesText" not in tts
-    assert tts.get("answerText") is None
+    assert "tts" not in question
 
 
 def test_auto_quiz_reruns_only_question_with_report_issue(monkeypatch) -> None:

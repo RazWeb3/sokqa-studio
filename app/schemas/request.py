@@ -123,6 +123,10 @@ class PlanPackRequest(BaseModel):
     difficulty: Difficulty = "beginner"
     scale: Scale = "quick"
     language: str = Field(default="ja", min_length=2, max_length=20)
+    creatorId: str | None = Field(default=None, min_length=1, max_length=120)
+    creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
+    contentId: str | None = Field(default=None, min_length=1, max_length=160)
+    slug: str | None = Field(default=None, min_length=1, max_length=160)
     includeTts: bool = True
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
@@ -202,6 +206,10 @@ class GeneratePackRequest(BaseModel):
     plan: CoursePlan
     outputMode: Literal["manifest"] = "manifest"
     persist: bool = True
+    creatorId: str | None = Field(default=None, min_length=1, max_length=120)
+    creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
+    contentId: str | None = Field(default=None, min_length=1, max_length=160)
+    slug: str | None = Field(default=None, min_length=1, max_length=160)
     ttsReadingMode: TtsReadingMode | None = None
     sourceText: str | None = Field(default=None, max_length=50000)
     sourceMode: SourceMode | None = None

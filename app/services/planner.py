@@ -5,8 +5,9 @@ from app.config import get_settings
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
+from app.services.pack_metadata import resolve_creator_id
 from app.services.source_material import normalize_source, source_prompt_block
-from app.utils.ids import slugify
+from app.utils.ids import new_opaque_id, path_token, slugify
 
 
 SCALE_CHAPTER_RANGES = {
@@ -312,6 +313,7 @@ def _gemini_documents(request: PlanPackRequest, model: str | None) -> tuple[str 
 def create_course_plan(request: PlanPackRequest, model: str | None = None) -> CoursePlan:
     settings = get_settings()
     pack_id = slugify(request.theme, "sokqa_pack")
+    slug = path_token(request.slug or slugify(request.theme, "sokqa-pack").replace("_", "-"), pack_id)
     title = f"{request.theme} 学習パック"
     description = f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。"
     source_text, source_mode = normalize_source(request.sourceText, request.sourceMode)
@@ -334,6 +336,10 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
 
     return CoursePlan(
         id=pack_id,
+        creatorId=resolve_creator_id(request.creatorId),
+        creatorDisplayName=request.creatorDisplayName,
+        contentId=path_token(request.contentId or new_opaque_id("cnt"), "cnt_default"),
+        slug=slug,
         title=title,
         description=description,
         language=request.language,

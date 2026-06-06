@@ -1,4 +1,5 @@
-from app.schemas.sokqa import CoursePlan, GeneratedFile, ManifestItem, PackManifest, SokqaDocumentPack, SokqaQuizPack
+from app.schemas.sokqa import CoursePlan, GeneratedFile, ManifestCreator, ManifestItem, PackManifest, SokqaDocumentPack, SokqaQuizPack
+from app.services.pack_metadata import PackBuildMetadata
 
 
 def build_generated_files(document_packs: list[SokqaDocumentPack], quiz_packs: list[SokqaQuizPack]) -> list[GeneratedFile]:
@@ -22,9 +23,19 @@ def build_generated_files(document_packs: list[SokqaDocumentPack], quiz_packs: l
     return files
 
 
-def build_manifest(plan: CoursePlan, files: list[GeneratedFile]) -> PackManifest:
+def build_manifest(plan: CoursePlan, files: list[GeneratedFile], metadata: PackBuildMetadata | None = None) -> PackManifest:
+    content_id = metadata.content_id if metadata else plan.contentId
     return PackManifest(
-        id=f"{plan.id}_manifest",
+        id=f"{content_id or plan.id}_manifest",
+        contentId=content_id,
+        slug=metadata.slug if metadata else plan.slug,
+        versionId=metadata.version_id if metadata else None,
+        buildId=metadata.build_id if metadata else None,
+        generatedAt=metadata.generated_at if metadata else None,
+        creator=ManifestCreator(
+            id=metadata.creator_id,
+            displayName=metadata.creator_display_name,
+        ) if metadata else None,
         title=plan.title,
         description=plan.description,
         language=plan.language,

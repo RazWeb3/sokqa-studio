@@ -245,27 +245,42 @@ def _choice_texts_match_source(question, choice_texts: list[str]) -> bool:
     return choice_texts == source_texts
 
 
+def _optional_speech_text(source_text: str, reading_text: str, rules: list[TtsRule]) -> str | None:
+    speech = _speech_text(reading_text, rules)
+    source = normalize_tts_text(source_text)
+    return None if speech == source else speech
+
+
+def _document_tts_from_reading(source_text: str, reading_text: str, rules: list[TtsRule]) -> DocumentTts | None:
+    speech = _optional_speech_text(source_text, reading_text, rules)
+    return DocumentTts(text=speech) if speech else None
+
+
 def _quiz_tts_from_readings(
     question,
     question_text: str,
     choice_readings: list[str],
     explanation_text: str,
     rules: list[TtsRule],
-) -> QuizTts:
+) -> QuizTts | None:
     choice_texts = [
         normalize_tts_text(strip_choice_separator(reading))
         for reading in choice_readings
     ]
+    question_text_output = _optional_speech_text(question.question, question_text, rules)
     choice_texts_output = None if _choice_texts_match_source(question, choice_texts) else choice_texts
+    explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules)
+    if not question_text_output and not choice_texts_output and not explanation_text_output:
+        return None
     return QuizTts(
-        questionText=_speech_text(question_text, rules),
+        questionText=question_text_output,
         choiceTexts=choice_texts_output,
         answerText=None,
-        explanationText=_speech_text(explanation_text, rules),
+        explanationText=explanation_text_output,
     )
 
 
-def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
+def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts | None:
     return _quiz_tts_from_readings(
         question,
         question.question,
@@ -275,7 +290,7 @@ def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts:
     )
 
 
-def _gemini_quiz_question_tts(question, rules: list[TtsRule], language: str = "ja") -> QuizTts:
+def _gemini_quiz_question_tts(question, rules: list[TtsRule], language: str = "ja") -> QuizTts | None:
     total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
     if total_chars > MAX_TTS_BATCH_CHARS:
         question_text = _gemini_speech_text(question.question, rules)
@@ -362,7 +377,7 @@ Return this shape:
 """.strip()
 
 
-def _quiz_tts_from_item(question, item: dict, rules: list[TtsRule]) -> QuizTts:
+def _quiz_tts_from_item(question, item: dict, rules: list[TtsRule]) -> QuizTts | None:
     question_text = item.get("questionText", "")
     explanation_text = item.get("explanationText", "")
     choices = item.get("choices", [])
@@ -395,8 +410,8 @@ def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_BATCH_CHARS):
     return [[questions_by_id[entry_id] for entry_id, _ in chunk] for chunk in chunks]
 
 
-def _gemini_quiz_tts_map(questions, rules: list[TtsRule], language: str = "ja") -> dict[str, QuizTts]:
-    readings: dict[str, QuizTts] = {}
+def _gemini_quiz_tts_map(questions, rules: list[TtsRule], language: str = "ja") -> dict[str, QuizTts | None]:
+    readings: dict[str, QuizTts | None] = {}
     for chunk in _chunk_quiz_questions(questions):
         if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
             question = chunk[0]
@@ -597,7 +612,7 @@ def optimize_document_pack(
         item.tags = None
         if item.id in selected_ids:
             speech = llm_readings.get(item.id, _speech_text(item.text, rules)) if active_mode == "llm" else _speech_text(item.text, rules)
-            item.tts = DocumentTts(text=speech)
+            item.tts = _document_tts_from_reading(item.text, speech, rules)
         else:
             item.tts = None
     return pack
@@ -652,7 +667,8 @@ def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: 
         llm_ids.extend(entry_id for entry_id, _ in entries)
         for item in pack.documents:
             if item.id in issue_item_ids and item.tts:
-                item.tts = DocumentTts(text=readings.get(item.id, _speech_text(item.text, combined)))
+                reading = readings.get(item.id, _speech_text(item.text, combined))
+                item.tts = _document_tts_from_reading(item.text, reading, combined)
         file.content = pack.model_dump(exclude_none=True)
     elif file.kind == "quiz":
         pack = SokqaQuizPack.model_validate(file.content)

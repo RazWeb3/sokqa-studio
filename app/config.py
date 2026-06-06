@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     tts_user_rules_path: str = ""
     tts_reading_mode: Literal["rule", "llm", "auto"] = "rule"
     gcs_bucket: str = ""
-    gcs_prefix: str = "sokqa/packs"
+    gcs_prefix: str = "sokqa"
+    # Hackathon deployments may use readable values such as creator_demo.
+    # Production creator IDs should be opaque random IDs, not emails or sequential values.
+    default_creator_id: str = "creator_default"
     allowed_manifest_domains: str = Field(
         "convly.jp,studio.convly.jp,cdn.convly.jp,localhost,127.0.0.1"
     )

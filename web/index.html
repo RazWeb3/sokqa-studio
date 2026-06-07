@@ -218,9 +218,102 @@
         font-size: 0.9rem;
       }
 
+      .recording-toolbar,
+      .recording-summary,
+      .credit-bar {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        align-items: end;
+      }
+
+      .credit-bar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+
+      .credit-value {
+        font-size: 1.3rem;
+        font-weight: 800;
+      }
+
+      .pack-list,
+      .unit-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .pack-row,
+      .unit-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #ffffff;
+      }
+
+      .pack-row.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18);
+      }
+
+      .unit-row {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+      }
+
+      .unit-row input {
+        width: auto;
+        margin: 0;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .excerpt {
+        margin-top: 4px;
+        color: var(--text);
+        overflow-wrap: anywhere;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        border-radius: 999px;
+        padding: 0 9px;
+        background: #e8f3f1;
+        color: var(--accent-dark);
+        font-size: 0.82rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .badge.muted {
+        background: #eef2f7;
+        color: var(--muted);
+      }
+
+      .recording-result {
+        margin-top: 12px;
+        overflow-wrap: anywhere;
+      }
+
       @media (max-width: 860px) {
         .grid,
-        .row {
+        .row,
+        .recording-toolbar,
+        .recording-summary,
+        .credit-bar {
           grid-template-columns: 1fr;
         }
       }
@@ -323,6 +416,53 @@
         </section>
 
         <section>
+          <h2>録音管理</h2>
+          <div class="credit-bar">
+            <div>
+              <div class="meta">疑似クレジット残高</div>
+              <div class="credit-value"><span id="creditBalance">0.0000</span> credits</div>
+            </div>
+            <button id="resetCreditsBtn" type="button" class="secondary">残高リセット</button>
+          </div>
+          <div class="recording-toolbar">
+            <label>
+              creatorId
+              <input id="packCreatorId" value="creator_default" maxlength="120" />
+            </label>
+            <label>
+              録音テキスト
+              <select id="recordingTextSource">
+                <option value="raw">生テキスト</option>
+                <option value="corrected">補正版優先</option>
+              </select>
+            </label>
+            <div class="actions">
+              <button id="loadPacksBtn" type="button">一覧更新</button>
+            </div>
+          </div>
+          <p id="recordingStatus" class="status"></p>
+          <div id="packList" class="pack-list"></div>
+
+          <div id="recordingPanel" hidden>
+            <div class="actions">
+              <button id="selectUnrecordedBtn" type="button" class="secondary">未録音を全選択</button>
+              <button id="clearUnitSelectionBtn" type="button" class="secondary">選択解除</button>
+            </div>
+            <div class="recording-summary">
+              <p><strong>選択ユニット:</strong> <span id="selectedUnitCount">0</span></p>
+              <p><strong>文字数:</strong> <span id="selectedChars">0</span></p>
+              <p><strong>見積もり:</strong> <span id="selectedCredits">0.0000</span> credits</p>
+            </div>
+            <p id="creditWarning" class="status"></p>
+            <div class="actions">
+              <button id="recordSelectedBtn" type="button" disabled>録音化</button>
+            </div>
+            <div id="unitList" class="unit-list"></div>
+            <div id="recordingResult" class="recording-result"></div>
+          </div>
+        </section>
+
+        <section>
           <h2>TTS読み修正</h2>
           <label>
             追加ルール JSON
@@ -345,6 +485,29 @@
       const planJson = $("planJson");
       const result = $("result");
       let currentJobId = "";
+      const CREDIT_STORAGE_KEY = "sokqaRecordingCreditBalance";
+      const INITIAL_CREDITS = 1;
+      let creditBalance = Number(localStorage.getItem(CREDIT_STORAGE_KEY) || INITIAL_CREDITS);
+      let selectedPack = null;
+      let currentPacks = [];
+      let fullEstimate = null;
+      let selectedEstimate = null;
+      let selectedUnitIds = new Set();
+      let estimateTimer = null;
+      let isRecordingBusy = false;
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatCredits(value) {
+        return Number(value || 0).toFixed(4);
+      }
 
       function radioValue(name) {
         return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
@@ -400,6 +563,254 @@
           throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
         }
         return data;
+      }
+
+      async function requestGet(url) {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+        }
+        return data;
+      }
+
+      function recordingTarget(pack) {
+        return {
+          creatorId: pack.creatorId,
+          contentId: pack.contentId,
+          versionId: pack.versionId,
+          packName: pack.packName,
+          kind: pack.kind
+        };
+      }
+
+      function setRecordingStatus(message, isError = false) {
+        const el = $("recordingStatus");
+        el.textContent = message;
+        el.classList.toggle("error", isError);
+      }
+
+      function saveCredits(value) {
+        creditBalance = Math.max(0, Number(value || 0));
+        localStorage.setItem(CREDIT_STORAGE_KEY, String(creditBalance));
+        $("creditBalance").textContent = formatCredits(creditBalance);
+        updateRecordButton();
+      }
+
+      function renderPacks(packs) {
+        const list = $("packList");
+        if (!packs.length) {
+          list.innerHTML = '<p class="meta">表示できるパックがありません。</p>';
+          return;
+        }
+        list.innerHTML = packs
+          .map((pack, index) => {
+            const active = selectedPack && selectedPack.url === pack.url ? " active" : "";
+            return `
+              <div class="pack-row${active}">
+                <div>
+                  <strong>${escapeHtml(pack.title)}</strong>
+                  <div class="meta">${escapeHtml(pack.kind)} / ${escapeHtml(pack.contentId)} / ${escapeHtml(pack.versionId)}</div>
+                </div>
+                <button type="button" class="secondary" data-pack-index="${index}">選択</button>
+              </div>
+            `;
+          })
+          .join("");
+        list.querySelectorAll("[data-pack-index]").forEach((button) => {
+          button.addEventListener("click", () => selectPack(packs[Number(button.dataset.packIndex)]));
+        });
+      }
+
+      async function loadPacks() {
+        try {
+          setRecordingStatus("パック一覧を取得しています...");
+          const creatorId = $("packCreatorId").value.trim();
+          const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
+          const data = await requestGet(`/packs${query}`);
+          currentPacks = data.items || [];
+          selectedPack = null;
+          fullEstimate = null;
+          selectedEstimate = null;
+          selectedUnitIds = new Set();
+          $("recordingPanel").hidden = true;
+          $("recordingResult").innerHTML = "";
+          renderPacks(currentPacks);
+          setRecordingStatus(`${currentPacks.length}件のパックを表示しました。`);
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        }
+      }
+
+      async function fetchEstimate(unitIds = null) {
+        if (!selectedPack) return null;
+        const payload = {
+          target: recordingTarget(selectedPack),
+          textSource: $("recordingTextSource").value
+        };
+        if (unitIds) {
+          payload.unitIds = unitIds;
+        }
+        return requestJson("/tts/recording-estimate", payload);
+      }
+
+      async function selectPack(pack) {
+        try {
+          selectedPack = pack;
+          selectedUnitIds = new Set();
+          selectedEstimate = null;
+          $("recordingPanel").hidden = false;
+          $("recordingResult").innerHTML = "";
+          setRecordingStatus("録音対象を読み込んでいます...");
+          renderPacks(currentPacks);
+          fullEstimate = await fetchEstimate();
+          renderUnits();
+          await updateSelectedEstimate();
+          setRecordingStatus(`${pack.title} の録音対象を表示しました。`);
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          await refreshPackRows();
+        }
+      }
+
+      async function refreshPackRows() {
+        const creatorId = $("packCreatorId").value.trim();
+        const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
+        const data = await requestGet(`/packs${query}`);
+        currentPacks = data.items || [];
+        renderPacks(currentPacks);
+      }
+
+      function renderUnits() {
+        const units = fullEstimate?.units || [];
+        const list = $("unitList");
+        if (!units.length) {
+          list.innerHTML = '<p class="meta">録音対象ユニットがありません。</p>';
+          return;
+        }
+        list.innerHTML = units
+          .map((unit) => {
+            const checked = selectedUnitIds.has(unit.itemId) ? " checked" : "";
+            const statusBadge = unit.isRecorded
+              ? '<span class="badge muted">録音済み</span>'
+              : '<span class="badge">未録音</span>';
+            const note = unit.isRecorded ? "選択しても追加消費なし" : `${unit.charCount} chars`;
+            return `
+              <label class="unit-row">
+                <input type="checkbox" value="${escapeHtml(unit.itemId)}"${checked} />
+                <span>
+                  <strong>${escapeHtml(unit.itemId)}</strong>
+                  <span class="meta"> ${escapeHtml(unit.kind)} / ${escapeHtml(note)}</span>
+                  <div class="excerpt">${escapeHtml(unit.text).slice(0, 160)}</div>
+                </span>
+                ${statusBadge}
+              </label>
+            `;
+          })
+          .join("");
+        list.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+          input.addEventListener("change", () => {
+            if (input.checked) {
+              selectedUnitIds.add(input.value);
+            } else {
+              selectedUnitIds.delete(input.value);
+            }
+            scheduleSelectedEstimate();
+          });
+        });
+      }
+
+      function scheduleSelectedEstimate() {
+        window.clearTimeout(estimateTimer);
+        estimateTimer = window.setTimeout(updateSelectedEstimate, 250);
+      }
+
+      async function updateSelectedEstimate() {
+        const unitIds = Array.from(selectedUnitIds);
+        if (!unitIds.length) {
+          selectedEstimate = null;
+          $("selectedUnitCount").textContent = "0";
+          $("selectedChars").textContent = "0";
+          $("selectedCredits").textContent = formatCredits(0);
+          updateRecordButton();
+          return;
+        }
+        try {
+          selectedEstimate = await fetchEstimate(unitIds);
+          $("selectedUnitCount").textContent = String(unitIds.length);
+          $("selectedChars").textContent = String(selectedEstimate.totalChars || 0);
+          $("selectedCredits").textContent = formatCredits(selectedEstimate.estimatedCredits || 0);
+          updateRecordButton();
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        }
+      }
+
+      function updateRecordButton() {
+        const credits = selectedEstimate?.estimatedCredits || 0;
+        const selectedCount = selectedUnitIds.size;
+        const insufficient = credits > creditBalance;
+        $("recordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0 || insufficient;
+        $("creditWarning").textContent = insufficient
+          ? "クレジットが不足しています。来月のチャージ後に録音できます。"
+          : selectedCount
+            ? "録音済みユニットは追加消費なしでスキップされます。"
+            : "";
+        $("creditWarning").classList.toggle("error", insufficient);
+      }
+
+      async function recordSelectedUnits() {
+        if (!selectedPack || !selectedUnitIds.size) return;
+        try {
+          isRecordingBusy = true;
+          updateRecordButton();
+          setRecordingStatus("録音を実行しています...");
+          const unitIds = Array.from(selectedUnitIds);
+          const beforeEstimate = selectedEstimate;
+          const data = await requestJson("/tts/record", {
+            target: recordingTarget(selectedPack),
+            unitIds,
+            textSource: $("recordingTextSource").value
+          });
+          const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
+          const recordedChars = (beforeEstimate?.units || [])
+            .filter((unit) => successfulIds.has(unit.itemId))
+            .reduce((total, unit) => total + unit.charCount, 0);
+          const rate = beforeEstimate && beforeEstimate.totalChars
+            ? (beforeEstimate.estimatedCredits || 0) / beforeEstimate.totalChars
+            : 0;
+          saveCredits(creditBalance - recordedChars * rate);
+          renderRecordingResult(data);
+          fullEstimate = await fetchEstimate();
+          selectedUnitIds = new Set();
+          selectedEstimate = null;
+          renderUnits();
+          await updateSelectedEstimate();
+          setRecordingStatus("録音処理が完了しました。");
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          isRecordingBusy = false;
+          updateRecordButton();
+        }
+      }
+
+      function renderRecordingResult(data) {
+        const summary = data.summary || {};
+        $("recordingResult").innerHTML = `
+          <p><strong>結果:</strong> success=${summary.successCount || 0}, failure=${summary.failureCount || 0}, skipped=${summary.skippedUnits || 0}</p>
+          ${
+            (summary.failedUnitIds || []).length
+              ? `<p class="error"><strong>失敗:</strong> ${escapeHtml(summary.failedUnitIds.join(", "))}</p>`
+              : ""
+          }
+          <ul class="logs">
+            ${(data.audioUrls || [])
+              .map((item) => `<li>${escapeHtml(item.unitId)}: <a href="${escapeHtml(item.audioUrl)}" target="_blank" rel="noreferrer">mp3</a></li>`)
+              .join("")}
+          </ul>
+        `;
       }
 
       planBtn.addEventListener("click", async () => {
@@ -478,6 +889,7 @@
           currentJobId = generated.jobId;
           $("reviseBtn").disabled = false;
           setBusy(false, "生成が完了しました。");
+          loadPacks();
         } catch (error) {
           setError(error.message);
         }
@@ -509,7 +921,27 @@
 
       $("sourceText").addEventListener("input", syncInputState);
       $("includeTts").addEventListener("change", syncInputState);
+      $("loadPacksBtn").addEventListener("click", loadPacks);
+      $("resetCreditsBtn").addEventListener("click", () => saveCredits(INITIAL_CREDITS));
+      $("selectUnrecordedBtn").addEventListener("click", () => {
+        selectedUnitIds = new Set((fullEstimate?.units || []).filter((unit) => !unit.isRecorded).map((unit) => unit.itemId));
+        renderUnits();
+        scheduleSelectedEstimate();
+      });
+      $("clearUnitSelectionBtn").addEventListener("click", () => {
+        selectedUnitIds = new Set();
+        renderUnits();
+        scheduleSelectedEstimate();
+      });
+      $("recordSelectedBtn").addEventListener("click", recordSelectedUnits);
+      $("recordingTextSource").addEventListener("change", async () => {
+        if (selectedPack) {
+          await selectPack(selectedPack);
+        }
+      });
       syncInputState();
+      saveCredits(creditBalance);
+      loadPacks();
     </script>
   </body>
 </html>

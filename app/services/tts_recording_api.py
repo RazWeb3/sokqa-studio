@@ -22,8 +22,9 @@ def estimate_recording(
     text_source: RecordingTextSource = "raw",
 ) -> dict:
     loaded = load_target_pack(target)
-    units = _select_units(extract_recording_units(loaded.pack, text_source), unit_ids, include_recorded=False)
-    return _estimate_response(loaded, units, text_source)
+    units = _select_units(extract_recording_units(loaded.pack, text_source), unit_ids, include_recorded=True)
+    billable_units = [unit for unit in units if not unit.is_recorded]
+    return _estimate_response(loaded, units, billable_units, text_source)
 
 
 def run_recording(
@@ -140,11 +141,16 @@ def _select_units(units: list[RecordingUnit], unit_ids: list[str] | None, *, inc
     missing = [unit_id for unit_id in unit_ids if unit_id not in by_id]
     if missing:
         raise ValueError(f"unknown unitIds: {', '.join(missing)}")
-    return [by_id[unit_id] for unit_id in unit_ids]
+    return [by_id[unit_id] for unit_id in unit_ids if include_recorded or not by_id[unit_id].is_recorded]
 
 
-def _estimate_response(loaded: LoadedPack, units: list[RecordingUnit], text_source: RecordingTextSource) -> dict:
-    total_chars = sum(unit.char_count for unit in units)
+def _estimate_response(
+    loaded: LoadedPack,
+    units: list[RecordingUnit],
+    billable_units: list[RecordingUnit],
+    text_source: RecordingTextSource,
+) -> dict:
+    total_chars = sum(unit.char_count for unit in billable_units)
     rate = get_settings().tts_credit_per_char
     return {
         "packId": loaded.pack.id,
@@ -153,6 +159,7 @@ def _estimate_response(loaded: LoadedPack, units: list[RecordingUnit], text_sour
         "storagePrefix": loaded.storage_prefix,
         "textSource": text_source,
         "unitCount": len(units),
+        "billableUnitCount": len(billable_units),
         "totalChars": total_chars,
         "estimatedCredits": total_chars * rate,
         "units": [_unit_to_dict(unit) for unit in units],

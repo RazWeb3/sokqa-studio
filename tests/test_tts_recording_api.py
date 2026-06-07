@@ -75,12 +75,15 @@ def test_recording_estimate_returns_unrecorded_units_and_credits(tmp_path, monke
 
     assert data["packId"] == "quiz-pack"
     assert data["textSource"] == "raw"
-    assert data["unitCount"] == 5
-    assert "q_q-1_question" not in unit_ids
+    assert data["unitCount"] == 6
+    assert data["billableUnitCount"] == 5
+    assert "q_q-1_question" in unit_ids
     assert "q_q-1_choice_0" in unit_ids
+    question = next(unit for unit in data["units"] if unit["itemId"] == "q_q-1_question")
+    assert question["isRecorded"] is True
     choice_0 = next(unit for unit in data["units"] if unit["itemId"] == "q_q-1_choice_0")
     assert choice_0["text"] == "人工知能"
-    assert data["totalChars"] == sum(unit["charCount"] for unit in data["units"])
+    assert data["totalChars"] == sum(unit["charCount"] for unit in data["units"] if not unit["isRecorded"])
     assert data["estimatedCredits"] == data["totalChars"] * 0.0001
 
 
@@ -107,6 +110,23 @@ def test_recording_estimate_can_use_corrected_text_source(tmp_path, monkeypatch)
             "isRecorded": False,
         }
     ]
+
+
+def test_recording_estimate_does_not_charge_recorded_units_when_ids_are_specified(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/tts/recording-estimate",
+        json={"target": _target(pack_name), "unitIds": ["q_q-1_question", "q_q-1_choice_0"]},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert [unit["itemId"] for unit in data["units"]] == ["q_q-1_question", "q_q-1_choice_0"]
+    assert data["unitCount"] == 2
+    assert data["billableUnitCount"] == 1
+    assert data["totalChars"] == len("人工知能")
 
 
 def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_path, monkeypatch) -> None:

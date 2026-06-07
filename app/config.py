@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # TTS estimation: credit cost per character (仮の値。Google Cloud TTS の料金体系に合わせて後で調整)
     # 現状は 1 文字 = 0.0001 クレジット（= 10,000 文字で 1 クレジット）程度を想定
     tts_credit_per_char: float = 0.0001
+    cloud_tts_language_code: str = "ja-JP"
+    cloud_tts_voice: str = "ja-JP-Neural2-B"
+    cloud_tts_speaking_rate: float = 1.0
+    cloud_tts_pitch: float = 0.0
+    cloud_tts_max_concurrency: int = Field(default=5, ge=1, le=10)
 
     @property
     def allowed_domains(self) -> set[str]:

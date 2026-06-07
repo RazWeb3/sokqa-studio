@@ -86,7 +86,7 @@ def test_extract_recording_units_from_quiz_pack_without_tts() -> None:
     assert q0_choice3.text == "選択肢0-3"
     assert q0_explanation.text == "解説0"
 
-    # All units should be unrecorded (no audio URL fields yet)
+    # All units should be unrecorded because no audio URLs are set.
     for u in units:
         assert u.pack_id == "quiz-pack-1"
         assert u.pack_type == "quiz"
@@ -147,7 +147,7 @@ def test_estimate_single_quiz_pack() -> None:
     assert estimation.pack_id == "quiz-pack-1"
     assert estimation.pack_type == "quiz"
     assert estimation.total_units == 12
-    assert estimation.recorded_units == 0  # No audio URL fields yet
+    assert estimation.recorded_units == 0
     assert estimation.unrecorded_units == 12
     assert estimation.total_chars > 0
     assert estimation.recorded_chars == 0
@@ -226,12 +226,12 @@ def test_tts_correction_char_count_difference() -> None:
     assert est_no_tts.total_chars != est_with_tts.total_chars
 
 
-def test_recorded_status_always_false_currently() -> None:
-    """Test that recorded status is always False (no audio URL fields in schema yet)."""
+def test_recorded_status_false_without_audio_urls() -> None:
+    """Test that recorded status is False when no audio URLs are set."""
     pack = _make_quiz_pack(has_tts=False)
     estimation = estimate_pack(pack, credit_per_char=0.0001)
 
-    # Currently no audio URL fields, so everything is unrecorded
+    # No audio URLs are set, so everything is unrecorded.
     assert estimation.recorded_units == 0
     assert estimation.unrecorded_units == estimation.total_units
     assert estimation.recorded_chars == 0
@@ -261,7 +261,7 @@ def test_recording_unit_has_is_recorded_field() -> None:
     pack = _make_quiz_pack(has_tts=False)
     units = extract_recording_units_from_quiz_pack(pack)
 
-    # All units should have is_recorded=False (no audio URL fields in schema yet)
+    # All units should have is_recorded=False when no audio URLs are set.
     for u in units:
         assert hasattr(u, "is_recorded"), f"RecordingUnit missing is_recorded field: {u.item_id}"
         assert u.is_recorded is False, f"Expected is_recorded=False for {u.item_id}, got {u.is_recorded}"
@@ -287,7 +287,7 @@ def test_estimate_pack_no_none_is_recorded_calls() -> None:
     pack = _make_quiz_pack(has_tts=False)
     estimation = estimate_pack(pack, credit_per_char=0.0001)
 
-    # The estimation should work correctly (all units unrecorded since no audio URL fields)
+    # The estimation should work correctly when all units are unrecorded.
     assert estimation.recorded_units == 0
     assert estimation.unrecorded_units == estimation.total_units
 

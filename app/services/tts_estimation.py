@@ -58,27 +58,28 @@ class AggregatedEstimation:
     estimated_credits: float
 
 
-def _is_recorded(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str) -> bool:
+def _is_recorded(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str, choice_index: int | None = None) -> bool:
     """Check if a recording unit is already recorded.
-
-    Currently, schemas don't have audio URL fields, so everything is unrecorded.
-    When audio URL fields are added in the future, this function should be updated
-    to check those fields.
 
     Args:
         item: The document item or question
         unit_kind: "document", "question", "choice", or "explanation"
+        choice_index: The choice index when unit_kind is "choice"
 
     Returns:
         True if already recorded (has audio URL), False otherwise
     """
-    # TODO: When audio URL fields are added to schemas, check them here.
-    # For example:
-    # if unit_kind == "document" and item.tts and item.tts.audio_url:
-    #     return True
-    # if unit_kind == "question" and item.tts and item.tts.question_audio_url:
-    #     return True
-    # etc.
+    if not item.tts:
+        return False
+    if unit_kind == "document":
+        return bool(getattr(item.tts, "audioUrl", None))
+    if unit_kind == "question":
+        return bool(getattr(item.tts, "questionAudioUrl", None))
+    if unit_kind == "explanation":
+        return bool(getattr(item.tts, "explanationAudioUrl", None))
+    if unit_kind == "choice":
+        urls = getattr(item.tts, "choiceAudioUrls", None)
+        return bool(urls and choice_index is not None and choice_index < len(urls) and urls[choice_index])
     return False
 
 
@@ -145,7 +146,7 @@ def extract_recording_units_from_quiz_pack(pack: SokqaQuizPack) -> list[Recordin
                     pack_id=pack.id,
                     pack_type="quiz",
                     kind="choice",
-                    is_recorded=_is_recorded(question, "choice"),
+                    is_recorded=_is_recorded(question, "choice", i),
                 )
             )
 

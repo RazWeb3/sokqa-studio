@@ -51,6 +51,7 @@ class CoursePlan(BaseModel):
 
 class DocumentTts(BaseModel):
     text: str | None = None
+    audioUrl: str | None = None
     textLanguage: str | None = None
 
 
@@ -85,6 +86,9 @@ class QuizTts(BaseModel):
     choiceTexts: list[str] | None = None
     answerText: str | None = None
     explanationText: str | None = None
+    questionAudioUrl: str | None = None
+    choiceAudioUrls: list[str | None] | None = None
+    explanationAudioUrl: str | None = None
     questionLanguage: str | None = None
     choicesLanguage: str | None = None
     answerLanguage: str | None = None

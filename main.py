@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routes import debug, generate, health, jobs, plan
+from app.routes import debug, generate, health, jobs, plan, tts_recording
 from app.startup import log_runtime_settings
 
 
@@ -23,6 +23,7 @@ app.include_router(health.router)
 app.include_router(plan.router)
 app.include_router(generate.router)
 app.include_router(jobs.router)
+app.include_router(tts_recording.router)
 app.include_router(debug.router)
 
 BASE_DIR = Path(__file__).resolve().parent

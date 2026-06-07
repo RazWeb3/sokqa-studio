@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     cloud_tts_speaking_rate: float = 1.0
     cloud_tts_pitch: float = 0.0
     cloud_tts_max_concurrency: int = Field(default=5, ge=1, le=10)
+    cloud_tts_recording_request_max_units: int = Field(default=20, ge=1, le=100)
 
     @property
     def allowed_domains(self) -> set[str]:

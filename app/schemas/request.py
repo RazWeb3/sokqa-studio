@@ -245,3 +245,23 @@ class ReviseTtsRequest(BaseModel):
     jobId: str = Field(..., min_length=1)
     ttsRules: list[TtsRule] = Field(default_factory=list)
     persist: bool = True
+
+
+class TtsRecordingTarget(BaseModel):
+    manifestUrl: str | None = Field(default=None, min_length=1)
+    packUrl: str | None = Field(default=None, min_length=1)
+    creatorId: str | None = Field(default=None, min_length=1, max_length=120)
+    contentId: str | None = Field(default=None, min_length=1, max_length=160)
+    versionId: str | None = Field(default=None, min_length=1, max_length=80)
+    packName: str | None = Field(default=None, min_length=1, max_length=160)
+    kind: Literal["document", "quiz"] | None = None
+
+
+class EstimateTtsRecordingRequest(BaseModel):
+    target: TtsRecordingTarget
+    unitIds: list[str] | None = None
+
+
+class RunTtsRecordingRequest(BaseModel):
+    target: TtsRecordingTarget
+    unitIds: list[str] = Field(..., min_length=1)

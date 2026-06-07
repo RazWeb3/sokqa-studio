@@ -32,6 +32,11 @@ class StorageClient:
             return self._save_gcs_bytes(pack_id, object_name, data, content_type, storage_prefix)
         return self._save_local_bytes(pack_id, object_name, data, content_type, storage_prefix)
 
+    def load_json_file(self, pack_id: str, file_name: str, storage_prefix: str | None = None) -> dict:
+        if self.settings.storage_backend == "gcs":
+            return self._load_gcs_json(pack_id, file_name, storage_prefix)
+        return self._load_local_json(pack_id, file_name, storage_prefix)
+
     def _save_local(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         relative_prefix = (storage_prefix or pack_id).strip("/")
         base_dir = Path.cwd() / self.settings.local_storage_dir / relative_prefix
@@ -81,6 +86,12 @@ class StorageClient:
             record_storage_event(f"local binary save skipped: {relative_name}: storage unavailable")
         return f"{self.settings.public_base_url.rstrip('/')}/{relative_prefix}/{relative_name}"
 
+    def _load_local_json(self, pack_id: str, file_name: str, storage_prefix: str | None = None) -> dict:
+        relative_prefix = (storage_prefix or pack_id).strip("/")
+        path = Path.cwd() / self.settings.local_storage_dir / relative_prefix / file_name.strip("/")
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+
     def _save_gcs(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         if not self.settings.gcs_bucket:
             raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
@@ -118,6 +129,16 @@ class StorageClient:
         blob.upload_from_string(data, content_type=content_type)
         record_storage_event(f"gcs saved: {blob_name} ({content_type})")
         return f"{self.settings.public_base_url.rstrip('/')}/{prefix}/{relative_name}"
+
+    def _load_gcs_json(self, pack_id: str, file_name: str, storage_prefix: str | None = None) -> dict:
+        if not self.settings.gcs_bucket:
+            raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
+        client = storage.Client()
+        bucket = client.bucket(self.settings.gcs_bucket)
+        prefix = (storage_prefix or f"{self.settings.gcs_prefix.strip('/')}/{pack_id}").strip("/")
+        blob_name = f"{prefix}/{file_name.strip('/')}"
+        payload = bucket.blob(blob_name).download_as_text(encoding="utf-8")
+        return json.loads(payload)
 
 
 def ensure_dir(path: Path) -> bool:

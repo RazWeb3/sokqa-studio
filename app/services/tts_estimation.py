@@ -9,10 +9,12 @@ No TTS API calls, no GCS operations, no billing - pure calculation only.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from app.config import get_settings
 from app.schemas.sokqa import SokqaDocumentItem, SokqaDocumentPack, SokqaQuestion, SokqaQuizPack
+
+RecordingTextSource = Literal["raw", "corrected"]
 
 
 @dataclass(frozen=True)
@@ -83,38 +85,42 @@ def _is_recorded(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str, choice
     return False
 
 
-def _get_document_text(item: SokqaDocumentItem) -> str:
+def _get_document_text(item: SokqaDocumentItem, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for a document item.
 
-    Priority: item.tts.text > item.text
+    raw: item.text
+    corrected: item.tts.text > item.text
     """
-    if item.tts and item.tts.text:
+    if text_source == "corrected" and item.tts and item.tts.text:
         return item.tts.text
     return item.text
 
 
-def _get_question_text(question: SokqaQuestion) -> str:
+def _get_question_text(question: SokqaQuestion, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for a question."""
-    if question.tts and question.tts.questionText:
+    if text_source == "corrected" and question.tts and question.tts.questionText:
         return question.tts.questionText
     return question.question
 
 
-def _get_choice_text(question: SokqaQuestion, index: int) -> str:
+def _get_choice_text(question: SokqaQuestion, index: int, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for a choice."""
-    if question.tts and question.tts.choiceTexts and index < len(question.tts.choiceTexts):
+    if text_source == "corrected" and question.tts and question.tts.choiceTexts and index < len(question.tts.choiceTexts):
         return question.tts.choiceTexts[index]
     return question.choices[index]
 
 
-def _get_explanation_text(question: SokqaQuestion) -> str:
+def _get_explanation_text(question: SokqaQuestion, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for an explanation."""
-    if question.tts and question.tts.explanationText:
+    if text_source == "corrected" and question.tts and question.tts.explanationText:
         return question.tts.explanationText
     return question.explanation
 
 
-def extract_recording_units_from_quiz_pack(pack: SokqaQuizPack) -> list[RecordingUnit]:
+def extract_recording_units_from_quiz_pack(
+    pack: SokqaQuizPack,
+    text_source: RecordingTextSource = "raw",
+) -> list[RecordingUnit]:
     """Extract all recording units from a quiz pack."""
     units: list[RecordingUnit] = []
 
@@ -122,7 +128,7 @@ def extract_recording_units_from_quiz_pack(pack: SokqaQuizPack) -> list[Recordin
         q_id = question.id
 
         # Question text
-        q_text = _get_question_text(question)
+        q_text = _get_question_text(question, text_source)
         units.append(
             RecordingUnit(
                 item_id=f"q_{q_id}_question",
@@ -137,7 +143,7 @@ def extract_recording_units_from_quiz_pack(pack: SokqaQuizPack) -> list[Recordin
 
         # Choice texts
         for i in range(len(question.choices)):
-            choice_text = _get_choice_text(question, i)
+            choice_text = _get_choice_text(question, i, text_source)
             units.append(
                 RecordingUnit(
                     item_id=f"q_{q_id}_choice_{i}",
@@ -151,7 +157,7 @@ def extract_recording_units_from_quiz_pack(pack: SokqaQuizPack) -> list[Recordin
             )
 
         # Explanation text
-        exp_text = _get_explanation_text(question)
+        exp_text = _get_explanation_text(question, text_source)
         units.append(
             RecordingUnit(
                 item_id=f"q_{q_id}_explanation",
@@ -167,12 +173,15 @@ def extract_recording_units_from_quiz_pack(pack: SokqaQuizPack) -> list[Recordin
     return units
 
 
-def extract_recording_units_from_document_pack(pack: SokqaDocumentPack) -> list[RecordingUnit]:
+def extract_recording_units_from_document_pack(
+    pack: SokqaDocumentPack,
+    text_source: RecordingTextSource = "raw",
+) -> list[RecordingUnit]:
     """Extract all recording units from a document pack."""
     units: list[RecordingUnit] = []
 
     for item in pack.documents:
-        text = _get_document_text(item)
+        text = _get_document_text(item, text_source)
         units.append(
             RecordingUnit(
                 item_id=f"doc_{item.id}",
@@ -188,14 +197,21 @@ def extract_recording_units_from_document_pack(pack: SokqaDocumentPack) -> list[
     return units
 
 
-def extract_recording_units(pack: SokqaQuizPack | SokqaDocumentPack) -> list[RecordingUnit]:
+def extract_recording_units(
+    pack: SokqaQuizPack | SokqaDocumentPack,
+    text_source: RecordingTextSource = "raw",
+) -> list[RecordingUnit]:
     """Extract recording units from a pack (quiz or document)."""
     if isinstance(pack, SokqaQuizPack):
-        return extract_recording_units_from_quiz_pack(pack)
-    return extract_recording_units_from_document_pack(pack)
+        return extract_recording_units_from_quiz_pack(pack, text_source)
+    return extract_recording_units_from_document_pack(pack, text_source)
 
 
-def estimate_pack(pack: SokqaQuizPack | SokqaDocumentPack, credit_per_char: float | None = None) -> PackEstimation:
+def estimate_pack(
+    pack: SokqaQuizPack | SokqaDocumentPack,
+    credit_per_char: float | None = None,
+    text_source: RecordingTextSource = "raw",
+) -> PackEstimation:
     """Estimate credit cost for a single pack.
 
     Args:
@@ -208,7 +224,7 @@ def estimate_pack(pack: SokqaQuizPack | SokqaDocumentPack, credit_per_char: floa
     settings = get_settings()
     rate = credit_per_char if credit_per_char is not None else settings.tts_credit_per_char
 
-    units = extract_recording_units(pack)
+    units = extract_recording_units(pack, text_source)
 
     total_units = len(units)
     recorded_units = 0
@@ -243,7 +259,11 @@ def estimate_pack(pack: SokqaQuizPack | SokqaDocumentPack, credit_per_char: floa
     )
 
 
-def estimate_packs(packs: list[SokqaQuizPack | SokqaDocumentPack], credit_per_char: float | None = None) -> AggregatedEstimation:
+def estimate_packs(
+    packs: list[SokqaQuizPack | SokqaDocumentPack],
+    credit_per_char: float | None = None,
+    text_source: RecordingTextSource = "raw",
+) -> AggregatedEstimation:
     """Estimate credit cost for multiple packs (aggregated).
 
     Args:
@@ -256,7 +276,7 @@ def estimate_packs(packs: list[SokqaQuizPack | SokqaDocumentPack], credit_per_ch
     settings = get_settings()
     rate = credit_per_char if credit_per_char is not None else settings.tts_credit_per_char
 
-    pack_estimations = [estimate_pack(pack, rate) for pack in packs]
+    pack_estimations = [estimate_pack(pack, rate, text_source) for pack in packs]
 
     total_units = sum(p.total_units for p in pack_estimations)
     recorded_units = sum(p.recorded_units for p in pack_estimations)

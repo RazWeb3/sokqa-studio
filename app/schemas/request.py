@@ -260,8 +260,10 @@ class TtsRecordingTarget(BaseModel):
 class EstimateTtsRecordingRequest(BaseModel):
     target: TtsRecordingTarget
     unitIds: list[str] | None = None
+    textSource: Literal["raw", "corrected"] = "raw"
 
 
 class RunTtsRecordingRequest(BaseModel):
     target: TtsRecordingTarget
     unitIds: list[str] = Field(..., min_length=1)
+    textSource: Literal["raw", "corrected"] = "raw"

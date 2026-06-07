@@ -12,19 +12,24 @@ from app.schemas.request import TtsRecordingTarget
 from app.schemas.sokqa import GeneratedFile, PackManifest, SokqaDocumentPack, SokqaQuizPack
 from app.services.pack_metadata import pack_storage_prefix
 from app.services.storage_client import StorageClient
-from app.services.tts_estimation import RecordingUnit, extract_recording_units
+from app.services.tts_estimation import RecordingTextSource, RecordingUnit, extract_recording_units
 from app.services.tts_recorder import RecordingSummary, Synthesizer, record_generated_file_audio
 
 
-def estimate_recording(target: TtsRecordingTarget, unit_ids: list[str] | None = None) -> dict:
+def estimate_recording(
+    target: TtsRecordingTarget,
+    unit_ids: list[str] | None = None,
+    text_source: RecordingTextSource = "raw",
+) -> dict:
     loaded = load_target_pack(target)
-    units = _select_units(extract_recording_units(loaded.pack), unit_ids, include_recorded=False)
-    return _estimate_response(loaded, units)
+    units = _select_units(extract_recording_units(loaded.pack, text_source), unit_ids, include_recorded=False)
+    return _estimate_response(loaded, units, text_source)
 
 
 def run_recording(
     target: TtsRecordingTarget,
     unit_ids: list[str],
+    text_source: RecordingTextSource = "raw",
     *,
     storage_client: StorageClient | None = None,
     synthesize_fn: Synthesizer | None = None,
@@ -34,7 +39,7 @@ def run_recording(
         raise ValueError(f"unitIds exceeds the per-request limit: {max_units}")
 
     loaded = load_target_pack(target)
-    all_units = extract_recording_units(loaded.pack)
+    all_units = extract_recording_units(loaded.pack, text_source)
     selected = _select_units(all_units, unit_ids, include_recorded=True)
     kwargs = {"storage_client": storage_client}
     if synthesize_fn is not None:
@@ -46,6 +51,7 @@ def run_recording(
         "packType": loaded.pack.type,
         "packName": loaded.file.name,
         "storagePrefix": loaded.storage_prefix,
+        "textSource": text_source,
         "summary": _summary_to_dict(summary),
         "audioUrls": [
             {"unitId": result.unit_id, "audioUrl": result.audio_url}
@@ -137,7 +143,7 @@ def _select_units(units: list[RecordingUnit], unit_ids: list[str] | None, *, inc
     return [by_id[unit_id] for unit_id in unit_ids]
 
 
-def _estimate_response(loaded: LoadedPack, units: list[RecordingUnit]) -> dict:
+def _estimate_response(loaded: LoadedPack, units: list[RecordingUnit], text_source: RecordingTextSource) -> dict:
     total_chars = sum(unit.char_count for unit in units)
     rate = get_settings().tts_credit_per_char
     return {
@@ -145,6 +151,7 @@ def _estimate_response(loaded: LoadedPack, units: list[RecordingUnit]) -> dict:
         "packType": loaded.pack.type,
         "packName": loaded.file.name,
         "storagePrefix": loaded.storage_prefix,
+        "textSource": text_source,
         "unitCount": len(units),
         "totalChars": total_chars,
         "estimatedCredits": total_chars * rate,

@@ -93,14 +93,27 @@ def test_extract_recording_units_from_quiz_pack_without_tts() -> None:
         assert u.kind in ("question", "choice", "explanation")
 
 
-def test_extract_recording_units_from_quiz_pack_with_tts() -> None:
-    """Test extraction from quiz pack with TTS corrections - should use TTS text."""
+def test_extract_recording_units_from_quiz_pack_with_tts_defaults_to_raw() -> None:
+    """Test extraction from quiz pack with TTS corrections defaults to raw text."""
     pack = _make_quiz_pack(has_tts=True)
     units = extract_recording_units_from_quiz_pack(pack)
 
     assert len(units) == 12
 
-    # TTS text should be used
+    q0_question = next(u for u in units if u.item_id == "q_q-0_question")
+    q0_choice0 = next(u for u in units if u.item_id == "q_q-0_choice_0")
+    q0_explanation = next(u for u in units if u.item_id == "q_q-0_explanation")
+
+    assert q0_question.text == "問題文0"
+    assert q0_choice0.text == "選択肢0-0"
+    assert q0_explanation.text == "解説0"
+
+
+def test_extract_recording_units_from_quiz_pack_with_corrected_text_source() -> None:
+    """Test extraction from quiz pack can use TTS correction text when requested."""
+    pack = _make_quiz_pack(has_tts=True)
+    units = extract_recording_units_from_quiz_pack(pack, text_source="corrected")
+
     q0_question = next(u for u in units if u.item_id == "q_q-0_question")
     q0_choice0 = next(u for u in units if u.item_id == "q_q-0_choice_0")
     q0_explanation = next(u for u in units if u.item_id == "q_q-0_explanation")
@@ -126,12 +139,22 @@ def test_extract_recording_units_from_document_pack_without_tts() -> None:
         assert u.kind == "document"
 
 
-def test_extract_recording_units_from_document_pack_with_tts() -> None:
-    """Test extraction from document pack with TTS corrections - should use TTS text."""
+def test_extract_recording_units_from_document_pack_with_tts_defaults_to_raw() -> None:
+    """Test extraction from document pack with TTS corrections defaults to raw text."""
     pack = _make_document_pack(has_tts=True)
     units = extract_recording_units_from_document_pack(pack)
 
     assert len(units) == 3
+
+    for i, u in enumerate(units):
+        assert u.text == f"ドキュメント本文{i}" * 10
+        assert u.char_count == len(u.text)
+
+
+def test_extract_recording_units_from_document_pack_with_corrected_text_source() -> None:
+    """Test extraction from document pack can use TTS correction text when requested."""
+    pack = _make_document_pack(has_tts=True)
+    units = extract_recording_units_from_document_pack(pack, text_source="corrected")
 
     for i, u in enumerate(units):
         assert u.text == f"ドキュメントTTS本文{i}" * 8
@@ -214,16 +237,37 @@ def test_estimation_to_dict_aggregated() -> None:
     assert d["unrecordedUnits"] == 15
 
 
-def test_tts_correction_char_count_difference() -> None:
+def test_tts_correction_char_count_difference_when_corrected_requested() -> None:
     """Test that TTS correction text char count differs from original."""
+    pack_no_tts = _make_quiz_pack(has_tts=False)
+    pack_with_tts = _make_quiz_pack(has_tts=True)
+
+    est_no_tts = estimate_pack(pack_no_tts, credit_per_char=0.0001)
+    est_with_tts = estimate_pack(pack_with_tts, credit_per_char=0.0001, text_source="corrected")
+
+    # TTS text is different length, so char counts should differ
+    assert est_no_tts.total_chars != est_with_tts.total_chars
+
+
+def test_estimate_pack_defaults_to_raw_even_when_tts_exists() -> None:
     pack_no_tts = _make_quiz_pack(has_tts=False)
     pack_with_tts = _make_quiz_pack(has_tts=True)
 
     est_no_tts = estimate_pack(pack_no_tts, credit_per_char=0.0001)
     est_with_tts = estimate_pack(pack_with_tts, credit_per_char=0.0001)
 
-    # TTS text is different length, so char counts should differ
-    assert est_no_tts.total_chars != est_with_tts.total_chars
+    assert est_no_tts.total_chars == est_with_tts.total_chars
+    assert [unit.text for unit in est_with_tts.units] == [unit.text for unit in est_no_tts.units]
+
+
+def test_estimate_packs_accepts_corrected_text_source() -> None:
+    quiz_pack = _make_quiz_pack(has_tts=True)
+    doc_pack = _make_document_pack(has_tts=True)
+
+    raw = estimate_packs([quiz_pack, doc_pack], credit_per_char=0.0001)
+    corrected = estimate_packs([quiz_pack, doc_pack], credit_per_char=0.0001, text_source="corrected")
+
+    assert raw.total_chars != corrected.total_chars
 
 
 def test_recorded_status_false_without_audio_urls() -> None:

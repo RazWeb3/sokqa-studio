@@ -74,11 +74,39 @@ def test_recording_estimate_returns_unrecorded_units_and_credits(tmp_path, monke
     unit_ids = [unit["itemId"] for unit in data["units"]]
 
     assert data["packId"] == "quiz-pack"
+    assert data["textSource"] == "raw"
     assert data["unitCount"] == 5
     assert "q_q-1_question" not in unit_ids
     assert "q_q-1_choice_0" in unit_ids
+    choice_0 = next(unit for unit in data["units"] if unit["itemId"] == "q_q-1_choice_0")
+    assert choice_0["text"] == "人工知能"
     assert data["totalChars"] == sum(unit["charCount"] for unit in data["units"])
     assert data["estimatedCredits"] == data["totalChars"] * 0.0001
+
+
+def test_recording_estimate_can_use_corrected_text_source(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/tts/recording-estimate",
+        json={"target": _target(pack_name), "unitIds": ["q_q-1_explanation"], "textSource": "corrected"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["textSource"] == "corrected"
+    assert data["units"] == [
+        {
+            "itemId": "q_q-1_explanation",
+            "text": "エーアイ は人工知能です。",
+            "charCount": len("エーアイ は人工知能です。"),
+            "packId": "quiz-pack",
+            "packType": "quiz",
+            "kind": "explanation",
+            "isRecorded": False,
+        }
+    ]
 
 
 def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_path, monkeypatch) -> None:
@@ -87,6 +115,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
 
     def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
         captured["unitIds"] = [unit.item_id for unit in units]
+        captured["texts"] = [unit.text for unit in units]
         return RecordingSummary(
             total_units=len(units),
             skipped_units=1,
@@ -117,6 +146,8 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
     data = response.json()
 
     assert captured["unitIds"] == ["q_q-1_question", "q_q-1_choice_0"]
+    assert captured["texts"] == ["AI の説明はどれですか?", "人工知能"]
+    assert data["textSource"] == "raw"
     assert data["summary"]["skippedUnits"] == 1
     assert data["summary"]["successCount"] == 1
     assert data["audioUrls"] == [
@@ -180,3 +211,42 @@ def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatc
     assert data["summary"]["failureCount"] == 1
     assert data["summary"]["failedUnitIds"] == ["q_q-1_choice_1"]
     assert data["summary"]["results"][1]["error"] == "synthetic failure"
+
+
+def test_recording_endpoint_can_use_corrected_text_source(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+    captured = {}
+
+    def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
+        captured["texts"] = [unit.text for unit in units]
+        return RecordingSummary(
+            total_units=len(units),
+            skipped_units=0,
+            success_count=1,
+            failure_count=0,
+            failed_unit_ids=[],
+            results=[
+                RecordingResult(
+                    unit_id="q_q-1_explanation",
+                    success=True,
+                    audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_explanation.mp3",
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
+
+    response = client.post(
+        "/tts/record",
+        json={
+            "target": _target(pack_name),
+            "unitIds": ["q_q-1_explanation"],
+            "textSource": "corrected",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["textSource"] == "corrected"
+    assert captured["texts"] == ["エーアイ は人工知能です。"]

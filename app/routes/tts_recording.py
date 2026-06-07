@@ -10,7 +10,7 @@ router = APIRouter(prefix="/tts", tags=["tts-recording"])
 @router.post("/recording-estimate")
 def estimate_tts_recording(request: EstimateTtsRecordingRequest) -> dict:
     try:
-        return estimate_recording(request.target, request.unitIds)
+        return estimate_recording(request.target, request.unitIds, request.textSource)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -20,7 +20,7 @@ def estimate_tts_recording(request: EstimateTtsRecordingRequest) -> dict:
 @router.post("/record")
 def run_tts_recording(request: RunTtsRecordingRequest) -> dict:
     try:
-        return run_recording(request.target, request.unitIds)
+        return run_recording(request.target, request.unitIds, request.textSource)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

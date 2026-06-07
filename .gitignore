@@ -5,3 +5,8 @@ generated/
 __pycache__/
 *.py[cod]
 *.log
+tmp/tts_probe/
+*.mp3
+*.wav
+*.ogg
+*.m4a

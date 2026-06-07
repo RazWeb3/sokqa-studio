@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     google_cloud_location: str = "global"
     google_genai_use_vertexai: bool = False
 
+    # TTS estimation: credit cost per character (仮の値。Google Cloud TTS の料金体系に合わせて後で調整)
+    # 現状は 1 文字 = 0.0001 クレジット（= 10,000 文字で 1 クレジット）程度を想定
+    tts_credit_per_char: float = 0.0001
+
     @property
     def allowed_domains(self) -> set[str]:
         return {domain.strip().lower() for domain in self.allowed_manifest_domains.split(",") if domain.strip()}

@@ -1,9 +1,9 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import Difficulty, Scale, SourceMode, TtsReadingMode, TtsRule
-from app.schemas.sokqa import CoursePlan, GeneratedFile, PackManifest
+from app.schemas.sokqa import CoursePlan, GeneratedFile, PackManifest, ValidationResult
 
 
 class QuizPackSpec(BaseModel):
@@ -230,6 +230,28 @@ class GeneratePackRequest(BaseModel):
 class ValidatePackRequest(BaseModel):
     files: list[GeneratedFile] = Field(default_factory=list)
     manifest: PackManifest | None = None
+
+
+class ImportPackInputFile(BaseModel):
+    name: str = Field(..., min_length=1, max_length=180)
+    content: dict[str, Any]
+
+
+class ImportPackRequest(BaseModel):
+    files: list[ImportPackInputFile] = Field(..., min_length=1)
+    creatorId: str | None = Field(default=None, min_length=1, max_length=120)
+    creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
+    contentId: str | None = Field(default=None, min_length=1, max_length=160)
+    slug: str | None = Field(default=None, min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+
+
+class ImportPackResponse(BaseModel):
+    status: Literal["imported"] = "imported"
+    files: list[GeneratedFile]
+    manifest: PackManifest
+    validation: ValidationResult
+    logs: list[str] = Field(default_factory=list)
 
 
 class RepairPackRequest(ValidatePackRequest):

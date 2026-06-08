@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
+from app.schemas.request import ImportPackRequest, ImportPackResponse
+from app.services.pack_importer import import_pack_files
 from app.services.pack_listing import list_generated_packs
 
 
@@ -10,5 +12,13 @@ router = APIRouter(tags=["packs"])
 def list_packs(creatorId: str | None = None) -> dict:
     try:
         return {"items": list_generated_packs(creatorId)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/packs/import", response_model=ImportPackResponse)
+def import_packs(request: ImportPackRequest) -> ImportPackResponse:
+    try:
+        return import_pack_files(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

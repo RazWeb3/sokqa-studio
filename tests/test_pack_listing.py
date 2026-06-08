@@ -41,7 +41,10 @@ def _write_pack(tmp_path: Path, monkeypatch, creator_id: str, content_id: str, v
         content["documents"] = [{"id": "d-1", "text": "本文です。"}]
     (target_dir / name).write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
     (target_dir / "manifest.json").write_text(
-        json.dumps({"id": "manifest", "type": "pack_manifest", "items": []}, ensure_ascii=False),
+        json.dumps(
+            {"id": "manifest", "type": "pack_manifest", "title": f"{content_id} manifest", "items": []},
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
 
@@ -65,3 +68,7 @@ def test_list_packs_filters_by_creator_id(tmp_path, monkeypatch) -> None:
         "kind": "document",
     }
     assert data["items"][0]["url"].endswith("/sokqa/creators/creator_a/packs/content_a/versions/v20260608_120000/doc.json")
+    assert data["items"][0]["manifestTitle"] == "content_a manifest"
+    assert data["items"][0]["manifestUrl"].endswith(
+        "/sokqa/creators/creator_a/packs/content_a/versions/v20260608_120000/manifest.json"
+    )

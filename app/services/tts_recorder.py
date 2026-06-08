@@ -42,6 +42,7 @@ def record_generated_file_audio(
     storage_client: StorageClient | None = None,
     synthesize_fn: Synthesizer = synthesize_text_to_mp3,
     max_concurrency: int | None = None,
+    force_rerecord: bool = False,
 ) -> RecordingSummary:
     """Record audio for a generated pack file and persist the updated JSON."""
     if file.kind == "document":
@@ -56,9 +57,11 @@ def record_generated_file_audio(
         pack,
         units,
         storage_prefix,
+        audio_namespace=_audio_namespace_from_file_name(file.name),
         storage_client=storage,
         synthesize_fn=synthesize_fn,
         max_concurrency=max_concurrency,
+        force_rerecord=force_rerecord,
     )
     file.content = pack.model_dump(exclude_none=True)
     if summary.success_count:
@@ -71,22 +74,25 @@ def record_pack_audio(
     units: list[RecordingUnit],
     storage_prefix: str,
     *,
+    audio_namespace: str | None = None,
     storage_client: StorageClient | None = None,
     synthesize_fn: Synthesizer = synthesize_text_to_mp3,
     max_concurrency: int | None = None,
+    force_rerecord: bool = False,
 ) -> RecordingSummary:
     """Record unrecorded units, upload MP3 files, and attach audio URLs in-place."""
     storage = storage_client or StorageClient()
-    targets = [unit for unit in units if not unit.is_recorded and unit.pack_id == pack.id]
+    targets = [unit for unit in units if unit.pack_id == pack.id and (force_rerecord or not unit.is_recorded)]
     skipped_units = len(units) - len(targets)
     workers = _max_concurrency(max_concurrency)
+    namespace = _safe_audio_stem(audio_namespace or pack.id)
 
     def record_unit(unit: RecordingUnit) -> RecordingResult:
         try:
             audio = synthesize_fn(unit.text)
             audio_url = storage.save_bytes(
                 unit.pack_id,
-                f"audio/{_safe_audio_stem(unit.item_id)}.mp3",
+                f"audio/{namespace}__{_safe_audio_stem(unit.item_id)}.mp3",
                 audio,
                 content_type="audio/mpeg",
                 storage_prefix=storage_prefix,
@@ -127,11 +133,31 @@ def _safe_audio_stem(item_id: str) -> str:
     return safe or "audio"
 
 
+def _audio_namespace_from_file_name(file_name: str) -> str:
+    stem = file_name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if stem.lower().endswith(".json"):
+        stem = stem[:-5]
+    return _safe_audio_stem(stem)
+
+
 def _attach_audio_url(pack: SokqaDocumentPack | SokqaQuizPack, unit: RecordingUnit, audio_url: str) -> None:
     if isinstance(pack, SokqaDocumentPack):
         _attach_document_audio_url(pack, unit, audio_url)
     else:
         _attach_quiz_audio_url(pack, unit, audio_url)
+
+
+def clear_pack_audio_urls(pack: SokqaDocumentPack | SokqaQuizPack, units: list[RecordingUnit]) -> int:
+    """Clear audio URL fields for selected recording units in-place."""
+    cleared = 0
+    for unit in units:
+        if unit.pack_id != pack.id:
+            continue
+        if isinstance(pack, SokqaDocumentPack):
+            cleared += _clear_document_audio_url(pack, unit)
+        else:
+            cleared += _clear_quiz_audio_url(pack, unit)
+    return cleared
 
 
 def _attach_document_audio_url(pack: SokqaDocumentPack, unit: RecordingUnit, audio_url: str) -> None:
@@ -141,6 +167,15 @@ def _attach_document_audio_url(pack: SokqaDocumentPack, unit: RecordingUnit, aud
             item.tts = item.tts or DocumentTts()
             item.tts.audioUrl = audio_url
             return
+
+
+def _clear_document_audio_url(pack: SokqaDocumentPack, unit: RecordingUnit) -> int:
+    item_id = _document_id_from_unit(unit.item_id)
+    for item in pack.documents:
+        if item.id == item_id and item.tts and item.tts.audioUrl:
+            item.tts.audioUrl = None
+            return 1
+    return 0
 
 
 def _attach_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit, audio_url: str) -> None:
@@ -160,6 +195,26 @@ def _attach_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit, audio_url: 
             urls[choice_index] = audio_url
             question.tts.choiceAudioUrls = urls
         return
+
+
+def _clear_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit) -> int:
+    question_id, choice_index = _quiz_target_from_unit(unit.item_id, unit.kind)
+    for question in pack.questions:
+        if question.id != question_id or not question.tts:
+            continue
+        if unit.kind == "question" and question.tts.questionAudioUrl:
+            question.tts.questionAudioUrl = None
+            return 1
+        if unit.kind == "explanation" and question.tts.explanationAudioUrl:
+            question.tts.explanationAudioUrl = None
+            return 1
+        if unit.kind == "choice" and choice_index is not None:
+            urls = list(question.tts.choiceAudioUrls or [])
+            if choice_index < len(urls) and urls[choice_index]:
+                urls[choice_index] = None
+                question.tts.choiceAudioUrls = urls
+                return 1
+    return 0
 
 
 def _document_id_from_unit(unit_id: str) -> str:

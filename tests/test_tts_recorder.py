@@ -86,22 +86,22 @@ def test_record_quiz_audio_urls_are_attached_and_mp3_is_saved() -> None:
     assert tts is not None
     assert summary.success_count == 6
     assert summary.failure_count == 0
-    assert tts.questionAudioUrl.endswith("/audio/q_q-1_question.mp3")
+    assert tts.questionAudioUrl.endswith("/audio/quiz-pack__q_q-1_question.mp3")
     assert tts.choiceAudioUrls == [
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/q_q-1_choice_0.mp3",
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/q_q-1_choice_1.mp3",
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/q_q-1_choice_2.mp3",
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/q_q-1_choice_3.mp3",
+        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_0.mp3",
+        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_1.mp3",
+        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_2.mp3",
+        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_3.mp3",
     ]
-    assert tts.explanationAudioUrl.endswith("/audio/q_q-1_explanation.mp3")
+    assert tts.explanationAudioUrl.endswith("/audio/quiz-pack__q_q-1_explanation.mp3")
     assert {entry["content_type"] for entry in storage.saved_bytes} == {"audio/mpeg"}
     assert {entry["object_name"] for entry in storage.saved_bytes} == {
-        "audio/q_q-1_question.mp3",
-        "audio/q_q-1_choice_0.mp3",
-        "audio/q_q-1_choice_1.mp3",
-        "audio/q_q-1_choice_2.mp3",
-        "audio/q_q-1_choice_3.mp3",
-        "audio/q_q-1_explanation.mp3",
+        "audio/quiz-pack__q_q-1_question.mp3",
+        "audio/quiz-pack__q_q-1_choice_0.mp3",
+        "audio/quiz-pack__q_q-1_choice_1.mp3",
+        "audio/quiz-pack__q_q-1_choice_2.mp3",
+        "audio/quiz-pack__q_q-1_choice_3.mp3",
+        "audio/quiz-pack__q_q-1_explanation.mp3",
     }
 
 
@@ -120,8 +120,8 @@ def test_record_document_audio_url_is_attached() -> None:
 
     assert summary.success_count == 1
     assert pack.documents[0].tts is not None
-    assert pack.documents[0].tts.audioUrl == "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/doc_doc-1.mp3"
-    assert storage.saved_bytes[0]["object_name"] == "audio/doc_doc-1.mp3"
+    assert pack.documents[0].tts.audioUrl == "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/doc-pack__doc_doc-1.mp3"
+    assert storage.saved_bytes[0]["object_name"] == "audio/doc-pack__doc_doc-1.mp3"
 
 
 def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:
@@ -143,6 +143,28 @@ def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:
     doc_units = extract_recording_units_from_document_pack(document)
 
     assert doc_units[0].is_recorded is True
+
+
+def test_force_rerecord_records_previously_recorded_units() -> None:
+    pack = _quiz_pack()
+    assert pack.questions[0].tts is not None
+    pack.questions[0].tts.questionAudioUrl = "https://cdn.example.test/old.mp3"
+    units = extract_recording_units_from_quiz_pack(pack)
+    storage = FakeStorageClient()
+
+    summary = record_pack_audio(
+        pack,
+        units[:1],
+        "sokqa/creators/creator/packs/content/versions/v1",
+        storage_client=storage,
+        synthesize_fn=lambda text: b"new-mp3",
+        force_rerecord=True,
+    )
+
+    assert summary.skipped_units == 0
+    assert summary.success_count == 1
+    assert storage.saved_bytes[0]["object_name"] == "audio/quiz-pack__q_q-1_question.mp3"
+    assert pack.questions[0].tts.questionAudioUrl.endswith("/audio/quiz-pack__q_q-1_question.mp3")
 
 
 def test_one_synthesis_failure_does_not_stop_other_units() -> None:
@@ -169,7 +191,7 @@ def test_one_synthesis_failure_does_not_stop_other_units() -> None:
     assert len(storage.saved_bytes) == 5
     assert pack.questions[0].tts is not None
     assert pack.questions[0].tts.choiceAudioUrls is not None
-    assert pack.questions[0].tts.choiceAudioUrls[0].endswith("/audio/q_q-1_choice_0.mp3")
+    assert pack.questions[0].tts.choiceAudioUrls[0].endswith("/audio/quiz-pack__q_q-1_choice_0.mp3")
     assert pack.questions[0].tts.choiceAudioUrls[1] is None
 
 
@@ -204,7 +226,36 @@ def test_record_generated_file_audio_persists_updated_json() -> None:
     )
 
     assert summary.success_count == 1
-    assert file.content["questions"][0]["tts"]["questionAudioUrl"].endswith("/audio/q_q-1_question.mp3")
+    assert file.content["questions"][0]["tts"]["questionAudioUrl"].endswith("/audio/quiz-pack__q_q-1_question.mp3")
     assert storage.saved_files
     assert storage.saved_files[0][0] == "quiz-pack"
     assert storage.saved_files[0][2] == "sokqa/creators/creator/packs/content/versions/v1"
+
+
+def test_record_generated_file_audio_uses_file_name_namespace_to_avoid_cross_file_collisions() -> None:
+    storage_a = FakeStorageClient()
+    storage_b = FakeStorageClient()
+    file_a = GeneratedFile(name="doc_01.json", kind="document", content=_document_pack().model_dump(exclude_none=True))
+    file_b = GeneratedFile(name="doc_03.json", kind="document", content=_document_pack().model_dump(exclude_none=True))
+    units_a = extract_recording_units_from_document_pack(SokqaDocumentPack.model_validate(file_a.content))
+    units_b = extract_recording_units_from_document_pack(SokqaDocumentPack.model_validate(file_b.content))
+
+    record_generated_file_audio(
+        file_a,
+        units_a,
+        "sokqa/creators/creator/packs/content/versions/v1",
+        storage_client=storage_a,
+        synthesize_fn=lambda text: b"mp3-a",
+    )
+    record_generated_file_audio(
+        file_b,
+        units_b,
+        "sokqa/creators/creator/packs/content/versions/v1",
+        storage_client=storage_b,
+        synthesize_fn=lambda text: b"mp3-b",
+    )
+
+    assert storage_a.saved_bytes[0]["object_name"] == "audio/doc_01__doc_doc-1.mp3"
+    assert storage_b.saved_bytes[0]["object_name"] == "audio/doc_03__doc_doc-1.mp3"
+    assert file_a.content["documents"][0]["tts"]["audioUrl"].endswith("/audio/doc_01__doc_doc-1.mp3")
+    assert file_b.content["documents"][0]["tts"]["audioUrl"].endswith("/audio/doc_03__doc_doc-1.mp3")

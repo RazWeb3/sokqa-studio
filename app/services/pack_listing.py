@@ -49,6 +49,7 @@ def _list_local_packs(creator_id: str | None) -> list[dict[str, Any]]:
                 continue
             for version_dir in sorted(path for path in versions_root.iterdir() if path.is_dir()):
                 storage_prefix = _relative_prefix_from_version_dir(version_dir, creator_dir.name, content_dir.name)
+                manifest_content = _read_local_manifest(version_dir)
                 for path in sorted(version_dir.glob("*.json")):
                     item = _pack_item_from_content_path(
                         path,
@@ -56,6 +57,7 @@ def _list_local_packs(creator_id: str | None) -> list[dict[str, Any]]:
                         content_dir.name,
                         version_dir.name,
                         storage_prefix,
+                        manifest_content,
                     )
                     if item:
                         items.append(item)
@@ -72,12 +74,20 @@ def _pack_item_from_content_path(
     content_id: str,
     version_id: str,
     storage_prefix: str,
+    manifest_content: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     try:
         content = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return _pack_item_from_content(content, path.name, creator_id, content_id, version_id, storage_prefix)
+    return _pack_item_from_content(content, path.name, creator_id, content_id, version_id, storage_prefix, manifest_content)
+
+
+def _read_local_manifest(version_dir: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads((version_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
@@ -99,10 +109,26 @@ def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
             content = json.loads(blob.download_as_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        item = _pack_item_from_content(content, pack_name, blob_creator_id, content_id, version_id, storage_prefix)
+        manifest_content = _read_gcs_manifest(bucket, storage_prefix)
+        item = _pack_item_from_content(
+            content,
+            pack_name,
+            blob_creator_id,
+            content_id,
+            version_id,
+            storage_prefix,
+            manifest_content,
+        )
         if item:
             items.append(item)
     return sorted(items, key=_pack_sort_key)
+
+
+def _read_gcs_manifest(bucket, storage_prefix: str) -> dict[str, Any] | None:
+    try:
+        return json.loads(bucket.blob(f"{storage_prefix}/manifest.json").download_as_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _parse_pack_blob_name(blob_name: str, base: str) -> tuple[str, str, str, str, str] | None:
@@ -127,11 +153,14 @@ def _pack_item_from_content(
     content_id: str,
     version_id: str,
     storage_prefix: str,
+    manifest_content: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     kind = content.get("type")
     if kind not in {"document", "quiz"}:
         return None
-    url = f"{get_settings().public_base_url.rstrip('/')}/{storage_prefix}/{pack_name}"
+    base_url = get_settings().public_base_url.rstrip("/")
+    url = f"{base_url}/{storage_prefix}/{pack_name}"
+    manifest_url = f"{base_url}/{storage_prefix}/manifest.json"
     return {
         "creatorId": creator_id,
         "contentId": content_id,
@@ -139,6 +168,8 @@ def _pack_item_from_content(
         "packName": pack_name,
         "kind": kind,
         "title": content.get("title") or content.get("id") or pack_name,
+        "manifestTitle": (manifest_content or {}).get("title"),
+        "manifestUrl": manifest_url,
         "url": url,
         "storagePrefix": storage_prefix,
         "target": {

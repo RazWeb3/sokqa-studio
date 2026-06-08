@@ -267,3 +267,10 @@ class RunTtsRecordingRequest(BaseModel):
     target: TtsRecordingTarget
     unitIds: list[str] = Field(..., min_length=1)
     textSource: Literal["raw", "corrected"] = "raw"
+    forceRerecord: bool = False
+
+
+class ResetTtsRecordingRequest(BaseModel):
+    target: TtsRecordingTarget
+    unitIds: list[str] | None = None
+    textSource: Literal["raw", "corrected"] = "raw"

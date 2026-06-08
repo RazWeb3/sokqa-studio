@@ -13,7 +13,7 @@ from app.schemas.sokqa import GeneratedFile, PackManifest, SokqaDocumentPack, So
 from app.services.pack_metadata import pack_storage_prefix
 from app.services.storage_client import StorageClient
 from app.services.tts_estimation import RecordingTextSource, RecordingUnit, extract_recording_units
-from app.services.tts_recorder import RecordingSummary, Synthesizer, record_generated_file_audio
+from app.services.tts_recorder import RecordingSummary, Synthesizer, clear_pack_audio_urls, record_generated_file_audio
 
 
 def estimate_recording(
@@ -31,6 +31,7 @@ def run_recording(
     target: TtsRecordingTarget,
     unit_ids: list[str],
     text_source: RecordingTextSource = "raw",
+    force_rerecord: bool = False,
     *,
     storage_client: StorageClient | None = None,
     synthesize_fn: Synthesizer | None = None,
@@ -45,7 +46,7 @@ def run_recording(
     kwargs = {"storage_client": storage_client}
     if synthesize_fn is not None:
         kwargs["synthesize_fn"] = synthesize_fn
-    summary = record_generated_file_audio(loaded.file, selected, loaded.storage_prefix, **kwargs)
+    summary = record_generated_file_audio(loaded.file, selected, loaded.storage_prefix, force_rerecord=force_rerecord, **kwargs)
     loaded.pack = _pack_from_file(loaded.file)
     return {
         "packId": loaded.pack.id,
@@ -53,12 +54,38 @@ def run_recording(
         "packName": loaded.file.name,
         "storagePrefix": loaded.storage_prefix,
         "textSource": text_source,
+        "forceRerecord": force_rerecord,
         "summary": _summary_to_dict(summary),
         "audioUrls": [
             {"unitId": result.unit_id, "audioUrl": result.audio_url}
             for result in summary.results
             if result.success and result.audio_url
         ],
+    }
+
+
+def reset_recording(
+    target: TtsRecordingTarget,
+    unit_ids: list[str] | None = None,
+    text_source: RecordingTextSource = "raw",
+) -> dict:
+    loaded = load_target_pack(target)
+    all_units = extract_recording_units(loaded.pack, text_source)
+    selected = _select_units(all_units, unit_ids, include_recorded=True)
+    cleared_count = clear_pack_audio_urls(loaded.pack, selected)
+    loaded.file.content = loaded.pack.model_dump(exclude_none=True)
+    StorageClient().save_files(loaded.pack.id, [loaded.file], loaded.storage_prefix)
+    refreshed_units = extract_recording_units(loaded.pack, text_source)
+    affected_ids = {unit.item_id for unit in selected}
+    return {
+        "packId": loaded.pack.id,
+        "packType": loaded.pack.type,
+        "packName": loaded.file.name,
+        "storagePrefix": loaded.storage_prefix,
+        "textSource": text_source,
+        "requestedUnitCount": len(selected),
+        "clearedCount": cleared_count,
+        "units": [_unit_to_dict(unit) for unit in refreshed_units if unit.item_id in affected_ids],
     }
 
 

@@ -248,6 +248,7 @@
         margin-top: 12px;
       }
 
+      .manifest-card,
       .pack-row,
       .unit-row {
         display: grid;
@@ -258,6 +259,28 @@
         border-radius: 8px;
         padding: 10px 12px;
         background: #ffffff;
+      }
+
+      .manifest-card {
+        display: block;
+      }
+
+      .manifest-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .pack-children {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .pack-row {
+        background: #f8fafc;
       }
 
       .pack-row.active {
@@ -274,6 +297,30 @@
         margin: 0;
       }
 
+      .unit-row.playing {
+        border-color: var(--accent);
+        background: #f0fdfa;
+        box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18);
+      }
+
+      .unit-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 150px;
+      }
+
+      .icon-button {
+        width: 34px;
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0;
+        justify-content: center;
+        border-radius: 6px;
+      }
+
       .meta {
         color: var(--muted);
         font-size: 0.88rem;
@@ -283,6 +330,18 @@
         margin-top: 4px;
         color: var(--text);
         overflow-wrap: anywhere;
+      }
+
+      .url-line {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.84rem;
+        overflow-wrap: anywhere;
+      }
+
+      .url-line a {
+        color: var(--accent-dark);
+        font-weight: 650;
       }
 
       .badge {
@@ -447,6 +506,18 @@
             <div class="actions">
               <button id="selectUnrecordedBtn" type="button" class="secondary">未録音を全選択</button>
               <button id="clearUnitSelectionBtn" type="button" class="secondary">選択解除</button>
+              <button id="playSelectedBtn" type="button" class="secondary">選択分を連続再生</button>
+              <button id="playAllBtn" type="button" class="secondary">全体を連続再生</button>
+              <label style="margin: 0;">
+                再生速度
+                <select id="playbackRateSelect" style="min-width: 110px;">
+                  <option value="0.75">0.75x</option>
+                  <option value="1" selected>1.0x</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2.0x</option>
+                </select>
+              </label>
             </div>
             <div class="recording-summary">
               <p><strong>選択ユニット:</strong> <span id="selectedUnitCount">0</span></p>
@@ -456,9 +527,16 @@
             <p id="creditWarning" class="status"></p>
             <div class="actions">
               <button id="recordSelectedBtn" type="button" disabled>録音化</button>
+              <button id="forceRecordSelectedBtn" type="button" class="secondary" disabled>選択分を強制再録音</button>
+              <button id="resetSelectedRecordingBtn" type="button" class="secondary" disabled>選択分の録音状態をリセット</button>
+              <button id="resetAllRecordingBtn" type="button" class="secondary">全録音状態をリセット</button>
+              <button id="prevTrackBtn" type="button" class="secondary" disabled>前へ</button>
+              <button id="pauseTrackBtn" type="button" class="secondary" disabled>一時停止</button>
+              <button id="nextTrackBtn" type="button" class="secondary" disabled>次へ</button>
             </div>
             <div id="unitList" class="unit-list"></div>
             <div id="recordingResult" class="recording-result"></div>
+            <audio id="recordingAudio" preload="none"></audio>
           </div>
         </section>
 
@@ -495,6 +573,12 @@
       let selectedUnitIds = new Set();
       let estimateTimer = null;
       let isRecordingBusy = false;
+      let knownAudioUrls = new Map();
+      let playbackQueue = [];
+      let playbackIndex = -1;
+      let currentPlayingUnitId = "";
+      let isPlaybackPaused = true;
+      const RECORDING_REQUEST_UNIT_LIMIT = 20;
 
       function escapeHtml(value) {
         return String(value ?? "")
@@ -584,6 +668,98 @@
         };
       }
 
+      function manifestUrl(pack) {
+        if (pack?.manifestUrl) return pack.manifestUrl;
+        if (!pack?.url || !pack?.packName) return "";
+        return `${pack.url.slice(0, -pack.packName.length)}manifest.json`;
+      }
+
+      function manifestGroupKey(pack) {
+        return manifestUrl(pack) || `${pack.contentId || ""}:${pack.versionId || ""}`;
+      }
+
+      function groupedPacks(packs) {
+        const groups = [];
+        const byKey = new Map();
+        packs.forEach((pack, index) => {
+          const key = manifestGroupKey(pack);
+          if (!byKey.has(key)) {
+            const group = {
+              key,
+              manifestUrl: manifestUrl(pack),
+              title: pack.manifestTitle || pack.contentId || pack.title || "Manifest",
+              contentId: pack.contentId,
+              versionId: pack.versionId,
+              packs: []
+            };
+            byKey.set(key, group);
+            groups.push(group);
+          }
+          byKey.get(key).packs.push({ pack, index });
+        });
+        return groups;
+      }
+
+      function packBaseUrl() {
+        if (!selectedPack?.url || !selectedPack?.packName) return "";
+        return selectedPack.url.slice(0, -selectedPack.packName.length).replace(/\/$/, "");
+      }
+
+      function safeAudioStem(value) {
+        const safe = String(value || "").replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^[._]+|[._]+$/g, "");
+        return safe || "audio";
+      }
+
+      function packAudioNamespace() {
+        const packName = selectedPack?.packName || selectedPack?.contentId || selectedPack?.url || "";
+        const baseName = packName.split("/").pop().split("\\").pop().replace(/\.json$/i, "");
+        return safeAudioStem(baseName);
+      }
+
+      function packAudioKey(unitId, pack = selectedPack) {
+        const packKey = pack?.url || `${pack?.contentId || ""}:${pack?.versionId || ""}:${pack?.packName || ""}`;
+        return `${packKey}::${unitId}`;
+      }
+
+      function unitAudioUrl(unit) {
+        if (!unit) return "";
+        if (unit.audioUrl) return unit.audioUrl;
+        const audioKey = packAudioKey(unit.itemId);
+        if (knownAudioUrls.has(audioKey)) return knownAudioUrls.get(audioKey);
+        if (!unit.isRecorded) return "";
+        const baseUrl = packBaseUrl();
+        const fileName = `${packAudioNamespace()}__${safeAudioStem(unit.itemId)}.mp3`;
+        return baseUrl ? `${baseUrl}/audio/${encodeURIComponent(fileName)}` : "";
+      }
+
+      function playableUnits(units) {
+        return units.filter((unit) => Boolean(unitAudioUrl(unit)));
+      }
+
+      function selectedPlaybackRate() {
+        return Number($("playbackRateSelect")?.value || 1);
+      }
+
+      function applyPlaybackRate() {
+        $("recordingAudio").playbackRate = selectedPlaybackRate();
+      }
+
+      function rememberAudioUrlsFromUnits(units) {
+        (units || []).forEach((unit) => {
+          if (unit.audioUrl) {
+            knownAudioUrls.set(packAudioKey(unit.itemId), unit.audioUrl);
+          }
+        });
+      }
+
+      function rememberAudioUrlsFromRecording(data) {
+        (data.audioUrls || []).forEach((item) => {
+          if (item.unitId && item.audioUrl) {
+            knownAudioUrls.set(packAudioKey(item.unitId), item.audioUrl);
+          }
+        });
+      }
+
       function setRecordingStatus(message, isError = false) {
         const el = $("recordingStatus");
         el.textContent = message;
@@ -603,16 +779,32 @@
           list.innerHTML = '<p class="meta">表示できるパックがありません。</p>';
           return;
         }
-        list.innerHTML = packs
-          .map((pack, index) => {
-            const active = selectedPack && selectedPack.url === pack.url ? " active" : "";
+        list.innerHTML = groupedPacks(packs)
+          .map((group) => {
             return `
-              <div class="pack-row${active}">
-                <div>
-                  <strong>${escapeHtml(pack.title)}</strong>
-                  <div class="meta">${escapeHtml(pack.kind)} / ${escapeHtml(pack.contentId)} / ${escapeHtml(pack.versionId)}</div>
+              <div class="manifest-card">
+                <div class="manifest-header">
+                  <strong><a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.title)}</a></strong>
+                  <div class="meta">${escapeHtml(group.contentId)} / ${escapeHtml(group.versionId)}</div>
+                  <div class="url-line">manifest JSON: <a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.manifestUrl)}</a></div>
                 </div>
-                <button type="button" class="secondary" data-pack-index="${index}">選択</button>
+                <div class="pack-children">
+                  ${group.packs
+                    .map(({ pack, index }) => {
+                      const active = selectedPack && selectedPack.url === pack.url ? " active" : "";
+                      const meta = `${pack.kind} / ${pack.contentId} / ${pack.versionId}`;
+                      return `
+                        <div class="pack-row${active}">
+                          <div>
+                            <strong>${escapeHtml(pack.title)}</strong>
+                            <div class="meta"><a href="${escapeHtml(pack.url)}" target="_blank" rel="noreferrer">${escapeHtml(meta)}</a></div>
+                          </div>
+                          <button type="button" class="secondary" data-pack-index="${index}">選択</button>
+                        </div>
+                      `;
+                    })
+                    .join("")}
+                </div>
               </div>
             `;
           })
@@ -624,6 +816,7 @@
 
       async function loadPacks() {
         try {
+          stopPlayback();
           setRecordingStatus("パック一覧を取得しています...");
           const creatorId = $("packCreatorId").value.trim();
           const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
@@ -656,6 +849,7 @@
 
       async function selectPack(pack) {
         try {
+          stopPlayback();
           selectedPack = pack;
           selectedUnitIds = new Set();
           selectedEstimate = null;
@@ -664,6 +858,7 @@
           setRecordingStatus("録音対象を読み込んでいます...");
           renderPacks(currentPacks);
           fullEstimate = await fetchEstimate();
+          rememberAudioUrlsFromUnits(fullEstimate?.units);
           renderUnits();
           await updateSelectedEstimate();
           setRecordingStatus(`${pack.title} の録音対象を表示しました。`);
@@ -692,20 +887,32 @@
         list.innerHTML = units
           .map((unit) => {
             const checked = selectedUnitIds.has(unit.itemId) ? " checked" : "";
+            const audioUrl = unitAudioUrl(unit);
+            const isPlaying = currentPlayingUnitId === unit.itemId && !isPlaybackPaused;
             const statusBadge = unit.isRecorded
               ? '<span class="badge muted">録音済み</span>'
               : '<span class="badge">未録音</span>';
             const note = unit.isRecorded ? "選択しても追加消費なし" : `${unit.charCount} chars`;
+            const playButton = audioUrl
+              ? `<button type="button" class="icon-button secondary" data-play-unit="${escapeHtml(unit.itemId)}" aria-label="${escapeHtml(unit.itemId)}を再生">${isPlaying ? "⏸" : "▶"}</button>`
+              : "";
+            const audioLink = audioUrl
+              ? `<div class="url-line">audio: <a href="${escapeHtml(audioUrl)}" target="_blank" rel="noreferrer">${escapeHtml(audioUrl)}</a></div>`
+              : '<div class="url-line">audio: 未録音</div>';
             return `
-              <label class="unit-row">
+              <div class="unit-row${isPlaying ? " playing" : ""}">
                 <input type="checkbox" value="${escapeHtml(unit.itemId)}"${checked} />
                 <span>
                   <strong>${escapeHtml(unit.itemId)}</strong>
                   <span class="meta"> ${escapeHtml(unit.kind)} / ${escapeHtml(note)}</span>
                   <div class="excerpt">${escapeHtml(unit.text).slice(0, 160)}</div>
+                  ${audioLink}
                 </span>
-                ${statusBadge}
-              </label>
+                <span class="unit-actions">
+                  ${statusBadge}
+                  ${playButton}
+                </span>
+              </div>
             `;
           })
           .join("");
@@ -716,14 +923,200 @@
             } else {
               selectedUnitIds.delete(input.value);
             }
+            updatePlaybackControls();
             scheduleSelectedEstimate();
           });
         });
+        list.querySelectorAll("[data-play-unit]").forEach((button) => {
+          button.addEventListener("click", () => toggleUnitPlayback(button.dataset.playUnit));
+        });
+        updatePlaybackControls();
+      }
+
+      function unitById(unitId) {
+        return (fullEstimate?.units || []).find((unit) => unit.itemId === unitId) || null;
+      }
+
+      function stopPlayback() {
+        const audio = $("recordingAudio");
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+        playbackQueue = [];
+        playbackIndex = -1;
+        currentPlayingUnitId = "";
+        isPlaybackPaused = true;
+        renderUnits();
+      }
+
+      async function playUnit(unit, queue = [unit], index = 0) {
+        const audioUrl = unitAudioUrl(unit);
+        if (!audioUrl) {
+          setRecordingStatus("再生できる音声URLがありません。", true);
+          return;
+        }
+        const audio = $("recordingAudio");
+        playbackQueue = queue;
+        playbackIndex = index;
+        currentPlayingUnitId = unit.itemId;
+        audio.src = audioUrl;
+        applyPlaybackRate();
+        try {
+          await audio.play();
+          isPlaybackPaused = false;
+          renderUnits();
+          setRecordingStatus(`${unit.itemId} を再生しています。`);
+        } catch (error) {
+          isPlaybackPaused = true;
+          renderUnits();
+          setRecordingStatus(`再生できませんでした: ${error.message}`, true);
+        }
+      }
+
+      async function toggleUnitPlayback(unitId) {
+        const audio = $("recordingAudio");
+        if (currentPlayingUnitId === unitId && !audio.paused) {
+          audio.pause();
+          return;
+        }
+        const unit = unitById(unitId);
+        if (unit) {
+          await playUnit(unit, [unit], 0);
+        }
+      }
+
+      async function playQueue(units) {
+        const queue = playableUnits(units);
+        if (!queue.length) {
+          setRecordingStatus("再生できる録音済みユニットがありません。", true);
+          return;
+        }
+        await playUnit(queue[0], queue, 0);
+      }
+
+      function selectedUnits() {
+        const selected = selectedUnitIds;
+        return (fullEstimate?.units || []).filter((unit) => selected.has(unit.itemId));
+      }
+
+      async function playNextTrack() {
+        if (!playbackQueue.length) return;
+        const nextIndex = playbackIndex + 1;
+        if (nextIndex >= playbackQueue.length) {
+          stopPlayback();
+          setRecordingStatus("連続再生が完了しました。");
+          return;
+        }
+        await playUnit(playbackQueue[nextIndex], playbackQueue, nextIndex);
+      }
+
+      async function playPreviousTrack() {
+        if (!playbackQueue.length) return;
+        const previousIndex = Math.max(0, playbackIndex - 1);
+        await playUnit(playbackQueue[previousIndex], playbackQueue, previousIndex);
+      }
+
+      async function togglePauseTrack() {
+        const audio = $("recordingAudio");
+        if (!currentPlayingUnitId) return;
+        if (audio.paused) {
+          try {
+            await audio.play();
+          } catch (error) {
+            setRecordingStatus(`再生できませんでした: ${error.message}`, true);
+          }
+        } else {
+          audio.pause();
+        }
+      }
+
+      function updatePlaybackControls() {
+        const hasCurrent = Boolean(currentPlayingUnitId);
+        const hasQueue = playbackQueue.length > 0;
+        $("playSelectedBtn").disabled = playableUnits(selectedUnits()).length === 0;
+        $("playAllBtn").disabled = playableUnits(fullEstimate?.units || []).length === 0;
+        $("prevTrackBtn").disabled = !hasQueue || playbackIndex <= 0;
+        $("nextTrackBtn").disabled = !hasQueue || playbackIndex < 0 || playbackIndex >= playbackQueue.length - 1;
+        $("pauseTrackBtn").disabled = !hasCurrent;
+        $("pauseTrackBtn").textContent = isPlaybackPaused ? "再開" : "一時停止";
       }
 
       function scheduleSelectedEstimate() {
         window.clearTimeout(estimateTimer);
         estimateTimer = window.setTimeout(updateSelectedEstimate, 250);
+      }
+
+      function chunkUnitIds(unitIds, size = RECORDING_REQUEST_UNIT_LIMIT) {
+        const chunks = [];
+        for (let index = 0; index < unitIds.length; index += size) {
+          chunks.push(unitIds.slice(index, index + size));
+        }
+        return chunks;
+      }
+
+      function emptyRecordingResult(forceRerecord) {
+        return {
+          packId: "",
+          packType: "",
+          packName: selectedPack?.packName || "",
+          storagePrefix: "",
+          textSource: $("recordingTextSource").value,
+          forceRerecord,
+          summary: {
+            totalUnits: 0,
+            skippedUnits: 0,
+            successCount: 0,
+            failureCount: 0,
+            failedUnitIds: [],
+            results: []
+          },
+          audioUrls: []
+        };
+      }
+
+      function mergeRecordingResult(total, next) {
+        const summary = total.summary;
+        const nextSummary = next.summary || {};
+        total.packId = next.packId || total.packId;
+        total.packType = next.packType || total.packType;
+        total.packName = next.packName || total.packName;
+        total.storagePrefix = next.storagePrefix || total.storagePrefix;
+        total.textSource = next.textSource || total.textSource;
+        total.forceRerecord = Boolean(total.forceRerecord || next.forceRerecord);
+        summary.totalUnits += nextSummary.totalUnits || 0;
+        summary.skippedUnits += nextSummary.skippedUnits || 0;
+        summary.successCount += nextSummary.successCount || 0;
+        summary.failureCount += nextSummary.failureCount || 0;
+        summary.failedUnitIds.push(...(nextSummary.failedUnitIds || []));
+        summary.results.push(...(nextSummary.results || []));
+        total.audioUrls.push(...(next.audioUrls || []));
+        return total;
+      }
+
+      async function sendRecordingChunks(unitIds, forceRerecord) {
+        const chunks = chunkUnitIds(unitIds);
+        const total = emptyRecordingResult(forceRerecord);
+        let completed = 0;
+        for (let index = 0; index < chunks.length; index += 1) {
+          const chunk = chunks[index];
+          setRecordingStatus(
+            `${forceRerecord ? "強制再録音" : "録音"}進捗: ${completed}/${unitIds.length}件完了（${index + 1}/${chunks.length}チャンク送信中）`
+          );
+          const data = await requestJson("/tts/record", {
+            target: recordingTarget(selectedPack),
+            unitIds: chunk,
+            textSource: $("recordingTextSource").value,
+            forceRerecord
+          });
+          mergeRecordingResult(total, data);
+          rememberAudioUrlsFromRecording(data);
+          completed += chunk.length;
+          renderRecordingResult(total);
+          setRecordingStatus(
+            `${forceRerecord ? "強制再録音" : "録音"}進捗: ${completed}/${unitIds.length}件完了`
+          );
+        }
+        return total;
       }
 
       async function updateSelectedEstimate() {
@@ -752,6 +1145,9 @@
         const selectedCount = selectedUnitIds.size;
         const insufficient = credits > creditBalance;
         $("recordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0 || insufficient;
+        $("forceRecordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0;
+        $("resetSelectedRecordingBtn").disabled = isRecordingBusy || selectedCount === 0;
+        $("resetAllRecordingBtn").disabled = isRecordingBusy || !selectedPack;
         $("creditWarning").textContent = insufficient
           ? "クレジットが不足しています。来月のチャージ後に録音できます。"
           : selectedCount
@@ -760,34 +1156,68 @@
         $("creditWarning").classList.toggle("error", insufficient);
       }
 
-      async function recordSelectedUnits() {
+      async function recordSelectedUnits(forceRerecord = false) {
         if (!selectedPack || !selectedUnitIds.size) return;
         try {
           isRecordingBusy = true;
           updateRecordButton();
-          setRecordingStatus("録音を実行しています...");
+          setRecordingStatus(forceRerecord ? "強制再録音を実行しています..." : "録音を実行しています...");
           const unitIds = Array.from(selectedUnitIds);
           const beforeEstimate = selectedEstimate;
-          const data = await requestJson("/tts/record", {
-            target: recordingTarget(selectedPack),
-            unitIds,
-            textSource: $("recordingTextSource").value
-          });
+          const data = await sendRecordingChunks(unitIds, forceRerecord);
           const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
-          const recordedChars = (beforeEstimate?.units || [])
-            .filter((unit) => successfulIds.has(unit.itemId))
-            .reduce((total, unit) => total + unit.charCount, 0);
-          const rate = beforeEstimate && beforeEstimate.totalChars
-            ? (beforeEstimate.estimatedCredits || 0) / beforeEstimate.totalChars
-            : 0;
-          saveCredits(creditBalance - recordedChars * rate);
+          if (!forceRerecord) {
+            const recordedChars = (beforeEstimate?.units || [])
+              .filter((unit) => successfulIds.has(unit.itemId))
+              .reduce((total, unit) => total + unit.charCount, 0);
+            const rate = beforeEstimate && beforeEstimate.totalChars
+              ? (beforeEstimate.estimatedCredits || 0) / beforeEstimate.totalChars
+              : 0;
+            saveCredits(creditBalance - recordedChars * rate);
+          }
           renderRecordingResult(data);
+          fullEstimate = await fetchEstimate();
+          rememberAudioUrlsFromUnits(fullEstimate?.units);
+          selectedUnitIds = new Set();
+          selectedEstimate = null;
+          renderUnits();
+          await updateSelectedEstimate();
+          setRecordingStatus(forceRerecord ? "強制再録音が完了しました。" : "録音処理が完了しました。");
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          isRecordingBusy = false;
+          updateRecordButton();
+        }
+      }
+
+      async function resetRecordingState(unitIds = null) {
+        if (!selectedPack) return;
+        try {
+          isRecordingBusy = true;
+          updateRecordButton();
+          stopPlayback();
+          setRecordingStatus("録音状態をリセットしています...");
+          const payload = {
+            target: recordingTarget(selectedPack),
+            textSource: $("recordingTextSource").value
+          };
+          if (unitIds) {
+            payload.unitIds = unitIds;
+          }
+          const data = await requestJson("/tts/recording-reset", payload);
+          (unitIds || (fullEstimate?.units || []).map((unit) => unit.itemId)).forEach((unitId) => {
+            knownAudioUrls.delete(packAudioKey(unitId));
+          });
           fullEstimate = await fetchEstimate();
           selectedUnitIds = new Set();
           selectedEstimate = null;
           renderUnits();
           await updateSelectedEstimate();
-          setRecordingStatus("録音処理が完了しました。");
+          $("recordingResult").innerHTML = `
+            <p><strong>録音状態リセット:</strong> cleared=${data.clearedCount || 0}, requested=${data.requestedUnitCount || 0}</p>
+          `;
+          setRecordingStatus("録音状態をリセットしました。");
         } catch (error) {
           setRecordingStatus(error.message, true);
         } finally {
@@ -933,7 +1363,26 @@
         renderUnits();
         scheduleSelectedEstimate();
       });
-      $("recordSelectedBtn").addEventListener("click", recordSelectedUnits);
+      $("playSelectedBtn").addEventListener("click", () => playQueue(selectedUnits()));
+      $("playAllBtn").addEventListener("click", () => playQueue(fullEstimate?.units || []));
+      $("prevTrackBtn").addEventListener("click", playPreviousTrack);
+      $("pauseTrackBtn").addEventListener("click", togglePauseTrack);
+      $("nextTrackBtn").addEventListener("click", playNextTrack);
+      $("playbackRateSelect").addEventListener("change", applyPlaybackRate);
+      $("recordingAudio").addEventListener("play", () => {
+        applyPlaybackRate();
+        isPlaybackPaused = false;
+        renderUnits();
+      });
+      $("recordingAudio").addEventListener("pause", () => {
+        isPlaybackPaused = true;
+        renderUnits();
+      });
+      $("recordingAudio").addEventListener("ended", playNextTrack);
+      $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
+      $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
+      $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
+      $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
       $("recordingTextSource").addEventListener("change", async () => {
         if (selectedPack) {
           await selectPack(selectedPack);

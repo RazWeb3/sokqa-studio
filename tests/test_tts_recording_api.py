@@ -136,6 +136,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
     def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
         captured["unitIds"] = [unit.item_id for unit in units]
         captured["texts"] = [unit.text for unit in units]
+        captured["forceRerecord"] = kwargs.get("force_rerecord")
         return RecordingSummary(
             total_units=len(units),
             skipped_units=1,
@@ -167,6 +168,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
 
     assert captured["unitIds"] == ["q_q-1_question", "q_q-1_choice_0"]
     assert captured["texts"] == ["AI の説明はどれですか?", "人工知能"]
+    assert captured["forceRerecord"] is False
     assert data["textSource"] == "raw"
     assert data["summary"]["skippedUnits"] == 1
     assert data["summary"]["successCount"] == 1
@@ -176,6 +178,88 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
             "audioUrl": f"https://cdn.example.test/{data['storagePrefix']}/audio/q_q-1_choice_0.mp3",
         }
     ]
+
+
+def test_recording_endpoint_can_force_rerecord_recorded_units(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+    captured = {}
+
+    def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
+        captured["unitIds"] = [unit.item_id for unit in units]
+        captured["forceRerecord"] = kwargs.get("force_rerecord")
+        return RecordingSummary(
+            total_units=len(units),
+            skipped_units=0,
+            success_count=1,
+            failure_count=0,
+            failed_unit_ids=[],
+            results=[
+                RecordingResult(
+                    unit_id="q_q-1_question",
+                    success=True,
+                    audio_url=f"https://cdn.example.test/{storage_prefix}/audio/quiz__q_q-1_question.mp3",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
+
+    response = client.post(
+        "/tts/record",
+        json={
+            "target": _target(pack_name),
+            "unitIds": ["q_q-1_question"],
+            "forceRerecord": True,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert captured["unitIds"] == ["q_q-1_question"]
+    assert captured["forceRerecord"] is True
+    assert data["forceRerecord"] is True
+    assert data["summary"]["skippedUnits"] == 0
+
+
+def test_recording_reset_clears_audio_urls_and_persists_pack(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/tts/recording-reset",
+        json={"target": _target(pack_name), "unitIds": ["q_q-1_question"]},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["clearedCount"] == 1
+    assert data["requestedUnitCount"] == 1
+    assert data["units"][0]["itemId"] == "q_q-1_question"
+    assert data["units"][0]["isRecorded"] is False
+
+    estimate = client.post("/tts/recording-estimate", json={"target": _target(pack_name)}).json()
+    question = next(unit for unit in estimate["units"] if unit["itemId"] == "q_q-1_question")
+    assert question["isRecorded"] is False
+
+
+def test_recording_reset_alias_paths_are_available(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/tts/recording_reset",
+        json={"target": _target(pack_name), "unitIds": ["q_q-1_question"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["clearedCount"] == 1
+
+    response = client.post(
+        "/tts/reset-recording",
+        json={"target": _target(pack_name), "unitIds": ["q_q-1_question"]},
+    )
+
+    assert response.status_code == 200
 
 
 def test_recording_endpoint_rejects_too_many_units(tmp_path, monkeypatch) -> None:

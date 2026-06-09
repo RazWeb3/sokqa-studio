@@ -254,6 +254,22 @@ class ImportPackResponse(BaseModel):
     logs: list[str] = Field(default_factory=list)
 
 
+class DeletePackRequest(BaseModel):
+    creatorId: str | None = Field(default=None, min_length=1, max_length=120)
+    contentId: str | None = Field(default=None, min_length=1, max_length=160)
+    versionId: str | None = Field(default=None, min_length=1, max_length=80)
+    manifestUrl: str | None = Field(default=None, min_length=1)
+    storagePrefix: str | None = Field(default=None, min_length=1)
+
+
+class DeletePackResponse(BaseModel):
+    status: Literal["deleted"] = "deleted"
+    storagePrefix: str
+    objectCount: int
+    deletedCount: int
+    objectNames: list[str] = Field(default_factory=list)
+
+
 class RepairPackRequest(ValidatePackRequest):
     pass
 

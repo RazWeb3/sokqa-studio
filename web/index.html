@@ -760,8 +760,10 @@
               key,
               manifestUrl: manifestUrl(pack),
               title: pack.manifestTitle || pack.contentId || pack.title || "Manifest",
+              creatorId: pack.creatorId,
               contentId: pack.contentId,
               versionId: pack.versionId,
+              storagePrefix: pack.storagePrefix,
               packs: []
             };
             byKey.set(key, group);
@@ -851,14 +853,18 @@
           list.innerHTML = '<p class="meta">表示できるパックがありません。</p>';
           return;
         }
-        list.innerHTML = groupedPacks(packs)
-          .map((group) => {
+        const groups = groupedPacks(packs);
+        list.innerHTML = groups
+          .map((group, groupIndex) => {
             return `
               <div class="manifest-card">
                 <div class="manifest-header">
                   <strong><a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.title)}</a></strong>
                   <div class="meta">${escapeHtml(group.contentId)} / ${escapeHtml(group.versionId)}</div>
                   <div class="url-line">manifest JSON: <a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.manifestUrl)}</a></div>
+                  <div class="actions">
+                    <button type="button" class="secondary" data-delete-manifest-index="${groupIndex}">削除</button>
+                  </div>
                 </div>
                 <div class="pack-children">
                   ${group.packs
@@ -884,6 +890,40 @@
         list.querySelectorAll("[data-pack-index]").forEach((button) => {
           button.addEventListener("click", () => selectPack(packs[Number(button.dataset.packIndex)]));
         });
+        list.querySelectorAll("[data-delete-manifest-index]").forEach((button) => {
+          button.addEventListener("click", () => deleteManifestGroup(groups[Number(button.dataset.deleteManifestIndex)]));
+        });
+      }
+
+      async function deleteManifestGroup(group) {
+        if (!group) return;
+        const confirmed = window.confirm(
+          `このマニフェストを丸ごと削除します。\n\n${group.title}\ncontentId: ${group.contentId}\nversionId: ${group.versionId}\n\nmanifest/doc/quiz/audio すべてが削除されます。`
+        );
+        if (!confirmed) return;
+        try {
+          stopPlayback();
+          setRecordingStatus("パックを削除しています...");
+          const data = await requestJson("/packs/delete", {
+            storagePrefix: group.storagePrefix,
+            manifestUrl: group.manifestUrl,
+            creatorId: group.creatorId,
+            contentId: group.contentId,
+            versionId: group.versionId
+          });
+          const message = `削除しました: ${data.deletedCount}/${data.objectCount} objects (${data.storagePrefix})`;
+          setRecordingStatus(message);
+          selectedPack = null;
+          fullEstimate = null;
+          selectedEstimate = null;
+          selectedUnitIds = new Set();
+          $("recordingPanel").hidden = true;
+          $("recordingResult").innerHTML = "";
+          await loadPacks();
+          setRecordingStatus(message);
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        }
       }
 
       async function loadPacks() {

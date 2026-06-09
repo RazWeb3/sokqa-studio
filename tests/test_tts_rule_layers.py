@@ -119,10 +119,10 @@ def test_system_dictionary_dot_words_and_extensions() -> None:
     assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア configドット ジェイソン file.yaml file.yml"
 
 
-def test_system_dictionary_japanese_fixed_reading() -> None:
-    rules = load_configured_tts_rules()
-    text = _speech_text("設定値を確認します", rules)
-    assert text == "せっていちを確認します"
+def test_japanese_fixed_reading_rule_applies() -> None:
+    rules = [TtsRule(source="読替語", reading="よみかえご")]
+    text = _speech_text("読替語を確認します", rules)
+    assert text == "よみかえごを確認します"
 
 
 def test_json_casing_rules_are_separate() -> None:

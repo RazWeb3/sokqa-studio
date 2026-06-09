@@ -28,6 +28,8 @@ class RecordingUnit:
     pack_type: str  # "quiz" or "document"
     kind: str  # "question", "choice", "explanation", "document"
     is_recorded: bool  # True if the original item already has an audio URL
+    has_corrected: bool = False  # True if corrected text is available for this unit
+    used_text_source: RecordingTextSource = "raw"  # The source actually used for text
 
 
 @dataclass(frozen=True)
@@ -85,34 +87,59 @@ def _is_recorded(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str, choice
     return False
 
 
+def _used_text_source(text_source: RecordingTextSource, has_corrected: bool) -> RecordingTextSource:
+    return "corrected" if text_source == "corrected" and has_corrected else "raw"
+
+
+def _has_document_corrected_text(item: SokqaDocumentItem) -> bool:
+    return bool(item.tts and item.tts.text)
+
+
+def _has_question_corrected_text(question: SokqaQuestion) -> bool:
+    return bool(question.tts and question.tts.questionText)
+
+
+def _has_choice_corrected_text(question: SokqaQuestion, index: int) -> bool:
+    return bool(
+        question.tts
+        and question.tts.choiceTexts
+        and index < len(question.tts.choiceTexts)
+        and question.tts.choiceTexts[index]
+    )
+
+
+def _has_explanation_corrected_text(question: SokqaQuestion) -> bool:
+    return bool(question.tts and question.tts.explanationText)
+
+
 def _get_document_text(item: SokqaDocumentItem, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for a document item.
 
     raw: item.text
     corrected: item.tts.text > item.text
     """
-    if text_source == "corrected" and item.tts and item.tts.text:
+    if _used_text_source(text_source, _has_document_corrected_text(item)) == "corrected":
         return item.tts.text
     return item.text
 
 
 def _get_question_text(question: SokqaQuestion, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for a question."""
-    if text_source == "corrected" and question.tts and question.tts.questionText:
+    if _used_text_source(text_source, _has_question_corrected_text(question)) == "corrected":
         return question.tts.questionText
     return question.question
 
 
 def _get_choice_text(question: SokqaQuestion, index: int, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for a choice."""
-    if text_source == "corrected" and question.tts and question.tts.choiceTexts and index < len(question.tts.choiceTexts):
+    if _used_text_source(text_source, _has_choice_corrected_text(question, index)) == "corrected":
         return question.tts.choiceTexts[index]
     return question.choices[index]
 
 
 def _get_explanation_text(question: SokqaQuestion, text_source: RecordingTextSource = "raw") -> str:
     """Get the recording target text for an explanation."""
-    if text_source == "corrected" and question.tts and question.tts.explanationText:
+    if _used_text_source(text_source, _has_explanation_corrected_text(question)) == "corrected":
         return question.tts.explanationText
     return question.explanation
 
@@ -128,6 +155,7 @@ def extract_recording_units_from_quiz_pack(
         q_id = question.id
 
         # Question text
+        q_has_corrected = _has_question_corrected_text(question)
         q_text = _get_question_text(question, text_source)
         units.append(
             RecordingUnit(
@@ -138,11 +166,14 @@ def extract_recording_units_from_quiz_pack(
                 pack_type="quiz",
                 kind="question",
                 is_recorded=_is_recorded(question, "question"),
+                has_corrected=q_has_corrected,
+                used_text_source=_used_text_source(text_source, q_has_corrected),
             )
         )
 
         # Choice texts
         for i in range(len(question.choices)):
+            choice_has_corrected = _has_choice_corrected_text(question, i)
             choice_text = _get_choice_text(question, i, text_source)
             units.append(
                 RecordingUnit(
@@ -153,10 +184,13 @@ def extract_recording_units_from_quiz_pack(
                     pack_type="quiz",
                     kind="choice",
                     is_recorded=_is_recorded(question, "choice", i),
+                    has_corrected=choice_has_corrected,
+                    used_text_source=_used_text_source(text_source, choice_has_corrected),
                 )
             )
 
         # Explanation text
+        exp_has_corrected = _has_explanation_corrected_text(question)
         exp_text = _get_explanation_text(question, text_source)
         units.append(
             RecordingUnit(
@@ -167,6 +201,8 @@ def extract_recording_units_from_quiz_pack(
                 pack_type="quiz",
                 kind="explanation",
                 is_recorded=_is_recorded(question, "explanation"),
+                has_corrected=exp_has_corrected,
+                used_text_source=_used_text_source(text_source, exp_has_corrected),
             )
         )
 
@@ -181,6 +217,7 @@ def extract_recording_units_from_document_pack(
     units: list[RecordingUnit] = []
 
     for item in pack.documents:
+        has_corrected = _has_document_corrected_text(item)
         text = _get_document_text(item, text_source)
         units.append(
             RecordingUnit(
@@ -191,6 +228,8 @@ def extract_recording_units_from_document_pack(
                 pack_type="document",
                 kind="document",
                 is_recorded=_is_recorded(item, "document"),
+                has_corrected=has_corrected,
+                used_text_source=_used_text_source(text_source, has_corrected),
             )
         )
 

@@ -22,6 +22,7 @@ class RecordingResult:
     success: bool
     audio_url: str | None = None
     error: str | None = None
+    used_text_source: str = "raw"
 
 
 @dataclass(frozen=True)
@@ -97,9 +98,19 @@ def record_pack_audio(
                 content_type="audio/mpeg",
                 storage_prefix=storage_prefix,
             )
-            return RecordingResult(unit_id=unit.item_id, success=True, audio_url=audio_url)
+            return RecordingResult(
+                unit_id=unit.item_id,
+                success=True,
+                audio_url=audio_url,
+                used_text_source=unit.used_text_source,
+            )
         except Exception as exc:
-            return RecordingResult(unit_id=unit.item_id, success=False, error=str(exc))
+            return RecordingResult(
+                unit_id=unit.item_id,
+                success=False,
+                error=str(exc),
+                used_text_source=unit.used_text_source,
+            )
 
     results: list[RecordingResult] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:

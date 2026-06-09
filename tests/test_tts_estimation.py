@@ -107,6 +107,12 @@ def test_extract_recording_units_from_quiz_pack_with_tts_defaults_to_raw() -> No
     assert q0_question.text == "問題文0"
     assert q0_choice0.text == "選択肢0-0"
     assert q0_explanation.text == "解説0"
+    assert q0_question.has_corrected is True
+    assert q0_question.used_text_source == "raw"
+    assert q0_choice0.has_corrected is True
+    assert q0_choice0.used_text_source == "raw"
+    assert q0_explanation.has_corrected is True
+    assert q0_explanation.used_text_source == "raw"
 
 
 def test_extract_recording_units_from_quiz_pack_with_corrected_text_source() -> None:
@@ -121,6 +127,53 @@ def test_extract_recording_units_from_quiz_pack_with_corrected_text_source() -> 
     assert q0_question.text == "問題文TTS0"
     assert q0_choice0.text == "選択肢TTS0-0"
     assert q0_explanation.text == "解説TTS0"
+    assert q0_question.has_corrected is True
+    assert q0_question.used_text_source == "corrected"
+    assert q0_choice0.has_corrected is True
+    assert q0_choice0.used_text_source == "corrected"
+    assert q0_explanation.has_corrected is True
+    assert q0_explanation.used_text_source == "corrected"
+
+
+def test_extract_recording_units_marks_corrected_fallback_per_unit() -> None:
+    """Corrected mode falls back to raw for units without corrected text."""
+    pack = SokqaQuizPack(
+        id="quiz-pack-partial",
+        title="部分補正クイズ",
+        questions=[
+            SokqaQuestion(
+                id="q-1",
+                question="AI の説明はどれですか?",
+                choices=["AI", "IT", "販売", "在庫"],
+                answerIndex=0,
+                explanation="AI は人工知能です。",
+                tts=QuizTts(
+                    questionText="エーアイ の説明はどれですか?",
+                    choiceTexts=["エーアイ", "", "販売", "在庫"],
+                ),
+            )
+        ],
+    )
+
+    units = extract_recording_units_from_quiz_pack(pack, text_source="corrected")
+
+    question = next(u for u in units if u.item_id == "q_q-1_question")
+    choice_0 = next(u for u in units if u.item_id == "q_q-1_choice_0")
+    choice_1 = next(u for u in units if u.item_id == "q_q-1_choice_1")
+    explanation = next(u for u in units if u.item_id == "q_q-1_explanation")
+
+    assert question.text == "エーアイ の説明はどれですか?"
+    assert question.has_corrected is True
+    assert question.used_text_source == "corrected"
+    assert choice_0.text == "エーアイ"
+    assert choice_0.has_corrected is True
+    assert choice_0.used_text_source == "corrected"
+    assert choice_1.text == "IT"
+    assert choice_1.has_corrected is False
+    assert choice_1.used_text_source == "raw"
+    assert explanation.text == "AI は人工知能です。"
+    assert explanation.has_corrected is False
+    assert explanation.used_text_source == "raw"
 
 
 def test_extract_recording_units_from_document_pack_without_tts() -> None:
@@ -137,6 +190,8 @@ def test_extract_recording_units_from_document_pack_without_tts() -> None:
         assert u.pack_id == "doc-pack-1"
         assert u.pack_type == "document"
         assert u.kind == "document"
+        assert u.has_corrected is False
+        assert u.used_text_source == "raw"
 
 
 def test_extract_recording_units_from_document_pack_with_tts_defaults_to_raw() -> None:
@@ -149,6 +204,8 @@ def test_extract_recording_units_from_document_pack_with_tts_defaults_to_raw() -
     for i, u in enumerate(units):
         assert u.text == f"ドキュメント本文{i}" * 10
         assert u.char_count == len(u.text)
+        assert u.has_corrected is True
+        assert u.used_text_source == "raw"
 
 
 def test_extract_recording_units_from_document_pack_with_corrected_text_source() -> None:
@@ -159,6 +216,8 @@ def test_extract_recording_units_from_document_pack_with_corrected_text_source()
     for i, u in enumerate(units):
         assert u.text == f"ドキュメントTTS本文{i}" * 8
         assert u.char_count == len(u.text)
+        assert u.has_corrected is True
+        assert u.used_text_source == "corrected"
 
 
 def test_estimate_single_quiz_pack() -> None:
@@ -309,6 +368,10 @@ def test_recording_unit_has_is_recorded_field() -> None:
     for u in units:
         assert hasattr(u, "is_recorded"), f"RecordingUnit missing is_recorded field: {u.item_id}"
         assert u.is_recorded is False, f"Expected is_recorded=False for {u.item_id}, got {u.is_recorded}"
+        assert hasattr(u, "has_corrected"), f"RecordingUnit missing has_corrected field: {u.item_id}"
+        assert hasattr(u, "used_text_source"), f"RecordingUnit missing used_text_source field: {u.item_id}"
+        assert u.has_corrected is False
+        assert u.used_text_source == "raw"
 
 
 def test_estimation_to_dict_includes_is_recorded() -> None:

@@ -81,8 +81,12 @@ def test_recording_estimate_returns_unrecorded_units_and_credits(tmp_path, monke
     assert "q_q-1_choice_0" in unit_ids
     question = next(unit for unit in data["units"] if unit["itemId"] == "q_q-1_question")
     assert question["isRecorded"] is True
+    assert question["hasCorrected"] is True
+    assert question["usedTextSource"] == "raw"
     choice_0 = next(unit for unit in data["units"] if unit["itemId"] == "q_q-1_choice_0")
     assert choice_0["text"] == "人工知能"
+    assert choice_0["hasCorrected"] is True
+    assert choice_0["usedTextSource"] == "raw"
     assert data["totalChars"] == sum(unit["charCount"] for unit in data["units"] if not unit["isRecorded"])
     assert data["estimatedCredits"] == data["totalChars"] * 0.0001
 
@@ -108,6 +112,8 @@ def test_recording_estimate_can_use_corrected_text_source(tmp_path, monkeypatch)
             "packType": "quiz",
             "kind": "explanation",
             "isRecorded": False,
+            "hasCorrected": True,
+            "usedTextSource": "corrected",
         }
     ]
 
@@ -149,6 +155,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
                     unit_id="q_q-1_choice_0",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
+                    used_text_source=units[1].used_text_source,
                 ),
             ],
         )
@@ -176,6 +183,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
         {
             "unitId": "q_q-1_choice_0",
             "audioUrl": f"https://cdn.example.test/{data['storagePrefix']}/audio/q_q-1_choice_0.mp3",
+            "usedTextSource": "raw",
         }
     ]
 
@@ -334,6 +342,7 @@ def test_recording_endpoint_can_use_corrected_text_source(tmp_path, monkeypatch)
                     unit_id="q_q-1_explanation",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_explanation.mp3",
+                    used_text_source=units[0].used_text_source,
                 )
             ],
         )
@@ -354,3 +363,5 @@ def test_recording_endpoint_can_use_corrected_text_source(tmp_path, monkeypatch)
 
     assert data["textSource"] == "corrected"
     assert captured["texts"] == ["エーアイ は人工知能です。"]
+    assert data["summary"]["results"][0]["usedTextSource"] == "corrected"
+    assert data["audioUrls"][0]["usedTextSource"] == "corrected"

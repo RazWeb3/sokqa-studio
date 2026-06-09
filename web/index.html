@@ -362,6 +362,16 @@
         color: var(--muted);
       }
 
+      .badge.source {
+        background: #fff3d6;
+        color: #8a5700;
+      }
+
+      .badge.source-corrected {
+        background: #e7f7ed;
+        color: #146c43;
+      }
+
       .recording-result {
         margin-top: 12px;
         overflow-wrap: anywhere;
@@ -596,6 +606,7 @@
       let estimateTimer = null;
       let isRecordingBusy = false;
       let knownAudioUrls = new Map();
+      let knownUsedTextSources = new Map();
       let playbackQueue = [];
       let playbackIndex = -1;
       let currentPlayingUnitId = "";
@@ -795,6 +806,10 @@
         return `${packKey}::${unitId}`;
       }
 
+      function packUnitKey(unitId, pack = selectedPack) {
+        return packAudioKey(unitId, pack);
+      }
+
       function unitAudioUrl(unit) {
         if (!unit) return "";
         if (unit.audioUrl) return unit.audioUrl;
@@ -832,6 +847,34 @@
             knownAudioUrls.set(packAudioKey(item.unitId, pack), item.audioUrl);
           }
         });
+      }
+
+      function rememberUsedTextSourcesFromRecording(data, pack = selectedPack) {
+        const remember = (item) => {
+          if (item?.unitId && item.usedTextSource) {
+            knownUsedTextSources.set(packUnitKey(item.unitId, pack), item.usedTextSource);
+          }
+        };
+        (data.audioUrls || []).forEach(remember);
+        (data.summary?.results || []).forEach(remember);
+      }
+
+      function recordingSourceBadge(unit) {
+        const selectedSource = $("recordingTextSource").value;
+        if (selectedSource === "corrected") {
+          return unit.hasCorrected
+            ? '<span class="badge source-corrected">補正テキスト</span>'
+            : '<span class="badge source">生テキスト（補正なし）</span>';
+        }
+        return '<span class="badge source">生テキスト</span>';
+      }
+
+      function recordedSourceBadge(unit) {
+        const used = knownUsedTextSources.get(packUnitKey(unit.itemId));
+        if (!used) return "";
+        return used === "corrected"
+          ? '<span class="badge source-corrected">補正で録音</span>'
+          : '<span class="badge source">生で録音</span>';
       }
 
       function setRecordingStatus(message, isError = false) {
@@ -949,11 +992,11 @@
         }
       }
 
-      async function fetchEstimate(unitIds = null, pack = selectedPack) {
+      async function fetchEstimate(unitIds = null, pack = selectedPack, textSource = $("recordingTextSource").value) {
         if (!pack) return null;
         const payload = {
           target: recordingTarget(pack),
-          textSource: $("recordingTextSource").value
+          textSource
         };
         if (unitIds) {
           payload.unitIds = unitIds;
@@ -1007,6 +1050,8 @@
             const statusBadge = unit.isRecorded
               ? '<span class="badge muted">録音済み</span>'
               : '<span class="badge">未録音</span>';
+            const sourceBadge = recordingSourceBadge(unit);
+            const recordedBadge = unit.isRecorded ? recordedSourceBadge(unit) : "";
             const note = unit.isRecorded ? "選択しても追加消費なし" : `${unit.charCount} chars`;
             const playButton = audioUrl
               ? `<button type="button" class="icon-button secondary" data-play-unit="${escapeHtml(unit.itemId)}" aria-label="${escapeHtml(unit.itemId)}を再生">${isPlaying ? "⏸" : "▶"}</button>`
@@ -1025,6 +1070,8 @@
                 </span>
                 <span class="unit-actions">
                   ${statusBadge}
+                  ${sourceBadge}
+                  ${recordedBadge}
                   ${playButton}
                 </span>
               </div>
@@ -1169,13 +1216,13 @@
         return chunks;
       }
 
-      function emptyRecordingResult(forceRerecord, pack = selectedPack) {
+      function emptyRecordingResult(forceRerecord, pack = selectedPack, textSource = $("recordingTextSource").value) {
         return {
           packId: "",
           packType: "",
           packName: pack?.packName || "",
           storagePrefix: "",
-          textSource: $("recordingTextSource").value,
+          textSource,
           forceRerecord,
           summary: {
             totalUnits: 0,
@@ -1208,9 +1255,9 @@
         return total;
       }
 
-      async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot) {
+      async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot) {
         const chunks = chunkUnitIds(unitIds);
-        const total = emptyRecordingResult(forceRerecord, packSnapshot);
+        const total = emptyRecordingResult(forceRerecord, packSnapshot, textSourceSnapshot);
         let completed = 0;
         for (let index = 0; index < chunks.length; index += 1) {
           const chunk = chunks[index];
@@ -1220,11 +1267,12 @@
           const data = await requestJson("/tts/record", {
             target: targetSnapshot,
             unitIds: chunk,
-            textSource: $("recordingTextSource").value,
+            textSource: textSourceSnapshot,
             forceRerecord
           });
           mergeRecordingResult(total, data);
           rememberAudioUrlsFromRecording(data, packSnapshot);
+          rememberUsedTextSourcesFromRecording(data, packSnapshot);
           completed += chunk.length;
           renderRecordingResult(total);
           setRecordingStatus(
@@ -1265,6 +1313,7 @@
         $("resetAllRecordingBtn").disabled = isRecordingBusy || !selectedPack;
         $("loadPacksBtn").disabled = isRecordingBusy;
         $("importPackBtn").disabled = isRecordingBusy;
+        $("recordingTextSource").disabled = isRecordingBusy;
         $("creditWarning").textContent = insufficient
           ? "クレジットが不足しています。来月のチャージ後に録音できます。"
           : selectedCount
@@ -1281,10 +1330,11 @@
           setRecordingStatus(forceRerecord ? "強制再録音を実行しています..." : "録音を実行しています...");
           const packSnapshot = selectedPack;
           const targetSnapshot = recordingTarget(packSnapshot);
+          const textSourceSnapshot = $("recordingTextSource").value;
           const unitIds = Array.from(selectedUnitIds);
           const beforeEstimate = selectedEstimate;
           renderPacks(currentPacks);
-          const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot);
+          const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot);
           const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
           if (!forceRerecord) {
             const recordedChars = (beforeEstimate?.units || [])
@@ -1296,7 +1346,7 @@
             saveCredits(creditBalance - recordedChars * rate);
           }
           renderRecordingResult(data);
-          fullEstimate = await fetchEstimate(null, packSnapshot);
+          fullEstimate = await fetchEstimate(null, packSnapshot, textSourceSnapshot);
           rememberAudioUrlsFromUnits(fullEstimate?.units, packSnapshot);
           selectedUnitIds = new Set();
           selectedEstimate = null;
@@ -1329,6 +1379,7 @@
           const data = await requestJson("/tts/recording-reset", payload);
           (unitIds || (fullEstimate?.units || []).map((unit) => unit.itemId)).forEach((unitId) => {
             knownAudioUrls.delete(packAudioKey(unitId));
+            knownUsedTextSources.delete(packUnitKey(unitId));
           });
           fullEstimate = await fetchEstimate();
           selectedUnitIds = new Set();
@@ -1358,7 +1409,10 @@
           }
           <ul class="logs">
             ${(data.audioUrls || [])
-              .map((item) => `<li>${escapeHtml(item.unitId)}: <a href="${escapeHtml(item.audioUrl)}" target="_blank" rel="noreferrer">mp3</a></li>`)
+              .map((item) => {
+                const sourceLabel = item.usedTextSource === "corrected" ? "補正で録音" : "生で録音";
+                return `<li>${escapeHtml(item.unitId)}: <span class="badge ${item.usedTextSource === "corrected" ? "source-corrected" : "source"}">${sourceLabel}</span> <a href="${escapeHtml(item.audioUrl)}" target="_blank" rel="noreferrer">mp3</a></li>`;
+              })
               .join("")}
           </ul>
         `;
@@ -1506,6 +1560,7 @@
       $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
       $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
       $("recordingTextSource").addEventListener("change", async () => {
+        renderUnits();
         if (selectedPack) {
           await selectPack(selectedPack);
         }

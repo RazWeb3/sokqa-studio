@@ -57,7 +57,11 @@ def run_recording(
         "forceRerecord": force_rerecord,
         "summary": _summary_to_dict(summary),
         "audioUrls": [
-            {"unitId": result.unit_id, "audioUrl": result.audio_url}
+            {
+                "unitId": result.unit_id,
+                "audioUrl": result.audio_url,
+                "usedTextSource": result.used_text_source,
+            }
             for result in summary.results
             if result.success and result.audio_url
         ],
@@ -202,6 +206,8 @@ def _unit_to_dict(unit: RecordingUnit) -> dict:
         "packType": unit.pack_type,
         "kind": unit.kind,
         "isRecorded": unit.is_recorded,
+        "hasCorrected": unit.has_corrected,
+        "usedTextSource": unit.used_text_source,
     }
 
 
@@ -218,6 +224,7 @@ def _summary_to_dict(summary: RecordingSummary) -> dict:
                 "success": result.success,
                 "audioUrl": result.audio_url,
                 "error": result.error,
+                "usedTextSource": result.used_text_source,
             }
             for result in summary.results
         ],

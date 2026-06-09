@@ -818,18 +818,18 @@
         $("recordingAudio").playbackRate = selectedPlaybackRate();
       }
 
-      function rememberAudioUrlsFromUnits(units) {
+      function rememberAudioUrlsFromUnits(units, pack = selectedPack) {
         (units || []).forEach((unit) => {
           if (unit.audioUrl) {
-            knownAudioUrls.set(packAudioKey(unit.itemId), unit.audioUrl);
+            knownAudioUrls.set(packAudioKey(unit.itemId, pack), unit.audioUrl);
           }
         });
       }
 
-      function rememberAudioUrlsFromRecording(data) {
+      function rememberAudioUrlsFromRecording(data, pack = selectedPack) {
         (data.audioUrls || []).forEach((item) => {
           if (item.unitId && item.audioUrl) {
-            knownAudioUrls.set(packAudioKey(item.unitId), item.audioUrl);
+            knownAudioUrls.set(packAudioKey(item.unitId, pack), item.audioUrl);
           }
         });
       }
@@ -863,7 +863,7 @@
                   <div class="meta">${escapeHtml(group.contentId)} / ${escapeHtml(group.versionId)}</div>
                   <div class="url-line">manifest JSON: <a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.manifestUrl)}</a></div>
                   <div class="actions">
-                    <button type="button" class="secondary" data-delete-manifest-index="${groupIndex}">削除</button>
+                    <button type="button" class="secondary" data-delete-manifest-index="${groupIndex}"${isRecordingBusy ? " disabled" : ""}>削除</button>
                   </div>
                 </div>
                 <div class="pack-children">
@@ -877,7 +877,7 @@
                             <strong>${escapeHtml(pack.title)}</strong>
                             <div class="meta"><a href="${escapeHtml(pack.url)}" target="_blank" rel="noreferrer">${escapeHtml(meta)}</a></div>
                           </div>
-                          <button type="button" class="secondary" data-pack-index="${index}">選択</button>
+                          <button type="button" class="secondary" data-pack-index="${index}"${isRecordingBusy ? " disabled" : ""}>選択</button>
                         </div>
                       `;
                     })
@@ -897,6 +897,7 @@
 
       async function deleteManifestGroup(group) {
         if (!group) return;
+        if (isRecordingBusy) return;
         const confirmed = window.confirm(
           `このマニフェストを丸ごと削除します。\n\n${group.title}\ncontentId: ${group.contentId}\nversionId: ${group.versionId}\n\nmanifest/doc/quiz/audio すべてが削除されます。`
         );
@@ -927,6 +928,7 @@
       }
 
       async function loadPacks() {
+        if (isRecordingBusy) return;
         try {
           stopPlayback();
           setRecordingStatus("パック一覧を取得しています...");
@@ -947,10 +949,10 @@
         }
       }
 
-      async function fetchEstimate(unitIds = null) {
-        if (!selectedPack) return null;
+      async function fetchEstimate(unitIds = null, pack = selectedPack) {
+        if (!pack) return null;
         const payload = {
-          target: recordingTarget(selectedPack),
+          target: recordingTarget(pack),
           textSource: $("recordingTextSource").value
         };
         if (unitIds) {
@@ -960,6 +962,7 @@
       }
 
       async function selectPack(pack) {
+        if (isRecordingBusy) return;
         try {
           stopPlayback();
           selectedPack = pack;
@@ -970,7 +973,7 @@
           setRecordingStatus("録音対象を読み込んでいます...");
           renderPacks(currentPacks);
           fullEstimate = await fetchEstimate();
-          rememberAudioUrlsFromUnits(fullEstimate?.units);
+          rememberAudioUrlsFromUnits(fullEstimate?.units, pack);
           renderUnits();
           await updateSelectedEstimate();
           setRecordingStatus(`${pack.title} の録音対象を表示しました。`);
@@ -1166,11 +1169,11 @@
         return chunks;
       }
 
-      function emptyRecordingResult(forceRerecord) {
+      function emptyRecordingResult(forceRerecord, pack = selectedPack) {
         return {
           packId: "",
           packType: "",
-          packName: selectedPack?.packName || "",
+          packName: pack?.packName || "",
           storagePrefix: "",
           textSource: $("recordingTextSource").value,
           forceRerecord,
@@ -1205,9 +1208,9 @@
         return total;
       }
 
-      async function sendRecordingChunks(unitIds, forceRerecord) {
+      async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot) {
         const chunks = chunkUnitIds(unitIds);
-        const total = emptyRecordingResult(forceRerecord);
+        const total = emptyRecordingResult(forceRerecord, packSnapshot);
         let completed = 0;
         for (let index = 0; index < chunks.length; index += 1) {
           const chunk = chunks[index];
@@ -1215,13 +1218,13 @@
             `${forceRerecord ? "強制再録音" : "録音"}進捗: ${completed}/${unitIds.length}件完了（${index + 1}/${chunks.length}チャンク送信中）`
           );
           const data = await requestJson("/tts/record", {
-            target: recordingTarget(selectedPack),
+            target: targetSnapshot,
             unitIds: chunk,
             textSource: $("recordingTextSource").value,
             forceRerecord
           });
           mergeRecordingResult(total, data);
-          rememberAudioUrlsFromRecording(data);
+          rememberAudioUrlsFromRecording(data, packSnapshot);
           completed += chunk.length;
           renderRecordingResult(total);
           setRecordingStatus(
@@ -1260,6 +1263,8 @@
         $("forceRecordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0;
         $("resetSelectedRecordingBtn").disabled = isRecordingBusy || selectedCount === 0;
         $("resetAllRecordingBtn").disabled = isRecordingBusy || !selectedPack;
+        $("loadPacksBtn").disabled = isRecordingBusy;
+        $("importPackBtn").disabled = isRecordingBusy;
         $("creditWarning").textContent = insufficient
           ? "クレジットが不足しています。来月のチャージ後に録音できます。"
           : selectedCount
@@ -1274,9 +1279,12 @@
           isRecordingBusy = true;
           updateRecordButton();
           setRecordingStatus(forceRerecord ? "強制再録音を実行しています..." : "録音を実行しています...");
+          const packSnapshot = selectedPack;
+          const targetSnapshot = recordingTarget(packSnapshot);
           const unitIds = Array.from(selectedUnitIds);
           const beforeEstimate = selectedEstimate;
-          const data = await sendRecordingChunks(unitIds, forceRerecord);
+          renderPacks(currentPacks);
+          const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot);
           const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
           if (!forceRerecord) {
             const recordedChars = (beforeEstimate?.units || [])
@@ -1288,8 +1296,8 @@
             saveCredits(creditBalance - recordedChars * rate);
           }
           renderRecordingResult(data);
-          fullEstimate = await fetchEstimate();
-          rememberAudioUrlsFromUnits(fullEstimate?.units);
+          fullEstimate = await fetchEstimate(null, packSnapshot);
+          rememberAudioUrlsFromUnits(fullEstimate?.units, packSnapshot);
           selectedUnitIds = new Set();
           selectedEstimate = null;
           renderUnits();
@@ -1300,6 +1308,7 @@
         } finally {
           isRecordingBusy = false;
           updateRecordButton();
+          renderPacks(currentPacks);
         }
       }
 

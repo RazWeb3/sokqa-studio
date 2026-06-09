@@ -31,11 +31,13 @@ def import_pack_files(request: ImportPackRequest) -> ImportPackResponse:
             continue
         if content_type == "document":
             pack = SokqaDocumentPack.model_validate(input_file.content)
+            _clear_document_audio_urls(pack)
             files.append(GeneratedFile(name=name, kind="document", content=pack.model_dump(exclude_none=True)))
             logs.append(f"document loaded: {name}")
             continue
         if content_type == "quiz":
             pack = SokqaQuizPack.model_validate(input_file.content)
+            _clear_quiz_audio_urls(pack)
             files.append(GeneratedFile(name=name, kind="quiz", content=pack.model_dump(exclude_none=True)))
             logs.append(f"quiz loaded: {name}")
             continue
@@ -125,3 +127,17 @@ def _resolve_title(request: ImportPackRequest, manifest: PackManifest | None, fi
     if manifest and manifest.title:
         return manifest.title
     return str(files[0].content.get("title") or files[0].content.get("id") or "Imported Sokqa Pack")
+
+
+def _clear_document_audio_urls(pack: SokqaDocumentPack) -> None:
+    for item in pack.documents:
+        if item.tts:
+            item.tts.audioUrl = None
+
+
+def _clear_quiz_audio_urls(pack: SokqaQuizPack) -> None:
+    for question in pack.questions:
+        if question.tts:
+            question.tts.questionAudioUrl = None
+            question.tts.choiceAudioUrls = None
+            question.tts.explanationAudioUrl = None

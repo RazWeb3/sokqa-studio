@@ -505,6 +505,12 @@
                 <option value="corrected">補正版優先</option>
               </select>
             </label>
+            <label>
+              声種
+              <select id="recordingVoiceSelect">
+                <option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option>
+              </select>
+            </label>
             <div class="actions">
               <button id="loadPacksBtn" type="button">一覧更新</button>
             </div>
@@ -689,6 +695,36 @@
           throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
         }
         return data;
+      }
+
+      function selectedVoiceConfig() {
+        const select = $("recordingVoiceSelect");
+        const option = select?.selectedOptions?.[0];
+        return {
+          voiceName: select?.value || undefined,
+          languageCode: option?.dataset?.languageCode || undefined
+        };
+      }
+
+      async function loadTtsVoices(languageCode = "ja-JP") {
+        const select = $("recordingVoiceSelect");
+        if (!select) return;
+        const current = select.value || "ja-JP-Neural2-B";
+        try {
+          const data = await requestGet(`/tts/voices?languageCode=${encodeURIComponent(languageCode)}`);
+          const voices = data.voices || [];
+          if (!voices.length) return;
+          select.innerHTML = voices
+            .map((voice) => {
+              const primaryLanguage = (voice.languageCodes || [languageCode])[0] || languageCode;
+              const label = voice.label || `${voice.name} / ${primaryLanguage} / ${voice.ssmlGender || "UNKNOWN"}`;
+              return `<option value="${escapeHtml(voice.name)}" data-language-code="${escapeHtml(primaryLanguage)}">${escapeHtml(label)}</option>`;
+            })
+            .join("");
+          select.value = voices.some((voice) => voice.name === current) ? current : voices[0].name;
+        } catch (error) {
+          setRecordingStatus(`声種一覧を取得できませんでした。既定の声種を使用します: ${error.message}`, true);
+        }
       }
 
       function setImportStatus(message, isError = false) {
@@ -1255,7 +1291,7 @@
         return total;
       }
 
-      async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot) {
+      async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot, voiceConfigSnapshot) {
         const chunks = chunkUnitIds(unitIds);
         const total = emptyRecordingResult(forceRerecord, packSnapshot, textSourceSnapshot);
         let completed = 0;
@@ -1268,6 +1304,8 @@
             target: targetSnapshot,
             unitIds: chunk,
             textSource: textSourceSnapshot,
+            voiceName: voiceConfigSnapshot.voiceName,
+            languageCode: voiceConfigSnapshot.languageCode,
             forceRerecord
           });
           mergeRecordingResult(total, data);
@@ -1314,6 +1352,7 @@
         $("loadPacksBtn").disabled = isRecordingBusy;
         $("importPackBtn").disabled = isRecordingBusy;
         $("recordingTextSource").disabled = isRecordingBusy;
+        $("recordingVoiceSelect").disabled = isRecordingBusy;
         $("creditWarning").textContent = insufficient
           ? "クレジットが不足しています。来月のチャージ後に録音できます。"
           : selectedCount
@@ -1331,10 +1370,18 @@
           const packSnapshot = selectedPack;
           const targetSnapshot = recordingTarget(packSnapshot);
           const textSourceSnapshot = $("recordingTextSource").value;
+          const voiceConfigSnapshot = selectedVoiceConfig();
           const unitIds = Array.from(selectedUnitIds);
           const beforeEstimate = selectedEstimate;
           renderPacks(currentPacks);
-          const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot);
+          const data = await sendRecordingChunks(
+            unitIds,
+            forceRerecord,
+            targetSnapshot,
+            packSnapshot,
+            textSourceSnapshot,
+            voiceConfigSnapshot
+          );
           const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
           if (!forceRerecord) {
             const recordedChars = (beforeEstimate?.units || [])
@@ -1567,6 +1614,7 @@
       });
       syncInputState();
       saveCredits(creditBalance);
+      loadTtsVoices();
       loadPacks();
     </script>
   </body>

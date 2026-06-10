@@ -44,6 +44,10 @@ def record_generated_file_audio(
     synthesize_fn: Synthesizer = synthesize_text_to_mp3,
     max_concurrency: int | None = None,
     force_rerecord: bool = False,
+    language_code: str | None = None,
+    voice_name: str | None = None,
+    speaking_rate: float | None = None,
+    pitch: float | None = None,
 ) -> RecordingSummary:
     """Record audio for a generated pack file and persist the updated JSON."""
     if file.kind == "document":
@@ -63,6 +67,10 @@ def record_generated_file_audio(
         synthesize_fn=synthesize_fn,
         max_concurrency=max_concurrency,
         force_rerecord=force_rerecord,
+        language_code=language_code,
+        voice_name=voice_name,
+        speaking_rate=speaking_rate,
+        pitch=pitch,
     )
     file.content = pack.model_dump(exclude_none=True)
     if summary.success_count:
@@ -80,6 +88,10 @@ def record_pack_audio(
     synthesize_fn: Synthesizer = synthesize_text_to_mp3,
     max_concurrency: int | None = None,
     force_rerecord: bool = False,
+    language_code: str | None = None,
+    voice_name: str | None = None,
+    speaking_rate: float | None = None,
+    pitch: float | None = None,
 ) -> RecordingSummary:
     """Record unrecorded units, upload MP3 files, and attach audio URLs in-place."""
     storage = storage_client or StorageClient()
@@ -90,7 +102,14 @@ def record_pack_audio(
 
     def record_unit(unit: RecordingUnit) -> RecordingResult:
         try:
-            audio = synthesize_fn(unit.text)
+            audio = _synthesize_audio(
+                synthesize_fn,
+                unit.text,
+                language_code=language_code,
+                voice_name=voice_name,
+                speaking_rate=speaking_rate,
+                pitch=pitch,
+            )
             audio_url = storage.save_bytes(
                 unit.pack_id,
                 f"audio/{namespace}__{_safe_audio_stem(unit.item_id)}.mp3",
@@ -132,6 +151,26 @@ def record_pack_audio(
         failed_unit_ids=failed_unit_ids,
         results=sorted(results, key=lambda result: result.unit_id),
     )
+
+
+def _synthesize_audio(
+    synthesize_fn: Synthesizer,
+    text: str,
+    *,
+    language_code: str | None = None,
+    voice_name: str | None = None,
+    speaking_rate: float | None = None,
+    pitch: float | None = None,
+) -> bytes:
+    if synthesize_fn is synthesize_text_to_mp3:
+        return synthesize_text_to_mp3(
+            text,
+            language_code=language_code,
+            voice_name=voice_name,
+            speaking_rate=speaking_rate,
+            pitch=pitch,
+        )
+    return synthesize_fn(text)
 
 
 def _max_concurrency(value: int | None = None) -> int:

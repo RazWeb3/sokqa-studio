@@ -306,6 +306,10 @@ class RunTtsRecordingRequest(BaseModel):
     unitIds: list[str] = Field(..., min_length=1)
     textSource: Literal["raw", "corrected"] = "raw"
     forceRerecord: bool = False
+    voiceName: str | None = Field(default=None, min_length=1, max_length=160)
+    languageCode: str | None = Field(default=None, min_length=2, max_length=16)
+    speakingRate: float | None = Field(default=None, ge=0.25, le=4.0)
+    pitch: float | None = Field(default=None, ge=-20.0, le=20.0)
 
 
 class ResetTtsRecordingRequest(BaseModel):

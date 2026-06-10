@@ -365,3 +365,90 @@ def test_recording_endpoint_can_use_corrected_text_source(tmp_path, monkeypatch)
     assert captured["texts"] == ["エーアイ は人工知能です。"]
     assert data["summary"]["results"][0]["usedTextSource"] == "corrected"
     assert data["audioUrls"][0]["usedTextSource"] == "corrected"
+
+
+def test_tts_voices_endpoint_returns_listed_voices(monkeypatch) -> None:
+    def fake_list_cloud_tts_voices(language_code=None):
+        assert language_code == "ja-JP"
+        return [
+            {
+                "name": "ja-JP-Neural2-B",
+                "label": "標準（開発用）Neural2",
+                "languageCodes": ["ja-JP"],
+                "ssmlGender": "MALE",
+                "gender": "female",
+                "tier": "standard",
+                "order": 50,
+                "naturalSampleRateHertz": 24000,
+            }
+        ]
+
+    monkeypatch.setattr("app.routes.tts_recording.list_cloud_tts_voices", fake_list_cloud_tts_voices)
+
+    response = client.get("/tts/voices?languageCode=ja-JP")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {
+        "languageCode": "ja-JP",
+        "voices": [
+            {
+                "name": "ja-JP-Neural2-B",
+                "label": "標準（開発用）Neural2",
+                "languageCodes": ["ja-JP"],
+                "ssmlGender": "MALE",
+                "gender": "female",
+                "tier": "standard",
+                "order": 50,
+                "naturalSampleRateHertz": 24000,
+            }
+        ],
+    }
+
+
+def test_recording_endpoint_passes_voice_options(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+    captured = {}
+
+    def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
+        captured["language_code"] = kwargs.get("language_code")
+        captured["voice_name"] = kwargs.get("voice_name")
+        captured["speaking_rate"] = kwargs.get("speaking_rate")
+        captured["pitch"] = kwargs.get("pitch")
+        return RecordingSummary(
+            total_units=len(units),
+            skipped_units=0,
+            success_count=1,
+            failure_count=0,
+            failed_unit_ids=[],
+            results=[
+                RecordingResult(
+                    unit_id="q_q-1_choice_0",
+                    success=True,
+                    audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
+                    used_text_source=units[0].used_text_source,
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
+
+    response = client.post(
+        "/tts/record",
+        json={
+            "target": _target(pack_name),
+            "unitIds": ["q_q-1_choice_0"],
+            "voiceName": "ja-JP-Chirp3-HD-Achernar",
+            "languageCode": "ja-JP",
+            "speakingRate": 1.15,
+            "pitch": -1.5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "language_code": "ja-JP",
+        "voice_name": "ja-JP-Chirp3-HD-Achernar",
+        "speaking_rate": 1.15,
+        "pitch": -1.5,
+    }

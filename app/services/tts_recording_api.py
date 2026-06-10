@@ -33,6 +33,10 @@ def run_recording(
     text_source: RecordingTextSource = "raw",
     force_rerecord: bool = False,
     *,
+    language_code: str | None = None,
+    voice_name: str | None = None,
+    speaking_rate: float | None = None,
+    pitch: float | None = None,
     storage_client: StorageClient | None = None,
     synthesize_fn: Synthesizer | None = None,
 ) -> dict:
@@ -46,7 +50,17 @@ def run_recording(
     kwargs = {"storage_client": storage_client}
     if synthesize_fn is not None:
         kwargs["synthesize_fn"] = synthesize_fn
-    summary = record_generated_file_audio(loaded.file, selected, loaded.storage_prefix, force_rerecord=force_rerecord, **kwargs)
+    summary = record_generated_file_audio(
+        loaded.file,
+        selected,
+        loaded.storage_prefix,
+        force_rerecord=force_rerecord,
+        language_code=language_code,
+        voice_name=voice_name,
+        speaking_rate=speaking_rate,
+        pitch=pitch,
+        **kwargs,
+    )
     loaded.pack = _pack_from_file(loaded.file)
     return {
         "packId": loaded.pack.id,

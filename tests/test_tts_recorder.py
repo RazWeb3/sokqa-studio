@@ -1,6 +1,7 @@
 import pytest
 
 from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentItem, SokqaDocumentPack, SokqaQuestion, SokqaQuizPack
+from app.services import tts_recorder
 from app.services.tts_estimation import extract_recording_units_from_document_pack, extract_recording_units_from_quiz_pack
 from app.services.tts_recorder import _max_concurrency, record_generated_file_audio, record_pack_audio
 
@@ -122,6 +123,44 @@ def test_record_document_audio_url_is_attached() -> None:
     assert pack.documents[0].tts is not None
     assert pack.documents[0].tts.audioUrl == "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/doc-pack__doc_doc-1.mp3"
     assert storage.saved_bytes[0]["object_name"] == "audio/doc-pack__doc_doc-1.mp3"
+
+
+def test_record_pack_audio_passes_voice_options_to_default_synthesizer(monkeypatch) -> None:
+    pack = _document_pack()
+    units = extract_recording_units_from_document_pack(pack)
+    storage = FakeStorageClient()
+    captured = {}
+
+    def fake_synthesize_text_to_mp3(text, *, language_code=None, voice_name=None, speaking_rate=None, pitch=None):
+        captured["text"] = text
+        captured["language_code"] = language_code
+        captured["voice_name"] = voice_name
+        captured["speaking_rate"] = speaking_rate
+        captured["pitch"] = pitch
+        return b"mp3"
+
+    monkeypatch.setattr(tts_recorder, "synthesize_text_to_mp3", fake_synthesize_text_to_mp3)
+
+    summary = record_pack_audio(
+        pack,
+        units,
+        "sokqa/creators/creator/packs/content/versions/v1",
+        storage_client=storage,
+        synthesize_fn=tts_recorder.synthesize_text_to_mp3,
+        language_code="ja-JP",
+        voice_name="ja-JP-Chirp3-HD-Achernar",
+        speaking_rate=1.2,
+        pitch=-2.0,
+    )
+
+    assert summary.success_count == 1
+    assert captured == {
+        "text": "AI の説明です。",
+        "language_code": "ja-JP",
+        "voice_name": "ja-JP-Chirp3-HD-Achernar",
+        "speaking_rate": 1.2,
+        "pitch": -2.0,
+    }
 
 
 def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:

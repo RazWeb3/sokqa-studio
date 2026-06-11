@@ -55,12 +55,12 @@
       }
 
       main {
-        padding: 24px 0 48px;
+        padding: 18px 0 48px;
       }
 
       .grid {
         display: grid;
-        grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+        grid-template-columns: 1fr;
         gap: 18px;
         align-items: start;
       }
@@ -216,6 +216,131 @@
         color: var(--muted);
         background: #f8fafc;
         font-size: 0.9rem;
+      }
+
+      .studio-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 14px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .tab-button {
+        min-height: 44px;
+        justify-content: center;
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid transparent;
+      }
+
+      .tab-button.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+
+      .tab-panel[hidden] {
+        display: none;
+      }
+
+      .tab-panel {
+        display: block;
+      }
+
+      .recording-workflow {
+        display: grid;
+        gap: 14px;
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+
+      .workflow-hero,
+      .step-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .workflow-hero {
+        display: grid;
+        gap: 12px;
+      }
+
+      .step-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .step-head {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      .step-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        min-width: 30px;
+        height: 30px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 800;
+      }
+
+      .step-title {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .step-copy {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .step-body {
+        display: grid;
+        gap: 12px;
+      }
+
+      #recordingPanel:not([hidden]) {
+        display: grid;
+        gap: 14px;
+      }
+
+      summary {
+        cursor: pointer;
+        width: fit-content;
+      }
+
+      .estimate-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .estimate-tile {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #f8fafc;
+      }
+
+      .estimate-value {
+        display: block;
+        margin-top: 4px;
+        font-size: 1.08rem;
+        font-weight: 800;
       }
 
       .recording-toolbar,
@@ -377,13 +502,45 @@
         overflow-wrap: anywhere;
       }
 
+      @media (min-width: 980px) {
+        main {
+          padding-top: 24px;
+        }
+
+        .grid {
+          grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+        }
+
+        .workflow-hero {
+          grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+          align-items: center;
+        }
+      }
+
       @media (max-width: 860px) {
-        .grid,
         .row,
         .recording-toolbar,
         .recording-summary,
-        .credit-bar {
+        .credit-bar,
+        .estimate-grid {
           grid-template-columns: 1fr;
+        }
+
+        .actions button,
+        .actions a.button {
+          width: 100%;
+          justify-content: center;
+        }
+
+        .unit-row {
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: start;
+        }
+
+        .unit-actions {
+          grid-column: 1 / -1;
+          justify-content: flex-start;
+          min-width: 0;
         }
       }
     </style>
@@ -392,12 +549,19 @@
     <header>
       <div class="wrap">
         <h1>Sokqa Course Pack Agent</h1>
-        <p class="subtitle">構成案を確認してから、Sokqa用JSON群とmanifestを生成します。</p>
+        <p class="subtitle">パック作成と録音管理を分けて、Sokqa用JSON群と音声ファイルを扱います。</p>
       </div>
     </header>
 
-    <main class="wrap grid">
-      <section>
+    <main class="wrap">
+      <div class="studio-tabs" role="tablist" aria-label="Sokqa Studio">
+        <button id="createTabBtn" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="createView">パック作成</button>
+        <button id="recordingTabBtn" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="recordingView">録音管理</button>
+      </div>
+
+      <div id="createView" class="tab-panel" role="tabpanel" aria-labelledby="createTabBtn">
+        <div class="grid">
+          <section>
         <h2>入力</h2>
         <label>
           テーマ
@@ -473,112 +637,18 @@
         <p id="status" class="status"></p>
       </section>
 
-      <div class="output">
-        <section>
+          <div class="output">
+            <section>
           <h2>構成案</h2>
           <textarea id="planJson" spellcheck="false" placeholder="構成案がここに表示されます。編集してから生成できます。"></textarea>
         </section>
 
-        <section>
+            <section>
           <h2>生成結果</h2>
           <div id="result"></div>
         </section>
 
-        <section>
-          <h2>録音管理</h2>
-          <div class="credit-bar">
-            <div>
-              <div class="meta">疑似クレジット残高</div>
-              <div class="credit-value"><span id="creditBalance">0.0000</span> credits</div>
-            </div>
-            <button id="resetCreditsBtn" type="button" class="secondary">残高リセット</button>
-          </div>
-          <div class="recording-toolbar">
-            <label>
-              creatorId
-              <input id="packCreatorId" value="creator_default" maxlength="120" />
-            </label>
-            <label>
-              録音テキスト
-              <select id="recordingTextSource">
-                <option value="raw">生テキスト</option>
-                <option value="corrected">補正版優先</option>
-              </select>
-            </label>
-            <label>
-              声種
-              <select id="recordingVoiceSelect">
-                <option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option>
-              </select>
-            </label>
-            <div class="actions">
-              <button id="loadPacksBtn" type="button">一覧更新</button>
-            </div>
-          </div>
-          <p id="recordingStatus" class="status"></p>
-          <div class="recording-toolbar">
-            <label>
-              インポートJSON
-              <input id="importFiles" type="file" accept="application/json,.json" multiple />
-            </label>
-            <label>
-              title
-              <input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" />
-            </label>
-            <label>
-              contentId
-              <input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" />
-            </label>
-            <label>
-              slug
-              <input id="importSlug" maxlength="160" placeholder="任意" />
-            </label>
-            <div class="actions">
-              <button id="importPackBtn" type="button" class="secondary">JSONをインポート</button>
-            </div>
-          </div>
-          <p id="importStatus" class="status"></p>
-          <div id="packList" class="pack-list"></div>
-
-          <div id="recordingPanel" hidden>
-            <div class="actions">
-              <button id="selectUnrecordedBtn" type="button" class="secondary">未録音を全選択</button>
-              <button id="clearUnitSelectionBtn" type="button" class="secondary">選択解除</button>
-              <button id="playSelectedBtn" type="button" class="secondary">選択分を連続再生</button>
-              <button id="playAllBtn" type="button" class="secondary">全体を連続再生</button>
-              <label style="margin: 0;">
-                再生速度
-                <select id="playbackRateSelect" style="min-width: 110px;">
-                  <option value="0.75">0.75x</option>
-                  <option value="1" selected>1.0x</option>
-                  <option value="1.25">1.25x</option>
-                  <option value="1.5">1.5x</option>
-                  <option value="2">2.0x</option>
-                </select>
-              </label>
-            </div>
-            <div class="recording-summary">
-              <p><strong>選択ユニット:</strong> <span id="selectedUnitCount">0</span></p>
-              <p><strong>文字数:</strong> <span id="selectedChars">0</span></p>
-              <p><strong>見積もり:</strong> <span id="selectedCredits">0.0000</span> credits</p>
-            </div>
-            <p id="creditWarning" class="status"></p>
-            <div class="actions">
-              <button id="recordSelectedBtn" type="button" disabled>録音化</button>
-              <button id="forceRecordSelectedBtn" type="button" class="secondary" disabled>選択分を強制再録音</button>
-              <button id="resetSelectedRecordingBtn" type="button" class="secondary" disabled>選択分の録音状態をリセット</button>
-              <button id="resetAllRecordingBtn" type="button" class="secondary">全録音状態をリセット</button>
-              <button id="prevTrackBtn" type="button" class="secondary" disabled>前へ</button>
-              <button id="pauseTrackBtn" type="button" class="secondary" disabled>一時停止</button>
-              <button id="nextTrackBtn" type="button" class="secondary" disabled>次へ</button>
-            </div>
-            <div id="unitList" class="unit-list"></div>
-            <div id="recordingResult" class="recording-result"></div>
-            <audio id="recordingAudio" preload="none"></audio>
-          </div>
-        </section>
-
-        <section>
+            <section>
           <h2>TTS読み修正</h2>
           <label>
             追加ルール JSON
@@ -589,7 +659,186 @@
           <div class="actions">
             <button id="reviseBtn" class="secondary" disabled>TTSだけ再最適化</button>
           </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <div id="recordingView" class="tab-panel" role="tabpanel" aria-labelledby="recordingTabBtn" hidden>
+        <section class="recording-workflow">
+          <div class="workflow-hero">
+            <div>
+              <h2>録音管理</h2>
+              <p class="step-copy">パックを選び、録音対象と声種を決めてから、概算クレジットを確認して録音します。</p>
+              <p id="recordingStatus" class="status"></p>
+            </div>
+            <div class="credit-bar">
+              <div>
+                <div class="meta">疑似クレジット残高</div>
+                <div class="credit-value"><span id="creditBalance">0.0000</span> credits</div>
+              </div>
+              <button id="resetCreditsBtn" type="button" class="secondary">残高リセット</button>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <div class="step-head">
+              <span class="step-number">1</span>
+              <div>
+                <h3 class="step-title">パックを選ぶ</h3>
+                <p class="step-copy">creatorIdで絞り込み、録音したいdocument/quizを選択します。</p>
+              </div>
+            </div>
+            <div class="step-body">
+              <div class="recording-toolbar">
+                <label>
+                  creatorId
+                  <input id="packCreatorId" value="creator_default" maxlength="120" />
+                </label>
+                <div class="actions">
+                  <button id="loadPacksBtn" type="button">一覧更新</button>
+                </div>
+              </div>
+              <details>
+                <summary class="meta">JSONをインポート</summary>
+                <div class="recording-toolbar">
+                  <label>
+                    インポートJSON
+                    <input id="importFiles" type="file" accept="application/json,.json" multiple />
+                  </label>
+                  <label>
+                    title
+                    <input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" />
+                  </label>
+                  <label>
+                    contentId
+                    <input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" />
+                  </label>
+                  <label>
+                    slug
+                    <input id="importSlug" maxlength="160" placeholder="任意" />
+                  </label>
+                  <div class="actions">
+                    <button id="importPackBtn" type="button" class="secondary">JSONをインポート</button>
+                  </div>
+                </div>
+                <p id="importStatus" class="status"></p>
+              </details>
+              <div id="packList" class="pack-list"></div>
+            </div>
+          </div>
+
+          <div id="recordingPanel" hidden>
+            <div class="step-card">
+              <div class="step-head">
+                <span class="step-number">2</span>
+                <div>
+                  <h3 class="step-title">録音対象を選ぶ</h3>
+                  <p class="step-copy">未録音だけをまとめて選ぶか、必要なユニットだけ選択します。</p>
+                </div>
+              </div>
+              <div class="step-body">
+                <div class="actions">
+                  <button id="selectUnrecordedBtn" type="button" class="secondary">未録音を全選択</button>
+                  <button id="clearUnitSelectionBtn" type="button" class="secondary">選択解除</button>
+                </div>
+                <div id="unitList" class="unit-list"></div>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-head">
+                <span class="step-number">3</span>
+                <div>
+                  <h3 class="step-title">読みと声種を選ぶ</h3>
+                  <p class="step-copy">補正版の利用有無とクラウドTTSの声種を録音開始時に固定します。</p>
+                </div>
+              </div>
+              <div class="step-body">
+                <div class="recording-toolbar">
+                  <label>
+                    録音テキスト
+                    <select id="recordingTextSource">
+                      <option value="raw">生テキスト</option>
+                      <option value="corrected">補正版優先</option>
+                    </select>
+                  </label>
+                  <label>
+                    声種
+                    <select id="recordingVoiceSelect">
+                      <option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option>
+                    </select>
+                  </label>
+                  <label>
+                    再生速度
+                    <select id="playbackRateSelect">
+                      <option value="0.75">0.75x</option>
+                      <option value="1" selected>1.0x</option>
+                      <option value="1.25">1.25x</option>
+                      <option value="1.5">1.5x</option>
+                      <option value="2">2.0x</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-head">
+                <span class="step-number">4</span>
+                <div>
+                  <h3 class="step-title">概算を確認する</h3>
+                  <p class="step-copy">選択分の文字数と消費クレジットを確認します。</p>
+                </div>
+              </div>
+              <div class="step-body">
+                <div class="estimate-grid recording-summary">
+                  <div class="estimate-tile">
+                    <span class="meta">選択ユニット</span>
+                    <span class="estimate-value" id="selectedUnitCount">0</span>
+                  </div>
+                  <div class="estimate-tile">
+                    <span class="meta">文字数</span>
+                    <span class="estimate-value" id="selectedChars">0</span>
+                  </div>
+                  <div class="estimate-tile">
+                    <span class="meta">見積もり</span>
+                    <span class="estimate-value"><span id="selectedCredits">0.0000</span> credits</span>
+                  </div>
+                </div>
+                <p id="creditWarning" class="status"></p>
+              </div>
+            </div>
+
+            <div class="step-card">
+              <div class="step-head">
+                <span class="step-number">5</span>
+                <div>
+                  <h3 class="step-title">録音して確認する</h3>
+                  <p class="step-copy">録音後は選択分または全体を連続再生できます。</p>
+                </div>
+              </div>
+              <div class="step-body">
+                <div class="actions">
+                  <button id="recordSelectedBtn" type="button" disabled>録音化</button>
+                  <button id="forceRecordSelectedBtn" type="button" class="secondary" disabled>選択分を強制再録音</button>
+                  <button id="resetSelectedRecordingBtn" type="button" class="secondary" disabled>選択分の録音状態をリセット</button>
+                  <button id="resetAllRecordingBtn" type="button" class="secondary">全録音状態をリセット</button>
+                </div>
+                <div class="actions">
+                  <button id="playSelectedBtn" type="button" class="secondary">選択分を連続再生</button>
+                  <button id="playAllBtn" type="button" class="secondary">全体を連続再生</button>
+                  <button id="prevTrackBtn" type="button" class="secondary" disabled>前へ</button>
+                  <button id="pauseTrackBtn" type="button" class="secondary" disabled>一時停止</button>
+                  <button id="nextTrackBtn" type="button" class="secondary" disabled>次へ</button>
+                </div>
+                <div id="recordingResult" class="recording-result"></div>
+                <audio id="recordingAudio" preload="none"></audio>
+              </div>
+            </div>
+          </div>
         </section>
+
       </div>
     </main>
 
@@ -659,6 +908,17 @@
       function syncInputState() {
         $("sourceMode").disabled = !$("sourceText").value.trim();
         $("ttsReadingMode").disabled = !isTtsEnabled();
+      }
+
+      function setStudioTab(tabName) {
+        if (isRecordingBusy && tabName !== "recording") return;
+        const isCreateTab = tabName === "create";
+        $("createView").hidden = !isCreateTab;
+        $("recordingView").hidden = isCreateTab;
+        $("createTabBtn").classList.toggle("active", isCreateTab);
+        $("recordingTabBtn").classList.toggle("active", !isCreateTab);
+        $("createTabBtn").setAttribute("aria-selected", String(isCreateTab));
+        $("recordingTabBtn").setAttribute("aria-selected", String(!isCreateTab));
       }
 
       function setBusy(isBusy, message = "") {
@@ -1353,6 +1613,8 @@
         $("importPackBtn").disabled = isRecordingBusy;
         $("recordingTextSource").disabled = isRecordingBusy;
         $("recordingVoiceSelect").disabled = isRecordingBusy;
+        $("createTabBtn").disabled = isRecordingBusy;
+        $("recordingTabBtn").disabled = isRecordingBusy;
         $("creditWarning").textContent = insufficient
           ? "クレジットが不足しています。来月のチャージ後に録音できます。"
           : selectedCount
@@ -1571,6 +1833,8 @@
         generateBtn.disabled = !planJson.value.trim();
       });
 
+      $("createTabBtn").addEventListener("click", () => setStudioTab("create"));
+      $("recordingTabBtn").addEventListener("click", () => setStudioTab("recording"));
       $("sourceText").addEventListener("input", syncInputState);
       $("includeTts").addEventListener("change", syncInputState);
       $("loadPacksBtn").addEventListener("click", loadPacks);

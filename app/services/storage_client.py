@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -36,6 +37,14 @@ class StorageClient:
         if self.settings.storage_backend == "gcs":
             return self._load_gcs_json(pack_id, file_name, storage_prefix)
         return self._load_local_json(pack_id, file_name, storage_prefix)
+
+    def public_url_for_prefix(self, storage_prefix: str) -> str:
+        return f"{self.settings.public_base_url.rstrip('/')}/{storage_prefix.strip('/')}"
+
+    def copy_prefix(self, source_prefix: str, target_prefix: str) -> list[str]:
+        if self.settings.storage_backend == "gcs":
+            return self._copy_gcs_prefix(source_prefix, target_prefix)
+        return self._copy_local_prefix(source_prefix, target_prefix)
 
     def _save_local(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         relative_prefix = (storage_prefix or pack_id).strip("/")
@@ -92,6 +101,23 @@ class StorageClient:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
 
+    def _copy_local_prefix(self, source_prefix: str, target_prefix: str) -> list[str]:
+        source = Path.cwd() / self.settings.local_storage_dir / source_prefix.strip("/")
+        target = Path.cwd() / self.settings.local_storage_dir / target_prefix.strip("/")
+        if not source.exists():
+            return []
+        copied: list[str] = []
+        for path in source.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(source)
+            destination = target / relative
+            ensure_dir(destination.parent)
+            shutil.copy2(path, destination)
+            copied.append(f"{target_prefix.strip('/')}/{relative.as_posix()}")
+        record_storage_event(f"local copied prefix: {source_prefix} -> {target_prefix} ({len(copied)} objects)")
+        return copied
+
     def _save_gcs(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         if not self.settings.gcs_bucket:
             raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
@@ -139,6 +165,24 @@ class StorageClient:
         blob_name = f"{prefix}/{file_name.strip('/')}"
         payload = bucket.blob(blob_name).download_as_text(encoding="utf-8")
         return json.loads(payload)
+
+    def _copy_gcs_prefix(self, source_prefix: str, target_prefix: str) -> list[str]:
+        if not self.settings.gcs_bucket:
+            raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
+        client = storage.Client()
+        bucket = client.bucket(self.settings.gcs_bucket)
+        source = source_prefix.strip("/")
+        target = target_prefix.strip("/")
+        copied: list[str] = []
+        for blob in bucket.list_blobs(prefix=f"{source}/"):
+            relative = blob.name.removeprefix(f"{source}/")
+            if not relative:
+                continue
+            destination_name = f"{target}/{relative}"
+            bucket.copy_blob(blob, bucket, destination_name)
+            copied.append(destination_name)
+        record_storage_event(f"gcs copied prefix: {source_prefix} -> {target_prefix} ({len(copied)} objects)")
+        return copied
 
 
 def ensure_dir(path: Path) -> bool:

@@ -5,6 +5,18 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from app.schemas.common import Difficulty, QuizPurpose, Scale, SourceMode, TtsReadingMode, TtsRule
 
 
+def validate_audio_relative_path(value: str | None) -> str | None:
+    if value is None:
+        return value
+    text = value.strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if text.startswith("/") or ".." in text or lowered.startswith(("http://", "https://")):
+        raise ValueError("audio path must be relative and must not contain '..' or URL schemes")
+    return text
+
+
 class PlanDocument(BaseModel):
     id: str
     title: str
@@ -52,7 +64,13 @@ class CoursePlan(BaseModel):
 class DocumentTts(BaseModel):
     text: str | None = None
     audioUrl: str | None = None
+    audioPath: str | None = None
     textLanguage: str | None = None
+
+    @field_validator("audioPath")
+    @classmethod
+    def audio_path_is_relative(cls, value: str | None) -> str | None:
+        return validate_audio_relative_path(value)
 
 
 class SokqaDocumentItem(BaseModel):
@@ -77,6 +95,7 @@ class SokqaDocumentPack(BaseModel):
     description: str = ""
     language: str = "ja"
     author: str | None = None
+    assetBaseUrl: str | None = None
     globalTags: list[str] = Field(default_factory=list)
     documents: list[SokqaDocumentItem]
 
@@ -89,10 +108,25 @@ class QuizTts(BaseModel):
     questionAudioUrl: str | None = None
     choiceAudioUrls: list[str | None] | None = None
     explanationAudioUrl: str | None = None
+    questionAudioPath: str | None = None
+    choiceAudioPaths: list[str | None] | None = None
+    explanationAudioPath: str | None = None
     questionLanguage: str | None = None
     choicesLanguage: str | None = None
     answerLanguage: str | None = None
     explanationLanguage: str | None = None
+
+    @field_validator("questionAudioPath", "explanationAudioPath")
+    @classmethod
+    def audio_path_is_relative(cls, value: str | None) -> str | None:
+        return validate_audio_relative_path(value)
+
+    @field_validator("choiceAudioPaths")
+    @classmethod
+    def choice_audio_paths_are_relative(cls, value: list[str | None] | None) -> list[str | None] | None:
+        if value is None:
+            return value
+        return [validate_audio_relative_path(path) for path in value]
 
 
 class SokqaQuestion(BaseModel):
@@ -127,6 +161,7 @@ class SokqaQuizPack(BaseModel):
     description: str = ""
     language: str = "ja"
     author: str | None = None
+    assetBaseUrl: str | None = None
     globalTags: list[str] = Field(default_factory=list)
     questions: list[SokqaQuestion]
 

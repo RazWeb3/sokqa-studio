@@ -87,14 +87,18 @@ def test_record_quiz_audio_urls_are_attached_and_mp3_is_saved() -> None:
     assert tts is not None
     assert summary.success_count == 6
     assert summary.failure_count == 0
-    assert tts.questionAudioUrl.endswith("/audio/quiz-pack__q_q-1_question.mp3")
-    assert tts.choiceAudioUrls == [
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_0.mp3",
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_1.mp3",
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_2.mp3",
-        "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/quiz-pack__q_q-1_choice_3.mp3",
+    assert pack.assetBaseUrl.endswith("/sokqa/creators/creator/packs/content/versions/v1")
+    assert tts.questionAudioPath == "audio/quiz-pack__q_q-1_question.mp3"
+    assert tts.questionAudioUrl is None
+    assert tts.choiceAudioPaths == [
+        "audio/quiz-pack__q_q-1_choice_0.mp3",
+        "audio/quiz-pack__q_q-1_choice_1.mp3",
+        "audio/quiz-pack__q_q-1_choice_2.mp3",
+        "audio/quiz-pack__q_q-1_choice_3.mp3",
     ]
-    assert tts.explanationAudioUrl.endswith("/audio/quiz-pack__q_q-1_explanation.mp3")
+    assert tts.choiceAudioUrls is None
+    assert tts.explanationAudioPath == "audio/quiz-pack__q_q-1_explanation.mp3"
+    assert tts.explanationAudioUrl is None
     assert {entry["content_type"] for entry in storage.saved_bytes} == {"audio/mpeg"}
     assert {entry["object_name"] for entry in storage.saved_bytes} == {
         "audio/quiz-pack__q_q-1_question.mp3",
@@ -121,8 +125,16 @@ def test_record_document_audio_url_is_attached() -> None:
 
     assert summary.success_count == 1
     assert pack.documents[0].tts is not None
-    assert pack.documents[0].tts.audioUrl == "https://cdn.example.test/sokqa/creators/creator/packs/content/versions/v1/audio/doc-pack__doc_doc-1.mp3"
+    assert pack.assetBaseUrl.endswith("/sokqa/creators/creator/packs/content/versions/v1")
+    assert pack.documents[0].tts.audioPath == "audio/doc-pack__doc_doc-1.mp3"
+    assert pack.documents[0].tts.audioUrl is None
     assert storage.saved_bytes[0]["object_name"] == "audio/doc-pack__doc_doc-1.mp3"
+
+
+@pytest.mark.parametrize("audio_path", ["/audio/doc.mp3", "audio/../doc.mp3", "https://cdn.example.test/audio/doc.mp3"])
+def test_audio_paths_must_be_relative(audio_path: str) -> None:
+    with pytest.raises(ValueError):
+        DocumentTts(audioPath=audio_path)
 
 
 def test_record_pack_audio_passes_voice_options_to_default_synthesizer(monkeypatch) -> None:
@@ -166,8 +178,8 @@ def test_record_pack_audio_passes_voice_options_to_default_synthesizer(monkeypat
 def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:
     quiz = _quiz_pack()
     assert quiz.questions[0].tts is not None
-    quiz.questions[0].tts.questionAudioUrl = "https://cdn/question.mp3"
-    quiz.questions[0].tts.choiceAudioUrls = [None, "https://cdn/choice-1.mp3", None, None]
+    quiz.questions[0].tts.questionAudioPath = "audio/question.mp3"
+    quiz.questions[0].tts.choiceAudioPaths = [None, "audio/choice-1.mp3", None, None]
     quiz.questions[0].tts.explanationAudioUrl = "https://cdn/explanation.mp3"
     units = extract_recording_units_from_quiz_pack(quiz)
 
@@ -178,7 +190,7 @@ def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:
 
     document = _document_pack()
     assert document.documents[0].tts is not None
-    document.documents[0].tts.audioUrl = "https://cdn/doc.mp3"
+    document.documents[0].tts.audioPath = "audio/doc.mp3"
     doc_units = extract_recording_units_from_document_pack(document)
 
     assert doc_units[0].is_recorded is True
@@ -203,7 +215,8 @@ def test_force_rerecord_records_previously_recorded_units() -> None:
     assert summary.skipped_units == 0
     assert summary.success_count == 1
     assert storage.saved_bytes[0]["object_name"] == "audio/quiz-pack__q_q-1_question.mp3"
-    assert pack.questions[0].tts.questionAudioUrl.endswith("/audio/quiz-pack__q_q-1_question.mp3")
+    assert pack.questions[0].tts.questionAudioPath == "audio/quiz-pack__q_q-1_question.mp3"
+    assert pack.questions[0].tts.questionAudioUrl is None
 
 
 def test_one_synthesis_failure_does_not_stop_other_units() -> None:
@@ -229,9 +242,9 @@ def test_one_synthesis_failure_does_not_stop_other_units() -> None:
     assert summary.failed_unit_ids == ["q_q-1_choice_1"]
     assert len(storage.saved_bytes) == 5
     assert pack.questions[0].tts is not None
-    assert pack.questions[0].tts.choiceAudioUrls is not None
-    assert pack.questions[0].tts.choiceAudioUrls[0].endswith("/audio/quiz-pack__q_q-1_choice_0.mp3")
-    assert pack.questions[0].tts.choiceAudioUrls[1] is None
+    assert pack.questions[0].tts.choiceAudioPaths is not None
+    assert pack.questions[0].tts.choiceAudioPaths[0] == "audio/quiz-pack__q_q-1_choice_0.mp3"
+    assert pack.questions[0].tts.choiceAudioPaths[1] is None
 
 
 @pytest.mark.parametrize(
@@ -265,7 +278,9 @@ def test_record_generated_file_audio_persists_updated_json() -> None:
     )
 
     assert summary.success_count == 1
-    assert file.content["questions"][0]["tts"]["questionAudioUrl"].endswith("/audio/quiz-pack__q_q-1_question.mp3")
+    assert file.content["assetBaseUrl"].endswith("/sokqa/creators/creator/packs/content/versions/v1")
+    assert file.content["questions"][0]["tts"]["questionAudioPath"] == "audio/quiz-pack__q_q-1_question.mp3"
+    assert "questionAudioUrl" not in file.content["questions"][0]["tts"]
     assert storage.saved_files
     assert storage.saved_files[0][0] == "quiz-pack"
     assert storage.saved_files[0][2] == "sokqa/creators/creator/packs/content/versions/v1"
@@ -296,5 +311,5 @@ def test_record_generated_file_audio_uses_file_name_namespace_to_avoid_cross_fil
 
     assert storage_a.saved_bytes[0]["object_name"] == "audio/doc_01__doc_doc-1.mp3"
     assert storage_b.saved_bytes[0]["object_name"] == "audio/doc_03__doc_doc-1.mp3"
-    assert file_a.content["documents"][0]["tts"]["audioUrl"].endswith("/audio/doc_01__doc_doc-1.mp3")
-    assert file_b.content["documents"][0]["tts"]["audioUrl"].endswith("/audio/doc_03__doc_doc-1.mp3")
+    assert file_a.content["documents"][0]["tts"]["audioPath"] == "audio/doc_01__doc_doc-1.mp3"
+    assert file_b.content["documents"][0]["tts"]["audioPath"] == "audio/doc_03__doc_doc-1.mp3"

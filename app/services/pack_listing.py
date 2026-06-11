@@ -50,6 +50,8 @@ def _list_local_packs(creator_id: str | None) -> list[dict[str, Any]]:
             for version_dir in sorted(path for path in versions_root.iterdir() if path.is_dir()):
                 storage_prefix = _relative_prefix_from_version_dir(version_dir, creator_dir.name, content_dir.name)
                 manifest_content = _read_local_manifest(version_dir)
+                if manifest_content is None:
+                    continue
                 for path in sorted(version_dir.glob("*.json")):
                     item = _pack_item_from_content_path(
                         path,
@@ -61,7 +63,7 @@ def _list_local_packs(creator_id: str | None) -> list[dict[str, Any]]:
                     )
                     if item:
                         items.append(item)
-    return sorted(items, key=_pack_sort_key)
+    return _latest_version_items(items)
 
 
 def _relative_prefix_from_version_dir(version_dir: Path, creator_id: str, content_id: str) -> str:
@@ -105,11 +107,13 @@ def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
         if parsed is None:
             continue
         blob_creator_id, content_id, version_id, pack_name, storage_prefix = parsed
+        manifest_content = _read_gcs_manifest(bucket, storage_prefix)
+        if manifest_content is None:
+            continue
         try:
             content = json.loads(blob.download_as_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        manifest_content = _read_gcs_manifest(bucket, storage_prefix)
         item = _pack_item_from_content(
             content,
             pack_name,
@@ -121,13 +125,13 @@ def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
         )
         if item:
             items.append(item)
-    return sorted(items, key=_pack_sort_key)
+    return _latest_version_items(items)
 
 
 def _read_gcs_manifest(bucket, storage_prefix: str) -> dict[str, Any] | None:
     try:
         return json.loads(bucket.blob(f"{storage_prefix}/manifest.json").download_as_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except Exception:
         return None
 
 
@@ -171,6 +175,7 @@ def _pack_item_from_content(
         "manifestTitle": (manifest_content or {}).get("title"),
         "manifestUrl": manifest_url,
         "url": url,
+        "assetBaseUrl": content.get("assetBaseUrl"),
         "storagePrefix": storage_prefix,
         "target": {
             "creatorId": creator_id,
@@ -189,3 +194,19 @@ def _pack_sort_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
         str(item["versionId"]),
         str(item["packName"]),
     )
+
+
+def _latest_version_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_versions: dict[tuple[str, str], str] = {}
+    for item in items:
+        key = (str(item["creatorId"]), str(item["contentId"]))
+        version_id = str(item["versionId"])
+        if version_id > latest_versions.get(key, ""):
+            latest_versions[key] = version_id
+
+    latest_items = [
+        item
+        for item in items
+        if str(item["versionId"]) == latest_versions[(str(item["creatorId"]), str(item["contentId"]))]
+    ]
+    return sorted(latest_items, key=_pack_sort_key)

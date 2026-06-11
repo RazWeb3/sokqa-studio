@@ -25,11 +25,16 @@ def test_import_clears_audio_urls_but_keeps_tts_text(tmp_path, monkeypatch) -> N
         "type": "document",
         "schemaVersion": 1,
         "title": "Document",
+        "assetBaseUrl": "https://old.example/pack",
         "documents": [
             {
                 "id": "doc-1",
                 "text": "AIの説明です。",
-                "tts": {"text": "エーアイの説明です。", "audioUrl": "https://old.example/audio/doc.mp3"},
+                "tts": {
+                    "text": "エーアイの説明です。",
+                    "audioPath": "audio/doc.mp3",
+                    "audioUrl": "https://old.example/audio/doc.mp3",
+                },
             }
         ],
     }
@@ -38,6 +43,7 @@ def test_import_clears_audio_urls_but_keeps_tts_text(tmp_path, monkeypatch) -> N
         "type": "quiz",
         "schemaVersion": 1,
         "title": "Quiz",
+        "assetBaseUrl": "https://old.example/pack",
         "questions": [
             {
                 "id": "q-1",
@@ -49,13 +55,21 @@ def test_import_clears_audio_urls_but_keeps_tts_text(tmp_path, monkeypatch) -> N
                     "questionText": "エーアイとは何ですか?",
                     "choiceTexts": ["人工知能", "通信規約", "記憶装置", "画面設計"],
                     "explanationText": "エーアイは人工知能です。",
+                    "questionAudioPath": "audio/q.mp3",
                     "questionAudioUrl": "https://old.example/audio/q.mp3",
+                    "choiceAudioPaths": [
+                        "audio/c0.mp3",
+                        "audio/c1.mp3",
+                        None,
+                        "audio/c3.mp3",
+                    ],
                     "choiceAudioUrls": [
                         "https://old.example/audio/c0.mp3",
                         "https://old.example/audio/c1.mp3",
                         None,
                         "https://old.example/audio/c3.mp3",
                     ],
+                    "explanationAudioPath": "audio/e.mp3",
                     "explanationAudioUrl": "https://old.example/audio/e.mp3",
                 },
             }
@@ -80,13 +94,18 @@ def test_import_clears_audio_urls_but_keeps_tts_text(tmp_path, monkeypatch) -> N
     doc_content = json.loads((tmp_path / "generated" / storage_prefix / "doc_01.json").read_text(encoding="utf-8"))
     quiz_content = json.loads((tmp_path / "generated" / storage_prefix / "quiz_01.json").read_text(encoding="utf-8"))
 
+    assert "assetBaseUrl" not in doc_content
+    assert "assetBaseUrl" not in quiz_content
     assert doc_content["documents"][0]["tts"] == {"text": "エーアイの説明です。"}
     quiz_tts = quiz_content["questions"][0]["tts"]
     assert quiz_tts["questionText"] == "エーアイとは何ですか?"
     assert quiz_tts["choiceTexts"] == ["人工知能", "通信規約", "記憶装置", "画面設計"]
     assert quiz_tts["explanationText"] == "エーアイは人工知能です。"
+    assert "questionAudioPath" not in quiz_tts
     assert "questionAudioUrl" not in quiz_tts
+    assert "choiceAudioPaths" not in quiz_tts
     assert "choiceAudioUrls" not in quiz_tts
+    assert "explanationAudioPath" not in quiz_tts
     assert "explanationAudioUrl" not in quiz_tts
 
 

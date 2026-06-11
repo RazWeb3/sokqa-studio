@@ -130,14 +130,20 @@ def _resolve_title(request: ImportPackRequest, manifest: PackManifest | None, fi
 
 
 def _clear_document_audio_urls(pack: SokqaDocumentPack) -> None:
+    pack.assetBaseUrl = None
     for item in pack.documents:
         if item.tts:
+            item.tts.audioPath = None
             item.tts.audioUrl = None
 
 
 def _clear_quiz_audio_urls(pack: SokqaQuizPack) -> None:
+    pack.assetBaseUrl = None
     for question in pack.questions:
         if question.tts:
+            question.tts.questionAudioPath = None
             question.tts.questionAudioUrl = None
+            question.tts.choiceAudioPaths = None
             question.tts.choiceAudioUrls = None
+            question.tts.explanationAudioPath = None
             question.tts.explanationAudioUrl = None

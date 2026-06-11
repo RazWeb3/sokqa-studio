@@ -49,6 +49,25 @@ def _write_pack(tmp_path: Path, monkeypatch) -> tuple[str, str]:
     target_dir.mkdir(parents=True)
     pack_path = target_dir / "quiz.json"
     pack_path.write_text(__import__("json").dumps(_quiz_content(), ensure_ascii=False), encoding="utf-8")
+    manifest = {
+        "id": "content_test_manifest",
+        "type": "pack_manifest",
+        "schemaVersion": 1,
+        "contentId": "content_test",
+        "slug": "content-test",
+        "versionId": "v20260607_120000",
+        "buildId": "build_20260607_120000",
+        "generatedAt": "2026-06-07T12:00:00+09:00",
+        "creator": {"id": "creator_test", "displayName": None},
+        "title": "録音APIクイズ",
+        "items": [
+            {
+                "kind": "quiz",
+                "url": f"http://localhost:8000/generated/{prefix}/quiz.json",
+            }
+        ],
+    }
+    (target_dir / "manifest.json").write_text(__import__("json").dumps(manifest, ensure_ascii=False), encoding="utf-8")
     return prefix, "quiz.json"
 
 
@@ -112,6 +131,8 @@ def test_recording_estimate_can_use_corrected_text_source(tmp_path, monkeypatch)
             "packType": "quiz",
             "kind": "explanation",
             "isRecorded": False,
+            "audioPath": None,
+            "audioUrl": None,
             "hasCorrected": True,
             "usedTextSource": "corrected",
         }
@@ -143,6 +164,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
         captured["unitIds"] = [unit.item_id for unit in units]
         captured["texts"] = [unit.text for unit in units]
         captured["forceRerecord"] = kwargs.get("force_rerecord")
+        captured["storage_prefix"] = storage_prefix
         return RecordingSummary(
             total_units=len(units),
             skipped_units=1,
@@ -155,6 +177,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
                     unit_id="q_q-1_choice_0",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
+                    audio_path="audio/q_q-1_choice_0.mp3",
                     used_text_source=units[1].used_text_source,
                 ),
             ],
@@ -176,16 +199,30 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
     assert captured["unitIds"] == ["q_q-1_question", "q_q-1_choice_0"]
     assert captured["texts"] == ["AI の説明はどれですか?", "人工知能"]
     assert captured["forceRerecord"] is False
+    assert captured["storage_prefix"] != pack_storage_prefix("creator_test", "content_test", "v20260607_120000")
     assert data["textSource"] == "raw"
+    assert data["versionId"].startswith("v")
+    assert data["versionId"] != "v20260607_120000"
+    assert data["assetBaseUrl"].endswith(f"/versions/{data['versionId']}")
+    assert data["target"]["versionId"] == data["versionId"]
     assert data["summary"]["skippedUnits"] == 1
     assert data["summary"]["successCount"] == 1
     assert data["audioUrls"] == [
         {
             "unitId": "q_q-1_choice_0",
             "audioUrl": f"https://cdn.example.test/{data['storagePrefix']}/audio/q_q-1_choice_0.mp3",
+            "audioPath": "audio/q_q-1_choice_0.mp3",
             "usedTextSource": "raw",
         }
     ]
+    new_manifest = tmp_path / "generated" / data["storagePrefix"] / "manifest.json"
+    assert new_manifest.exists()
+    manifest = __import__("json").loads(new_manifest.read_text(encoding="utf-8"))
+    assert manifest["versionId"] == data["versionId"]
+    assert manifest["buildId"] == data["buildId"]
+    assert manifest["generatedAt"] == data["generatedAt"]
+    assert manifest["items"][0]["url"] == f"http://localhost:8000/generated/{data['storagePrefix']}/quiz.json"
+    assert (tmp_path / "generated" / pack_storage_prefix("creator_test", "content_test", "v20260607_120000") / "manifest.json").exists()
 
 
 def test_recording_endpoint_can_force_rerecord_recorded_units(tmp_path, monkeypatch) -> None:
@@ -206,6 +243,7 @@ def test_recording_endpoint_can_force_rerecord_recorded_units(tmp_path, monkeypa
                     unit_id="q_q-1_question",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/quiz__q_q-1_question.mp3",
+                    audio_path="audio/quiz__q_q-1_question.mp3",
                 ),
             ],
         )
@@ -301,6 +339,7 @@ def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatc
                     unit_id="q_q-1_choice_0",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
+                    audio_path="audio/q_q-1_choice_0.mp3",
                 ),
                 RecordingResult(unit_id="q_q-1_choice_1", success=False, error="synthetic failure"),
             ],
@@ -342,6 +381,7 @@ def test_recording_endpoint_can_use_corrected_text_source(tmp_path, monkeypatch)
                     unit_id="q_q-1_explanation",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_explanation.mp3",
+                    audio_path="audio/q_q-1_explanation.mp3",
                     used_text_source=units[0].used_text_source,
                 )
             ],
@@ -426,6 +466,7 @@ def test_recording_endpoint_passes_voice_options(tmp_path, monkeypatch) -> None:
                     unit_id="q_q-1_choice_0",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
+                    audio_path="audio/q_q-1_choice_0.mp3",
                     used_text_source=units[0].used_text_source,
                 )
             ],

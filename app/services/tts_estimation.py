@@ -28,6 +28,8 @@ class RecordingUnit:
     pack_type: str  # "quiz" or "document"
     kind: str  # "question", "choice", "explanation", "document"
     is_recorded: bool  # True if the original item already has an audio URL
+    audio_path: str | None = None
+    audio_url: str | None = None
     has_corrected: bool = False  # True if corrected text is available for this unit
     used_text_source: RecordingTextSource = "raw"  # The source actually used for text
 
@@ -76,15 +78,48 @@ def _is_recorded(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str, choice
     if not item.tts:
         return False
     if unit_kind == "document":
-        return bool(getattr(item.tts, "audioUrl", None))
+        return bool(getattr(item.tts, "audioPath", None) or getattr(item.tts, "audioUrl", None))
     if unit_kind == "question":
-        return bool(getattr(item.tts, "questionAudioUrl", None))
+        return bool(getattr(item.tts, "questionAudioPath", None) or getattr(item.tts, "questionAudioUrl", None))
     if unit_kind == "explanation":
-        return bool(getattr(item.tts, "explanationAudioUrl", None))
+        return bool(getattr(item.tts, "explanationAudioPath", None) or getattr(item.tts, "explanationAudioUrl", None))
     if unit_kind == "choice":
         urls = getattr(item.tts, "choiceAudioUrls", None)
-        return bool(urls and choice_index is not None and choice_index < len(urls) and urls[choice_index])
+        paths = getattr(item.tts, "choiceAudioPaths", None)
+        has_url = bool(urls and choice_index is not None and choice_index < len(urls) and urls[choice_index])
+        has_path = bool(paths and choice_index is not None and choice_index < len(paths) and paths[choice_index])
+        return has_url or has_path
     return False
+
+
+def _audio_path(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str, choice_index: int | None = None) -> str | None:
+    if not item.tts:
+        return None
+    if unit_kind == "document":
+        return getattr(item.tts, "audioPath", None)
+    if unit_kind == "question":
+        return getattr(item.tts, "questionAudioPath", None)
+    if unit_kind == "explanation":
+        return getattr(item.tts, "explanationAudioPath", None)
+    if unit_kind == "choice":
+        paths = getattr(item.tts, "choiceAudioPaths", None)
+        return paths[choice_index] if paths and choice_index is not None and choice_index < len(paths) else None
+    return None
+
+
+def _audio_url(item: SokqaDocumentItem | SokqaQuestion, unit_kind: str, choice_index: int | None = None) -> str | None:
+    if not item.tts:
+        return None
+    if unit_kind == "document":
+        return getattr(item.tts, "audioUrl", None)
+    if unit_kind == "question":
+        return getattr(item.tts, "questionAudioUrl", None)
+    if unit_kind == "explanation":
+        return getattr(item.tts, "explanationAudioUrl", None)
+    if unit_kind == "choice":
+        urls = getattr(item.tts, "choiceAudioUrls", None)
+        return urls[choice_index] if urls and choice_index is not None and choice_index < len(urls) else None
+    return None
 
 
 def _used_text_source(text_source: RecordingTextSource, has_corrected: bool) -> RecordingTextSource:
@@ -166,6 +201,8 @@ def extract_recording_units_from_quiz_pack(
                 pack_type="quiz",
                 kind="question",
                 is_recorded=_is_recorded(question, "question"),
+                audio_path=_audio_path(question, "question"),
+                audio_url=_audio_url(question, "question"),
                 has_corrected=q_has_corrected,
                 used_text_source=_used_text_source(text_source, q_has_corrected),
             )
@@ -184,6 +221,8 @@ def extract_recording_units_from_quiz_pack(
                     pack_type="quiz",
                     kind="choice",
                     is_recorded=_is_recorded(question, "choice", i),
+                    audio_path=_audio_path(question, "choice", i),
+                    audio_url=_audio_url(question, "choice", i),
                     has_corrected=choice_has_corrected,
                     used_text_source=_used_text_source(text_source, choice_has_corrected),
                 )
@@ -201,6 +240,8 @@ def extract_recording_units_from_quiz_pack(
                 pack_type="quiz",
                 kind="explanation",
                 is_recorded=_is_recorded(question, "explanation"),
+                audio_path=_audio_path(question, "explanation"),
+                audio_url=_audio_url(question, "explanation"),
                 has_corrected=exp_has_corrected,
                 used_text_source=_used_text_source(text_source, exp_has_corrected),
             )
@@ -228,6 +269,8 @@ def extract_recording_units_from_document_pack(
                 pack_type="document",
                 kind="document",
                 is_recorded=_is_recorded(item, "document"),
+                audio_path=_audio_path(item, "document"),
+                audio_url=_audio_url(item, "document"),
                 has_corrected=has_corrected,
                 used_text_source=_used_text_source(text_source, has_corrected),
             )

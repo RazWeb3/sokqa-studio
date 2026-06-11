@@ -20,6 +20,14 @@ class PackBuildMetadata:
     storage_prefix: str
 
 
+@dataclass(frozen=True)
+class PackVersionMetadata:
+    version_id: str
+    build_id: str
+    generated_at: str
+    storage_prefix: str
+
+
 def _timestamp_now() -> datetime:
     global _LAST_TIMESTAMP
     current = datetime.now(timezone(timedelta(hours=9))).replace(microsecond=0)
@@ -77,6 +85,17 @@ def build_pack_metadata(
         build_id=build_id,
         generated_at=timestamp.isoformat(timespec="seconds"),
         storage_prefix=storage_prefix,
+    )
+
+
+def build_pack_version_metadata(creator_id: str, content_id: str, *, now: datetime | None = None) -> PackVersionMetadata:
+    timestamp = now or _timestamp_now()
+    version_id, build_id = _timestamp_ids(timestamp)
+    return PackVersionMetadata(
+        version_id=version_id,
+        build_id=build_id,
+        generated_at=timestamp.isoformat(timespec="seconds"),
+        storage_prefix=pack_storage_prefix(creator_id, content_id, version_id),
     )
 
 

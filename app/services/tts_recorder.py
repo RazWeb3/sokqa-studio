@@ -21,6 +21,7 @@ class RecordingResult:
     unit_id: str
     success: bool
     audio_url: str | None = None
+    audio_path: str | None = None
     error: str | None = None
     used_text_source: str = "raw"
 
@@ -95,6 +96,7 @@ def record_pack_audio(
 ) -> RecordingSummary:
     """Record unrecorded units, upload MP3 files, and attach audio URLs in-place."""
     storage = storage_client or StorageClient()
+    asset_base_url = _asset_base_url(storage, storage_prefix)
     targets = [unit for unit in units if unit.pack_id == pack.id and (force_rerecord or not unit.is_recorded)]
     skipped_units = len(units) - len(targets)
     workers = _max_concurrency(max_concurrency)
@@ -102,6 +104,7 @@ def record_pack_audio(
 
     def record_unit(unit: RecordingUnit) -> RecordingResult:
         try:
+            audio_path = f"audio/{namespace}__{_safe_audio_stem(unit.item_id)}.mp3"
             audio = _synthesize_audio(
                 synthesize_fn,
                 unit.text,
@@ -112,7 +115,7 @@ def record_pack_audio(
             )
             audio_url = storage.save_bytes(
                 unit.pack_id,
-                f"audio/{namespace}__{_safe_audio_stem(unit.item_id)}.mp3",
+                audio_path,
                 audio,
                 content_type="audio/mpeg",
                 storage_prefix=storage_prefix,
@@ -121,6 +124,7 @@ def record_pack_audio(
                 unit_id=unit.item_id,
                 success=True,
                 audio_url=audio_url,
+                audio_path=audio_path,
                 used_text_source=unit.used_text_source,
             )
         except Exception as exc:
@@ -139,8 +143,9 @@ def record_pack_audio(
 
     unit_by_id = {unit.item_id: unit for unit in targets}
     for result in results:
-        if result.success and result.audio_url:
-            _attach_audio_url(pack, unit_by_id[result.unit_id], result.audio_url)
+        if result.success and result.audio_path:
+            pack.assetBaseUrl = asset_base_url
+            _attach_audio_path(pack, unit_by_id[result.unit_id], result.audio_path)
 
     failed_unit_ids = [result.unit_id for result in results if not result.success]
     return RecordingSummary(
@@ -178,6 +183,12 @@ def _max_concurrency(value: int | None = None) -> int:
     return min(max(1, int(configured)), 10)
 
 
+def _asset_base_url(storage: StorageClient, storage_prefix: str) -> str:
+    if hasattr(storage, "public_url_for_prefix"):
+        return storage.public_url_for_prefix(storage_prefix)
+    return f"{get_settings().public_base_url.rstrip('/')}/{storage_prefix.strip('/')}"
+
+
 def _safe_audio_stem(item_id: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", item_id).strip("._")
     return safe or "audio"
@@ -190,11 +201,11 @@ def _audio_namespace_from_file_name(file_name: str) -> str:
     return _safe_audio_stem(stem)
 
 
-def _attach_audio_url(pack: SokqaDocumentPack | SokqaQuizPack, unit: RecordingUnit, audio_url: str) -> None:
+def _attach_audio_path(pack: SokqaDocumentPack | SokqaQuizPack, unit: RecordingUnit, audio_path: str) -> None:
     if isinstance(pack, SokqaDocumentPack):
-        _attach_document_audio_url(pack, unit, audio_url)
+        _attach_document_audio_path(pack, unit, audio_path)
     else:
-        _attach_quiz_audio_url(pack, unit, audio_url)
+        _attach_quiz_audio_path(pack, unit, audio_path)
 
 
 def clear_pack_audio_urls(pack: SokqaDocumentPack | SokqaQuizPack, units: list[RecordingUnit]) -> int:
@@ -207,43 +218,50 @@ def clear_pack_audio_urls(pack: SokqaDocumentPack | SokqaQuizPack, units: list[R
             cleared += _clear_document_audio_url(pack, unit)
         else:
             cleared += _clear_quiz_audio_url(pack, unit)
+    if not _pack_has_audio_reference(pack):
+        pack.assetBaseUrl = None
     return cleared
 
 
-def _attach_document_audio_url(pack: SokqaDocumentPack, unit: RecordingUnit, audio_url: str) -> None:
+def _attach_document_audio_path(pack: SokqaDocumentPack, unit: RecordingUnit, audio_path: str) -> None:
     item_id = _document_id_from_unit(unit.item_id)
     for item in pack.documents:
         if item.id == item_id:
             item.tts = item.tts or DocumentTts()
-            item.tts.audioUrl = audio_url
+            item.tts.audioPath = audio_path
+            item.tts.audioUrl = None
             return
 
 
 def _clear_document_audio_url(pack: SokqaDocumentPack, unit: RecordingUnit) -> int:
     item_id = _document_id_from_unit(unit.item_id)
     for item in pack.documents:
-        if item.id == item_id and item.tts and item.tts.audioUrl:
+        if item.id == item_id and item.tts and (item.tts.audioUrl or item.tts.audioPath):
+            item.tts.audioPath = None
             item.tts.audioUrl = None
             return 1
     return 0
 
 
-def _attach_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit, audio_url: str) -> None:
+def _attach_quiz_audio_path(pack: SokqaQuizPack, unit: RecordingUnit, audio_path: str) -> None:
     question_id, choice_index = _quiz_target_from_unit(unit.item_id, unit.kind)
     for question in pack.questions:
         if question.id != question_id:
             continue
         question.tts = question.tts or QuizTts()
         if unit.kind == "question":
-            question.tts.questionAudioUrl = audio_url
+            question.tts.questionAudioPath = audio_path
+            question.tts.questionAudioUrl = None
         elif unit.kind == "explanation":
-            question.tts.explanationAudioUrl = audio_url
+            question.tts.explanationAudioPath = audio_path
+            question.tts.explanationAudioUrl = None
         elif unit.kind == "choice" and choice_index is not None:
-            urls = list(question.tts.choiceAudioUrls or [])
-            while len(urls) < len(question.choices):
-                urls.append(None)
-            urls[choice_index] = audio_url
-            question.tts.choiceAudioUrls = urls
+            paths = list(question.tts.choiceAudioPaths or [])
+            while len(paths) < len(question.choices):
+                paths.append(None)
+            paths[choice_index] = audio_path
+            question.tts.choiceAudioPaths = paths
+            question.tts.choiceAudioUrls = None
         return
 
 
@@ -252,19 +270,43 @@ def _clear_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit) -> int:
     for question in pack.questions:
         if question.id != question_id or not question.tts:
             continue
-        if unit.kind == "question" and question.tts.questionAudioUrl:
+        if unit.kind == "question" and (question.tts.questionAudioUrl or question.tts.questionAudioPath):
+            question.tts.questionAudioPath = None
             question.tts.questionAudioUrl = None
             return 1
-        if unit.kind == "explanation" and question.tts.explanationAudioUrl:
+        if unit.kind == "explanation" and (question.tts.explanationAudioUrl or question.tts.explanationAudioPath):
+            question.tts.explanationAudioPath = None
             question.tts.explanationAudioUrl = None
             return 1
         if unit.kind == "choice" and choice_index is not None:
             urls = list(question.tts.choiceAudioUrls or [])
-            if choice_index < len(urls) and urls[choice_index]:
-                urls[choice_index] = None
-                question.tts.choiceAudioUrls = urls
+            paths = list(question.tts.choiceAudioPaths or [])
+            has_url = choice_index < len(urls) and bool(urls[choice_index])
+            has_path = choice_index < len(paths) and bool(paths[choice_index])
+            if has_url or has_path:
+                if choice_index < len(urls):
+                    urls[choice_index] = None
+                    question.tts.choiceAudioUrls = urls
+                if choice_index < len(paths):
+                    paths[choice_index] = None
+                    question.tts.choiceAudioPaths = paths
                 return 1
     return 0
+
+
+def _pack_has_audio_reference(pack: SokqaDocumentPack | SokqaQuizPack) -> bool:
+    if isinstance(pack, SokqaDocumentPack):
+        return any(item.tts and (item.tts.audioPath or item.tts.audioUrl) for item in pack.documents)
+    for question in pack.questions:
+        if not question.tts:
+            continue
+        if question.tts.questionAudioPath or question.tts.questionAudioUrl:
+            return True
+        if question.tts.explanationAudioPath or question.tts.explanationAudioUrl:
+            return True
+        if any(question.tts.choiceAudioPaths or []) or any(question.tts.choiceAudioUrls or []):
+            return True
+    return False
 
 
 def _document_id_from_unit(unit_id: str) -> str:

@@ -1,5 +1,6 @@
 .env
 .venv/
+.venv*/
 .deps/
 generated/
 __pycache__/

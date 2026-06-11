@@ -1086,6 +1086,16 @@
         return selectedPack.url.slice(0, -selectedPack.packName.length).replace(/\/$/, "");
       }
 
+      function assetBaseUrl() {
+        return (fullEstimate?.assetBaseUrl || selectedPack?.assetBaseUrl || packBaseUrl() || "").replace(/\/$/, "");
+      }
+
+      function audioUrlFromPath(audioPath) {
+        if (!audioPath) return "";
+        const baseUrl = assetBaseUrl();
+        return baseUrl ? `${baseUrl}/${String(audioPath).replace(/^\/+/, "")}` : "";
+      }
+
       function safeAudioStem(value) {
         const safe = String(value || "").replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^[._]+|[._]+$/g, "");
         return safe || "audio";
@@ -1108,6 +1118,7 @@
 
       function unitAudioUrl(unit) {
         if (!unit) return "";
+        if (unit.audioPath) return audioUrlFromPath(unit.audioPath);
         if (unit.audioUrl) return unit.audioUrl;
         const audioKey = packAudioKey(unit.itemId);
         if (knownAudioUrls.has(audioKey)) return knownAudioUrls.get(audioKey);
@@ -1328,6 +1339,19 @@
         const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
         const data = await requestGet(`/packs${query}`);
         currentPacks = data.items || [];
+        if (selectedPack) {
+          const selectedKey = recordingTarget(selectedPack);
+          const refreshedPack = currentPacks.find((pack) => {
+            return pack.creatorId === selectedKey.creatorId
+              && pack.contentId === selectedKey.contentId
+              && pack.versionId === selectedKey.versionId
+              && pack.packName === selectedKey.packName
+              && pack.kind === selectedKey.kind;
+          });
+          if (refreshedPack) {
+            selectedPack = refreshedPack;
+          }
+        }
         renderPacks(currentPacks);
       }
 
@@ -1539,6 +1563,9 @@
         total.packType = next.packType || total.packType;
         total.packName = next.packName || total.packName;
         total.storagePrefix = next.storagePrefix || total.storagePrefix;
+        total.assetBaseUrl = next.assetBaseUrl || total.assetBaseUrl;
+        total.versionId = next.versionId || total.versionId;
+        total.target = next.target || total.target;
         total.textSource = next.textSource || total.textSource;
         total.forceRerecord = Boolean(total.forceRerecord || next.forceRerecord);
         summary.totalUnits += nextSummary.totalUnits || 0;
@@ -1569,6 +1596,19 @@
             forceRerecord
           });
           mergeRecordingResult(total, data);
+          if (data.target) {
+            Object.assign(targetSnapshot, data.target);
+            Object.assign(packSnapshot, {
+              creatorId: data.target.creatorId,
+              contentId: data.target.contentId,
+              versionId: data.target.versionId,
+              packName: data.target.packName,
+              kind: data.target.kind,
+              url: data.packUrl || packSnapshot.url,
+              storagePrefix: data.storagePrefix || packSnapshot.storagePrefix,
+              assetBaseUrl: data.assetBaseUrl || packSnapshot.assetBaseUrl
+            });
+          }
           rememberAudioUrlsFromRecording(data, packSnapshot);
           rememberUsedTextSourcesFromRecording(data, packSnapshot);
           completed += chunk.length;
@@ -1661,6 +1701,7 @@
           selectedEstimate = null;
           renderUnits();
           await updateSelectedEstimate();
+          await refreshPackRows();
           setRecordingStatus(forceRerecord ? "強制再録音が完了しました。" : "録音処理が完了しました。");
         } catch (error) {
           setRecordingStatus(error.message, true);

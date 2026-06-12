@@ -820,6 +820,7 @@
               </div>
               <div class="step-body">
                 <div class="actions">
+                  <button id="qualityCheckBtn" type="button" class="secondary">品質チェック</button>
                   <button id="recordSelectedBtn" type="button" disabled>録音化</button>
                   <button id="forceRecordSelectedBtn" type="button" class="secondary" disabled>選択分を強制再録音</button>
                   <button id="resetSelectedRecordingBtn" type="button" class="secondary" disabled>選択分の録音状態をリセット</button>
@@ -832,6 +833,7 @@
                   <button id="pauseTrackBtn" type="button" class="secondary" disabled>一時停止</button>
                   <button id="nextTrackBtn" type="button" class="secondary" disabled>次へ</button>
                 </div>
+                <div id="qualityResult" class="recording-result"></div>
                 <div id="recordingResult" class="recording-result"></div>
                 <audio id="recordingAudio" preload="none"></audio>
               </div>
@@ -1269,6 +1271,7 @@
           selectedEstimate = null;
           selectedUnitIds = new Set();
           $("recordingPanel").hidden = true;
+          $("qualityResult").innerHTML = "";
           $("recordingResult").innerHTML = "";
           await loadPacks();
           setRecordingStatus(message);
@@ -1291,6 +1294,7 @@
           selectedEstimate = null;
           selectedUnitIds = new Set();
           $("recordingPanel").hidden = true;
+          $("qualityResult").innerHTML = "";
           $("recordingResult").innerHTML = "";
           renderPacks(currentPacks);
           setRecordingStatus(`${currentPacks.length}件のパックを表示しました。`);
@@ -1319,6 +1323,7 @@
           selectedUnitIds = new Set();
           selectedEstimate = null;
           $("recordingPanel").hidden = false;
+          $("qualityResult").innerHTML = "";
           $("recordingResult").innerHTML = "";
           setRecordingStatus("録音対象を読み込んでいます...");
           renderPacks(currentPacks);
@@ -1649,6 +1654,7 @@
         $("forceRecordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0;
         $("resetSelectedRecordingBtn").disabled = isRecordingBusy || selectedCount === 0;
         $("resetAllRecordingBtn").disabled = isRecordingBusy || !selectedPack;
+        $("qualityCheckBtn").disabled = isRecordingBusy || !selectedPack;
         $("loadPacksBtn").disabled = isRecordingBusy;
         $("importPackBtn").disabled = isRecordingBusy;
         $("recordingTextSource").disabled = isRecordingBusy;
@@ -1661,6 +1667,68 @@
             ? "録音済みユニットは追加消費なしでスキップされます。"
             : "";
         $("creditWarning").classList.toggle("error", insufficient);
+      }
+
+      function renderQualityResult(data) {
+        const severityRank = { high: 0, medium: 1, low: 2 };
+        const issues = [...(data.issues || [])].sort((a, b) => {
+          const severityDiff = (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9);
+          if (severityDiff) return severityDiff;
+          return String(a.category || "").localeCompare(String(b.category || ""));
+        });
+        if (!issues.length) {
+          $("qualityResult").innerHTML = `
+            <p><strong>品質チェック:</strong> 明確な指摘はありませんでした。</p>
+            <p class="meta">file=${escapeHtml(data.fileName || "")} / model=${escapeHtml(data.model || "")}</p>
+          `;
+          return;
+        }
+        $("qualityResult").innerHTML = `
+          <p><strong>品質チェック:</strong> ${issues.length}件${data.truncated ? "（上限で省略あり）" : ""}</p>
+          <p class="meta">file=${escapeHtml(data.fileName || "")} / model=${escapeHtml(data.model || "")}</p>
+          <ul class="logs">
+            ${issues
+              .map((issue) => {
+                const location = issue.location || {};
+                const where = [location.unitId, location.field].filter(Boolean).join(" / ") || "-";
+                const confidence = Number(issue.confidence || 0).toFixed(2);
+                const factualNote = issue.category === "factual" ? " 要確認" : "";
+                return `
+                  <li>
+                    <span class="badge ${issue.severity === "high" ? "error" : ""}">${escapeHtml(issue.severity || "")}</span>
+                    <span class="badge source">${escapeHtml(issue.category || "")}${factualNote}</span>
+                    <strong>${escapeHtml(where)}</strong>
+                    <span class="meta"> confidence=${confidence}</span>
+                    <div class="excerpt">${escapeHtml(issue.excerpt || "")}</div>
+                    <div>${escapeHtml(issue.issue || "")}</div>
+                    <div class="meta">提案: ${escapeHtml(issue.suggestion || "")}</div>
+                  </li>
+                `;
+              })
+              .join("")}
+          </ul>
+        `;
+      }
+
+      async function runQualityCheck() {
+        if (!selectedPack || isRecordingBusy) return;
+        try {
+          isRecordingBusy = true;
+          updateRecordButton();
+          setRecordingStatus("品質チェックを実行しています...");
+          $("qualityResult").innerHTML = "";
+          const data = await requestJson("/quality-check", {
+            target: recordingTarget(selectedPack)
+          });
+          renderQualityResult(data);
+          setRecordingStatus(`品質チェックが完了しました（${(data.issues || []).length}件）。`);
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          isRecordingBusy = false;
+          updateRecordButton();
+          renderPacks(currentPacks);
+        }
       }
 
       async function recordSelectedUnits(forceRerecord = false) {
@@ -1909,6 +1977,7 @@
       $("recordingAudio").addEventListener("ended", playNextTrack);
       $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
       $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
+      $("qualityCheckBtn").addEventListener("click", runQualityCheck);
       $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
       $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
       $("recordingTextSource").addEventListener("change", async () => {

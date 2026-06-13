@@ -66,6 +66,7 @@ class DocumentTts(BaseModel):
     audioUrl: str | None = None
     audioPath: str | None = None
     textLanguage: str | None = None
+    ttsNeedsRefresh: bool | None = None
 
     @field_validator("audioPath")
     @classmethod
@@ -115,6 +116,7 @@ class QuizTts(BaseModel):
     choicesLanguage: str | None = None
     answerLanguage: str | None = None
     explanationLanguage: str | None = None
+    ttsNeedsRefresh: bool | None = None
 
     @field_validator("questionAudioPath", "explanationAudioPath")
     @classmethod

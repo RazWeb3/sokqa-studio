@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from app.schemas.request import TtsRecordingTarget
 
 
-QualityCategory = Literal["factual", "reading", "double_utterance", "notation", "style", "leak"]
+QualityCategory = Literal["factual", "reading", "double_utterance", "notation", "style", "leak", "tts_text_mismatch"]
 QualitySeverity = Literal["high", "medium", "low"]
 
 

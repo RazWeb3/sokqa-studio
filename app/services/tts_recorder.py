@@ -239,6 +239,8 @@ def _clear_document_audio_url(pack: SokqaDocumentPack, unit: RecordingUnit) -> i
         if item.id == item_id and item.tts and (item.tts.audioUrl or item.tts.audioPath):
             item.tts.audioPath = None
             item.tts.audioUrl = None
+            if _document_tts_is_empty(item.tts):
+                item.tts = None
             return 1
     return 0
 
@@ -273,10 +275,16 @@ def _clear_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit) -> int:
         if unit.kind == "question" and (question.tts.questionAudioUrl or question.tts.questionAudioPath):
             question.tts.questionAudioPath = None
             question.tts.questionAudioUrl = None
+            _cleanup_quiz_audio_fields(question.tts)
+            if _quiz_tts_is_empty(question.tts):
+                question.tts = None
             return 1
         if unit.kind == "explanation" and (question.tts.explanationAudioUrl or question.tts.explanationAudioPath):
             question.tts.explanationAudioPath = None
             question.tts.explanationAudioUrl = None
+            _cleanup_quiz_audio_fields(question.tts)
+            if _quiz_tts_is_empty(question.tts):
+                question.tts = None
             return 1
         if unit.kind == "choice" and choice_index is not None:
             urls = list(question.tts.choiceAudioUrls or [])
@@ -290,8 +298,26 @@ def _clear_quiz_audio_url(pack: SokqaQuizPack, unit: RecordingUnit) -> int:
                 if choice_index < len(paths):
                     paths[choice_index] = None
                     question.tts.choiceAudioPaths = paths
+                _cleanup_quiz_audio_fields(question.tts)
+                if _quiz_tts_is_empty(question.tts):
+                    question.tts = None
                 return 1
     return 0
+
+
+def _document_tts_is_empty(tts: DocumentTts) -> bool:
+    return not tts.model_dump(exclude_none=True)
+
+
+def _cleanup_quiz_audio_fields(tts: QuizTts) -> None:
+    if tts.choiceAudioUrls is not None and not any(tts.choiceAudioUrls):
+        tts.choiceAudioUrls = None
+    if tts.choiceAudioPaths is not None and not any(tts.choiceAudioPaths):
+        tts.choiceAudioPaths = None
+
+
+def _quiz_tts_is_empty(tts: QuizTts) -> bool:
+    return not tts.model_dump(exclude_none=True)
 
 
 def _pack_has_audio_reference(pack: SokqaDocumentPack | SokqaQuizPack) -> bool:

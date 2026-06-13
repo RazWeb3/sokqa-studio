@@ -47,25 +47,74 @@ def _write_document_pack(tmp_path: Path, monkeypatch) -> dict:
     }
 
 
-def test_quality_check_mock_provider_returns_sample_issues(tmp_path, monkeypatch) -> None:
+def test_text_quality_check_mock_provider_returns_text_issues(tmp_path, monkeypatch) -> None:
     target = _write_document_pack(tmp_path, monkeypatch)
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    response = client.post("/quality-check", json={"target": target})
+    response = client.post("/quality/text-check", json={"target": target})
 
     assert response.status_code == 200
     data = response.json()
     assert data["fileName"] == "doc_01.json"
+    assert {issue["category"] for issue in data["issues"]} == {"factual", "style", "leak"}
+    assert all(issue["location"]["fileName"] == "doc_01.json" for issue in data["issues"])
+
+
+def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatch) -> None:
+    target = _write_document_pack(tmp_path, monkeypatch)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    response = client.post("/quality/tts-check", json={"target": target})
+
+    assert response.status_code == 200
+    data = response.json()
     assert {issue["category"] for issue in data["issues"]} == {
-        "factual",
         "reading",
         "double_utterance",
         "notation",
-        "style",
-        "leak",
+        "tts_text_mismatch",
     }
-    assert all(issue["location"]["fileName"] == "doc_01.json" for issue in data["issues"])
+    assert all(issue["severity"] != "high" for issue in data["issues"] if issue["category"] == "tts_text_mismatch")
+
+
+def test_tts_quality_check_filters_null_audio_issues(tmp_path, monkeypatch) -> None:
+    target = _write_document_pack(tmp_path, monkeypatch)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "audioPath"},
+                    "excerpt": "audioPath is null",
+                    "issue": "audioPath が null です。",
+                    "suggestion": "録音してください。",
+                },
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "SQL",
+                    "issue": "SQL が誤読される可能性があります。",
+                    "suggestion": "エスキューエルにします。",
+                },
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    response = client.post("/quality/tts-check", json={"target": target})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [issue["excerpt"] for issue in data["issues"]] == ["SQL"]
 
 
 def test_quality_check_invalid_llm_response_is_error(tmp_path, monkeypatch) -> None:
@@ -78,7 +127,7 @@ def test_quality_check_invalid_llm_response_is_error(tmp_path, monkeypatch) -> N
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
-    response = client.post("/quality-check", json={"target": target})
+    response = client.post("/quality/text-check", json={"target": target})
 
     assert response.status_code == 502
     assert "response validation failed" in response.json()["detail"]
@@ -94,7 +143,7 @@ def test_quality_check_llm_failure_does_not_fallback_to_mock(tmp_path, monkeypat
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
-    response = client.post("/quality-check", json={"target": target})
+    response = client.post("/quality/text-check", json={"target": target})
 
     assert response.status_code == 502
     assert "LLM call failed" in response.json()["detail"]
@@ -125,7 +174,7 @@ def test_quality_check_missing_pack_returns_404(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
     response = client.post(
-        "/quality-check",
+        "/quality/text-check",
         json={
             "target": {
                 "creatorId": "creator_missing",

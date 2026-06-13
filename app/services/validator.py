@@ -63,8 +63,8 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
                     message="document text appears to be a placeholder",
                 )
             )
-        if item.tts is not None and not tts_text and not item.tts.audioUrl and not item.tts.audioPath:
-            errors.append(ValidationErrorItem(file=file_name, path=f"documents.{index}.tts", message="tts must contain text, audioPath, or audioUrl when present"))
+        if item.tts is not None and not tts_text and not item.tts.audioUrl and not item.tts.audioPath and not item.tts.ttsNeedsRefresh:
+            errors.append(ValidationErrorItem(file=file_name, path=f"documents.{index}.tts", message="tts must contain text, audioPath, audioUrl, or ttsNeedsRefresh when present"))
         if tts_text and tts_text == pack.title:
             errors.append(
                 ValidationErrorItem(

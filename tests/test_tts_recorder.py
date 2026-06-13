@@ -3,7 +3,7 @@ import pytest
 from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentItem, SokqaDocumentPack, SokqaQuestion, SokqaQuizPack
 from app.services import tts_recorder
 from app.services.tts_estimation import extract_recording_units_from_document_pack, extract_recording_units_from_quiz_pack
-from app.services.tts_recorder import _max_concurrency, record_generated_file_audio, record_pack_audio
+from app.services.tts_recorder import _max_concurrency, clear_pack_audio_urls, record_generated_file_audio, record_pack_audio
 
 
 class FakeStorageClient:
@@ -90,6 +90,9 @@ def test_record_quiz_audio_urls_are_attached_and_mp3_is_saved() -> None:
     assert pack.assetBaseUrl.endswith("/sokqa/creators/creator/packs/content/versions/v1")
     assert tts.questionAudioPath == "audio/quiz-pack__q_q-1_question.mp3"
     assert tts.questionAudioUrl is None
+    assert tts.questionText == "エーアイ の説明はどれですか?"
+    assert tts.choiceTexts == ["人工知能", "会計", "在庫", "販売"]
+    assert tts.explanationText == "エーアイ は人工知能です。"
     assert tts.choiceAudioPaths == [
         "audio/quiz-pack__q_q-1_choice_0.mp3",
         "audio/quiz-pack__q_q-1_choice_1.mp3",
@@ -128,6 +131,7 @@ def test_record_document_audio_url_is_attached() -> None:
     assert pack.assetBaseUrl.endswith("/sokqa/creators/creator/packs/content/versions/v1")
     assert pack.documents[0].tts.audioPath == "audio/doc-pack__doc_doc-1.mp3"
     assert pack.documents[0].tts.audioUrl is None
+    assert pack.documents[0].tts.text == "エーアイ の説明です。"
     assert storage.saved_bytes[0]["object_name"] == "audio/doc-pack__doc_doc-1.mp3"
 
 
@@ -194,6 +198,90 @@ def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:
     doc_units = extract_recording_units_from_document_pack(document)
 
     assert doc_units[0].is_recorded is True
+
+
+def test_clear_audio_removes_choice_audio_array_when_all_entries_are_null() -> None:
+    quiz = _quiz_pack()
+    assert quiz.questions[0].tts is not None
+    quiz.questions[0].tts.choiceAudioPaths = ["audio/choice-0.mp3", None, None, None]
+    quiz.questions[0].tts.choiceAudioUrls = [None, None, None, None]
+    units = extract_recording_units_from_quiz_pack(quiz)
+    unit = next(unit for unit in units if unit.item_id == "q_q-1_choice_0")
+
+    cleared = clear_pack_audio_urls(quiz, [unit])
+
+    assert cleared == 1
+    assert quiz.questions[0].tts.choiceAudioPaths is None
+    assert quiz.questions[0].tts.choiceAudioUrls is None
+    assert quiz.questions[0].tts.choiceTexts == ["人工知能", "会計", "在庫", "販売"]
+    assert quiz.questions[0].answerIndex == 0
+
+
+def test_clear_audio_removes_empty_document_tts_without_setting_refresh_flag() -> None:
+    document = _document_pack()
+    assert document.documents[0].tts is not None
+    document.documents[0].tts.text = None
+    document.documents[0].tts.audioPath = "audio/doc.mp3"
+    units = extract_recording_units_from_document_pack(document)
+
+    cleared = clear_pack_audio_urls(document, [units[0]])
+
+    assert cleared == 1
+    assert document.documents[0].tts is None
+    dumped = document.model_dump(exclude_none=True)
+    assert "tts" not in dumped["documents"][0]
+
+
+def test_clear_audio_keeps_document_tts_text_without_setting_refresh_flag() -> None:
+    document = _document_pack()
+    assert document.documents[0].tts is not None
+    document.documents[0].tts.audioPath = "audio/doc.mp3"
+    units = extract_recording_units_from_document_pack(document)
+
+    cleared = clear_pack_audio_urls(document, [units[0]])
+
+    assert cleared == 1
+    assert document.documents[0].tts is not None
+    assert document.documents[0].tts.text == "エーアイ の説明です。"
+    assert document.documents[0].tts.audioPath is None
+    assert document.documents[0].tts.audioUrl is None
+    assert document.documents[0].tts.ttsNeedsRefresh is None
+    assert document.model_dump(exclude_none=True)["documents"][0]["tts"] == {"text": "エーアイ の説明です。"}
+
+
+def test_clear_audio_removes_empty_quiz_tts_without_setting_refresh_flag() -> None:
+    quiz = _quiz_pack()
+    assert quiz.questions[0].tts is not None
+    quiz.questions[0].tts.questionText = None
+    quiz.questions[0].tts.choiceTexts = None
+    quiz.questions[0].tts.explanationText = None
+    quiz.questions[0].tts.choiceAudioPaths = ["audio/choice-0.mp3", None, None, None]
+    units = extract_recording_units_from_quiz_pack(quiz)
+    unit = next(unit for unit in units if unit.item_id == "q_q-1_choice_0")
+
+    cleared = clear_pack_audio_urls(quiz, [unit])
+
+    assert cleared == 1
+    assert quiz.questions[0].tts is None
+    dumped = quiz.model_dump(exclude_none=True)
+    assert "tts" not in dumped["questions"][0]
+
+
+def test_clear_audio_keeps_choice_audio_array_when_some_entries_remain() -> None:
+    quiz = _quiz_pack()
+    assert quiz.questions[0].tts is not None
+    quiz.questions[0].tts.choiceAudioPaths = ["audio/choice-0.mp3", "audio/choice-1.mp3", None, None]
+    quiz.questions[0].tts.choiceAudioUrls = ["https://cdn/choice-0.mp3", None, None, None]
+    units = extract_recording_units_from_quiz_pack(quiz)
+    unit = next(unit for unit in units if unit.item_id == "q_q-1_choice_0")
+
+    cleared = clear_pack_audio_urls(quiz, [unit])
+
+    assert cleared == 1
+    assert quiz.questions[0].tts.choiceAudioPaths == [None, "audio/choice-1.mp3", None, None]
+    assert quiz.questions[0].tts.choiceAudioUrls is None
+    assert quiz.questions[0].tts.choiceTexts == ["人工知能", "会計", "在庫", "販売"]
+    assert quiz.questions[0].answerIndex == 0
 
 
 def test_force_rerecord_records_previously_recorded_units() -> None:

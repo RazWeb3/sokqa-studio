@@ -821,6 +821,9 @@
               <div class="step-body">
                 <div class="actions">
                   <button id="qualityCheckBtn" type="button" class="secondary">品質チェック</button>
+                  <button id="qualityFixBtn" type="button" class="secondary" disabled>修正</button>
+                  <button id="qualityApplyFixBtn" type="button" class="secondary" disabled>承認分を反映</button>
+                  <button id="qualitySaveFixBtn" type="button" class="secondary" disabled>新バージョンとして保存</button>
                   <button id="recordSelectedBtn" type="button" disabled>録音化</button>
                   <button id="forceRecordSelectedBtn" type="button" class="secondary" disabled>選択分を強制再録音</button>
                   <button id="resetSelectedRecordingBtn" type="button" class="secondary" disabled>選択分の録音状態をリセット</button>
@@ -860,6 +863,9 @@
       let fullEstimate = null;
       let selectedEstimate = null;
       let selectedUnitIds = new Set();
+      let lastQualityCheckResult = null;
+      let lastQualityFixResult = null;
+      let lastQualityApplyResult = null;
       let estimateTimer = null;
       let isRecordingBusy = false;
       let knownAudioUrls = new Map();
@@ -1192,6 +1198,13 @@
         el.classList.toggle("error", isError);
       }
 
+      function resetQualityFixState() {
+        lastQualityCheckResult = null;
+        lastQualityFixResult = null;
+        lastQualityApplyResult = null;
+        $("qualityResult").innerHTML = "";
+      }
+
       function saveCredits(value) {
         creditBalance = Math.max(0, Number(value || 0));
         localStorage.setItem(CREDIT_STORAGE_KEY, String(creditBalance));
@@ -1271,7 +1284,7 @@
           selectedEstimate = null;
           selectedUnitIds = new Set();
           $("recordingPanel").hidden = true;
-          $("qualityResult").innerHTML = "";
+          resetQualityFixState();
           $("recordingResult").innerHTML = "";
           await loadPacks();
           setRecordingStatus(message);
@@ -1294,7 +1307,7 @@
           selectedEstimate = null;
           selectedUnitIds = new Set();
           $("recordingPanel").hidden = true;
-          $("qualityResult").innerHTML = "";
+          resetQualityFixState();
           $("recordingResult").innerHTML = "";
           renderPacks(currentPacks);
           setRecordingStatus(`${currentPacks.length}件のパックを表示しました。`);
@@ -1323,7 +1336,7 @@
           selectedUnitIds = new Set();
           selectedEstimate = null;
           $("recordingPanel").hidden = false;
-          $("qualityResult").innerHTML = "";
+          resetQualityFixState();
           $("recordingResult").innerHTML = "";
           setRecordingStatus("録音対象を読み込んでいます...");
           renderPacks(currentPacks);
@@ -1655,6 +1668,9 @@
         $("resetSelectedRecordingBtn").disabled = isRecordingBusy || selectedCount === 0;
         $("resetAllRecordingBtn").disabled = isRecordingBusy || !selectedPack;
         $("qualityCheckBtn").disabled = isRecordingBusy || !selectedPack;
+        $("qualityFixBtn").disabled = isRecordingBusy || !selectedPack || !(lastQualityCheckResult?.issues || []).length;
+        $("qualityApplyFixBtn").disabled = isRecordingBusy || !(lastQualityFixResult?.pendingFixes || []).length;
+        $("qualitySaveFixBtn").disabled = isRecordingBusy || !lastQualityApplyResult;
         $("loadPacksBtn").disabled = isRecordingBusy;
         $("importPackBtn").disabled = isRecordingBusy;
         $("recordingTextSource").disabled = isRecordingBusy;
@@ -1717,11 +1733,165 @@
           updateRecordButton();
           setRecordingStatus("品質チェックを実行しています...");
           $("qualityResult").innerHTML = "";
-          const data = await requestJson("/quality-check", {
+          const data = await requestJson("/quality/tts-check", {
             target: recordingTarget(selectedPack)
           });
+          lastQualityCheckResult = data;
+          lastQualityFixResult = null;
+          lastQualityApplyResult = null;
           renderQualityResult(data);
-          setRecordingStatus(`品質チェックが完了しました（${(data.issues || []).length}件）。`);
+          setRecordingStatus(`TTS品質チェックが完了しました（${(data.issues || []).length}件）。`);
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          isRecordingBusy = false;
+          updateRecordButton();
+          renderPacks(currentPacks);
+        }
+      }
+
+      function renderQualityFixResult(data) {
+        const pending = data.pendingFixes || [];
+        const applied = data.appliedFixes || [];
+        const unapplied = data.unappliedFixes || [];
+        $("qualityResult").innerHTML = `
+          <p><strong>修正案:</strong> 自動適用 ${applied.length}件 / 未適用 ${unapplied.length}件 / 承認待ち ${pending.length}件${data.truncated ? "（上限で省略あり）" : ""}</p>
+          <p class="meta">file=${escapeHtml(data.fileName || "")} / model=${escapeHtml(data.model || "")}</p>
+          ${
+            applied.length
+              ? `<h4>自動適用済み（ttsのみ）</h4>
+                 <ul class="logs">
+                   ${applied
+                     .map((fix) => `<li><span class="badge source">${escapeHtml(fix.category)}</span> <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong><div class="excerpt">${escapeHtml(fix.before)}</div><div>→ ${escapeHtml(fix.after)}</div></li>`)
+                     .join("")}
+                 </ul>`
+              : ""
+          }
+          ${
+            unapplied.length
+              ? `<h4>未適用（手動確認）</h4>
+                 <ul class="logs">
+                   ${unapplied
+                     .map((fix) => `
+                       <li>
+                         <span class="badge source">${escapeHtml(fix.category)}</span>
+                         <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong>
+                         <div class="excerpt">before: ${escapeHtml(fix.before || "")}</div>
+                         <div>suggestion: ${escapeHtml(fix.suggestion || "")}</div>
+                         <div class="meta">${escapeHtml(fix.reason || "")}</div>
+                       </li>
+                     `)
+                     .join("")}
+                 </ul>`
+              : ""
+          }
+          ${
+            pending.length
+              ? `<h4>承認待ち（本文変更）</h4>
+                 <ul class="logs">
+                   ${pending
+                     .map((fix) => `
+                       <li>
+                         <label>
+                           <input type="checkbox" value="${escapeHtml(fix.id)}" data-pending-fix />
+                           <span class="badge ${fix.category === "factual" ? "source" : ""}">${escapeHtml(fix.category)}${fix.category === "factual" ? " 要確認" : ""}</span>
+                           <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong>
+                         </label>
+                         <div class="excerpt">before: ${escapeHtml(fix.before)}</div>
+                         <div>after: ${escapeHtml(fix.suggestedAfter)}</div>
+                         <div class="meta">${escapeHtml(fix.reason)}</div>
+                       </li>
+                     `)
+                     .join("")}
+                 </ul>`
+              : "<p class=\"meta\">承認待ちの本文修正はありません。</p>"
+          }
+        `;
+      }
+
+      function approvedPendingFixIds() {
+        return [...document.querySelectorAll("[data-pending-fix]:checked")].map((input) => input.value);
+      }
+
+      async function runQualityFix() {
+        if (!selectedPack || !lastQualityCheckResult) return;
+        try {
+          isRecordingBusy = true;
+          updateRecordButton();
+          setRecordingStatus("修正案を生成しています...");
+          const data = await requestJson("/quality/tts-fix", {
+            target: recordingTarget(selectedPack),
+            issues: lastQualityCheckResult.issues || []
+          });
+          lastQualityFixResult = data;
+          lastQualityApplyResult = { finalJson: data.updatedJson, appliedApprovedIds: [], skippedIds: [] };
+          renderQualityFixResult(data);
+          setRecordingStatus(`修正案を生成しました（自動${(data.appliedFixes || []).length}件 / 未適用${(data.unappliedFixes || []).length}件 / 承認待ち${(data.pendingFixes || []).length}件）。`);
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          isRecordingBusy = false;
+          updateRecordButton();
+          renderPacks(currentPacks);
+        }
+      }
+
+      async function applyQualityFixes() {
+        if (!lastQualityFixResult) return;
+        try {
+          isRecordingBusy = true;
+          updateRecordButton();
+          setRecordingStatus("承認分をfinalJsonへ反映しています...");
+          const data = await requestJson("/quality/text-fix/apply", {
+            updatedJson: lastQualityFixResult.updatedJson,
+            pendingFixes: lastQualityFixResult.pendingFixes || [],
+            approvedIds: approvedPendingFixIds()
+          });
+          lastQualityApplyResult = data;
+          $("qualityResult").insertAdjacentHTML(
+            "beforeend",
+            `<p><strong>承認反映:</strong> applied=${data.appliedApprovedIds.length}, skipped=${data.skippedIds.length}</p>
+             <details><summary>finalJson</summary><pre>${escapeHtml(JSON.stringify(data.finalJson, null, 2))}</pre></details>`
+          );
+          setRecordingStatus("承認分を反映しました。保存前にfinalJsonを確認してください。");
+        } catch (error) {
+          setRecordingStatus(error.message, true);
+        } finally {
+          isRecordingBusy = false;
+          updateRecordButton();
+          renderPacks(currentPacks);
+        }
+      }
+
+      async function saveQualityFixVersion() {
+        if (!selectedPack || !lastQualityApplyResult || !lastQualityFixResult) return;
+        try {
+          isRecordingBusy = true;
+          updateRecordButton();
+          setRecordingStatus("修正版を新バージョンとして保存しています...");
+          const data = await requestJson("/quality/save-version", {
+            target: recordingTarget(selectedPack),
+            files: [
+              {
+                name: selectedPack.packName,
+                kind: selectedPack.kind,
+                content: lastQualityApplyResult.finalJson
+              }
+            ],
+            appliedFixes: lastQualityFixResult.appliedFixes || []
+          });
+          Object.assign(selectedPack, {
+            versionId: data.newVersionId,
+            assetBaseUrl: data.newAssetBaseUrl,
+            storagePrefix: data.storagePrefix,
+            url: `${String(data.newAssetBaseUrl).replace(/\/$/, "")}/${selectedPack.packName}`
+          });
+          $("qualityResult").insertAdjacentHTML(
+            "beforeend",
+            `<p><strong>保存:</strong> newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</p>`
+          );
+          await refreshPackRows();
+          setRecordingStatus("修正版を新バージョンとして保存しました。必要に応じて再チェックしてください。");
         } catch (error) {
           setRecordingStatus(error.message, true);
         } finally {
@@ -1978,6 +2148,9 @@
       $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
       $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
       $("qualityCheckBtn").addEventListener("click", runQualityCheck);
+      $("qualityFixBtn").addEventListener("click", runQualityFix);
+      $("qualityApplyFixBtn").addEventListener("click", applyQualityFixes);
+      $("qualitySaveFixBtn").addEventListener("click", saveQualityFixVersion);
       $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
       $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
       $("recordingTextSource").addEventListener("change", async () => {

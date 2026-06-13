@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 from typing import Any
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
@@ -16,7 +19,7 @@ class GeminiClient:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def generate_json(self, prompt: str, model: str | None = None) -> dict[str, Any]:
+    def generate_json(self, prompt: str, model: str | None = None, temperature: float | None = None) -> dict[str, Any]:
         if self.settings.gemini_provider == "mock":
             raise RuntimeError("GEMINI_PROVIDER=mock; use deterministic local generators.")
 
@@ -35,11 +38,28 @@ class GeminiClient:
             )
         else:
             client = genai.Client()
-        response = client.models.generate_content(
-            model=model or self.settings.gemini_model,
-            contents=prompt,
-        )
+        request: dict[str, Any] = {
+            "model": model or self.settings.gemini_model,
+            "contents": prompt,
+        }
+        if temperature is not None:
+            request["config"] = {"temperature": temperature}
+        response = client.models.generate_content(**request)
         text = getattr(response, "text", "") or ""
+        if not text.strip():
+            logger.warning(
+                "Gemini returned empty text. model=%s finish_reason=%s response=%r",
+                request["model"],
+                _finish_reason(response),
+                repr(response)[:500],
+            )
+        else:
+            logger.debug(
+                "Gemini raw text prefix. model=%s finish_reason=%s text=%r",
+                request["model"],
+                _finish_reason(response),
+                text[:500],
+            )
         return parse_json_response(text)
 
     def test_connection(self) -> dict[str, Any]:
@@ -55,3 +75,13 @@ def parse_json_response(text: str) -> dict[str, Any]:
     if fence_match:
         cleaned = fence_match.group(1).strip()
     return json.loads(cleaned)
+
+
+def _finish_reason(response: Any) -> Any:
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            return getattr(candidates[0], "finish_reason", None) or getattr(candidates[0], "finishReason", None)
+    except Exception:
+        return None
+    return None

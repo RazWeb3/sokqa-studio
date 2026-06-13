@@ -15,6 +15,8 @@ from app.services.tts_recording_api import load_target_pack
 
 
 MAX_QUALITY_INPUT_CHARS = 30000
+TEXT_QUALITY_CATEGORIES = {"factual", "style", "leak"}
+TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch"}
 
 
 class QualityCheckError(RuntimeError):
@@ -22,14 +24,26 @@ class QualityCheckError(RuntimeError):
 
 
 def check_pack_quality(target: TtsRecordingTarget, max_issues: int = 50) -> QualityCheckResponse:
+    return check_text_quality(target, max_issues)
+
+
+def check_text_quality(target: TtsRecordingTarget, max_issues: int = 50) -> QualityCheckResponse:
+    return _check_pack_quality(target, max_issues, mode="text")
+
+
+def check_tts_quality(target: TtsRecordingTarget, max_issues: int = 50) -> QualityCheckResponse:
+    return _check_pack_quality(target, max_issues, mode="tts")
+
+
+def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: str) -> QualityCheckResponse:
     loaded = load_target_pack(target)
     settings = get_settings()
     model = settings.quality_model
 
     if settings.gemini_provider == "mock":
-        return _mock_quality_response(loaded.file.name, model, max_issues)
+        return _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
 
-    prompt, input_truncated = _quality_prompt(loaded.file.name, loaded.file.content, max_issues)
+    prompt, input_truncated = _quality_prompt(loaded.file.name, loaded.file.content, max_issues, mode=mode)
     try:
         data = _generate_json_with_retry(lambda: GeminiClient().generate_json(prompt, model=model))
     except Exception as exc:
@@ -41,6 +55,8 @@ def check_pack_quality(target: TtsRecordingTarget, max_issues: int = 50) -> Qual
             file_name=loaded.file.name,
             model=model,
             max_issues=max_issues,
+            allowed_categories=TEXT_QUALITY_CATEGORIES if mode == "text" else TTS_QUALITY_CATEGORIES,
+            suppress_tts_null_issues=mode == "tts",
             input_truncated=input_truncated,
         )
     except (TypeError, ValidationError, ValueError) as exc:
@@ -72,6 +88,8 @@ def _quality_response_from_data(
     file_name: str,
     model: str,
     max_issues: int,
+    allowed_categories: set[str] | None = None,
+    suppress_tts_null_issues: bool = False,
     input_truncated: bool = False,
 ) -> QualityCheckResponse:
     raw_issues = data.get("issues")
@@ -79,6 +97,10 @@ def _quality_response_from_data(
         raise ValueError("response must contain an issues array")
 
     issues = [QualityIssue.model_validate(item) for item in raw_issues]
+    if allowed_categories is not None:
+        issues = [issue for issue in issues if issue.category in allowed_categories]
+    if suppress_tts_null_issues:
+        issues = [issue for issue in issues if not _is_tts_null_issue(issue)]
     truncated = bool(data.get("truncated")) or input_truncated or len(issues) > max_issues
     return QualityCheckResponse(
         fileName=str(data.get("fileName") or file_name),
@@ -88,11 +110,68 @@ def _quality_response_from_data(
     )
 
 
-def _quality_prompt(file_name: str, content: dict[str, Any], max_issues: int) -> tuple[str, bool]:
+def _is_tts_null_issue(issue: QualityIssue) -> bool:
+    text = " ".join(
+        [
+            issue.location.field or "",
+            issue.excerpt,
+            issue.issue,
+            issue.suggestion,
+        ]
+    ).lower()
+    audio_markers = [
+        "audiopath",
+        "audiourl",
+        "choiceaudiopaths",
+        "choiceaudiourls",
+        "questionaudiopath",
+        "questionaudiourl",
+        "explanationaudiopath",
+        "explanationaudiourl",
+        "録音",
+        "未録音",
+        "音声",
+    ]
+    null_markers = ["null", "none", "missing", "empty", "未設定", "欠落", "空"]
+    return any(marker in text for marker in audio_markers) and any(marker in text for marker in null_markers)
+
+
+def _quality_prompt(file_name: str, content: dict[str, Any], max_issues: int, *, mode: str) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     truncated = len(source_json) > MAX_QUALITY_INPUT_CHARS
     if truncated:
         source_json = source_json[:MAX_QUALITY_INPUT_CHARS]
+
+    if mode == "tts":
+        category_block = """
+Categories:
+- reading: TTS misreading risks such as acronyms, code terms, symbols, or mixed-language spans.
+- double_utterance: duplicated wording in tts fields that would be spoken twice or sounds redundant.
+- notation: inconsistent spoken notation/readings. Do not report visual notation issues here.
+- tts_text_mismatch: clear semantic mismatch between source text and tts text. Only report when meaning, answer, quantity, negation, or proper nouns clearly differ. Do not report kana conversion, reading correction, language tags, or punctuation differences.
+
+TTS null rules:
+- Null or missing audio/tts fields are normal recording-management state.
+- Do not report null, empty, or missing audioPath, choiceAudioPaths, questionAudioPath, explanationAudioPath, audioUrl, choiceAudioUrls, questionAudioUrl, or explanationAudioUrl at any severity.
+- Do not create low/info issues for missing audio or unrecorded units. recording-estimate handles recording state separately.
+
+TTS fix suggestion rules:
+- For reading, double_utterance, notation, and tts_text_mismatch, put the exact replacement TTS text in suggestion whenever possible.
+- For tts.choiceTexts[index] issues, suggestion must be the replacement string for that one index only. Do not return the full choiceTexts array.
+- If an exact replacement cannot be produced safely, keep suggestion as a concise explanation; the fix step may leave it unapplied.
+""".strip()
+        focus = "Inspect only audio/TTS quality. Do not report factual/style/leak display-text issues unless they directly affect TTS."
+    else:
+        category_block = """
+Categories:
+- factual: possible factual error or claim that needs human verification. Do not state it as certain; treat it as a suspicion.
+- style: awkward style for learner-facing text, hearsay wording such as "ドキュメントによると" or "記載されています".
+- leak: quiz explanation memo leakage, internal notes, prompt residue, placeholders, or authoring comments.
+
+Notation rule:
+- Report notation only when it is a display text quality issue by describing it under style/leak if appropriate. Spoken-reading notation belongs to the TTS quality check, not this check.
+""".strip()
+        focus = "Inspect only source/display text quality. Do not report TTS pronunciation issues here."
 
     prompt = f"""
 Return strict JSON only. Do not use markdown fences.
@@ -100,13 +179,9 @@ Return strict JSON only. Do not use markdown fences.
 You are a quality check agent for a Sokqa learning pack. Inspect the generated doc/quiz JSON before audio recording.
 Detect only clear issues. Do not report minor wording preferences.
 
-Categories:
-- factual: possible factual error or claim that needs human verification. Do not state it as certain; treat it as a suspicion.
-- reading: text likely to be misread by TTS, such as acronyms, code terms, symbols, or mixed-language spans.
-- double_utterance: duplicated wording that would be spoken twice or sounds redundant.
-- notation: inconsistent notation within the same file, such as mixed spellings for the same concept.
-- style: awkward style for learner-facing audio, hearsay wording such as "ドキュメントによると" or "記載されています".
-- leak: quiz explanation memo leakage, internal notes, prompt residue, placeholders, or authoring comments.
+{focus}
+
+{category_block}
 
 Severity:
 - high: should be fixed before recording.
@@ -145,7 +220,7 @@ Source file JSON:
     return prompt, truncated
 
 
-def _mock_quality_response(file_name: str, model: str, max_issues: int) -> QualityCheckResponse:
+def _mock_quality_response(file_name: str, model: str, max_issues: int, *, mode: str = "text") -> QualityCheckResponse:
     samples = [
         {
             "category": "factual",
@@ -163,7 +238,7 @@ def _mock_quality_response(file_name: str, model: str, max_issues: int) -> Quali
             "location": {"fileName": file_name, "unitId": "doc-2", "field": "text"},
             "excerpt": "SQLとJSONを利用します。",
             "issue": "略語がTTSで意図しない読みになる可能性があります。",
-            "suggestion": "必要ならTTS補正で読みを指定します。",
+            "suggestion": "エスキューエルとジェイソンを利用します。",
         },
         {
             "category": "double_utterance",
@@ -172,7 +247,7 @@ def _mock_quality_response(file_name: str, model: str, max_issues: int) -> Quali
             "location": {"fileName": file_name, "unitId": "doc-3", "field": "text"},
             "excerpt": "まず最初に、最初に確認します。",
             "issue": "同じ意味の語が重なって聞こえます。",
-            "suggestion": "重複表現を1つに整理します。",
+            "suggestion": "まず最初に確認します。",
         },
         {
             "category": "notation",
@@ -181,7 +256,7 @@ def _mock_quality_response(file_name: str, model: str, max_issues: int) -> Quali
             "location": {"fileName": file_name, "unitId": None, "field": "text"},
             "excerpt": "3C分析 / スリーシー分析",
             "issue": "同一概念の表記が揺れています。",
-            "suggestion": "文書内で表記を統一します。",
+            "suggestion": "サンシー分析",
         },
         {
             "category": "style",
@@ -202,4 +277,20 @@ def _mock_quality_response(file_name: str, model: str, max_issues: int) -> Quali
             "suggestion": "内部メモを削除し、学習者向けの解説に置き換えます。",
         },
     ]
-    return QualityCheckResponse(fileName=file_name, model=model, issues=samples[:max_issues], truncated=len(samples) > max_issues)
+    allowed = TEXT_QUALITY_CATEGORIES if mode == "text" else TTS_QUALITY_CATEGORIES
+    filtered = [QualityIssue.model_validate(item) for item in samples if item["category"] in allowed]
+    if mode == "tts":
+        filtered.append(
+            QualityIssue.model_validate(
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.68,
+                    "location": {"fileName": file_name, "unitId": "doc-5", "field": "tts.text"},
+                    "excerpt": "text and tts.text differ in meaning",
+                    "issue": "tts.text が元テキストと意味的にずれている可能性があります。",
+                    "suggestion": "元テキストの意味を保った読み上げテキスト",
+                }
+            )
+        )
+    return QualityCheckResponse(fileName=file_name, model=model, issues=filtered[:max_issues], truncated=len(filtered) > max_issues)

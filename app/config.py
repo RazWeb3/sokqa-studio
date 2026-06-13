@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     gemini_model_quiz: str | None = None
     gemini_model_planner: str | None = None
     gemini_model_quality: str | None = None
+    gemini_model_fix: str | None = None
     google_cloud_project: str = ""
     google_cloud_location: str = "global"
     google_genai_use_vertexai: bool = False
@@ -63,6 +64,10 @@ class Settings(BaseSettings):
     @property
     def quality_model(self) -> str:
         return self.gemini_model_quality or self.gemini_model
+
+    @property
+    def fix_model(self) -> str:
+        return self.gemini_model_fix or self.gemini_model
 
 
 @lru_cache

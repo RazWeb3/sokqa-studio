@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
-from app.services.pack_metadata import pack_storage_prefix
+from app.services.pack_paths import pack_root_prefix
 from app.services.quality_checker import _generate_json_with_retry
 from main import app
 
@@ -24,20 +24,54 @@ def _write_document_pack(tmp_path: Path, monkeypatch) -> dict:
     content_id = "content_quality"
     version_id = "v20260612_120000"
     pack_name = "doc_01.json"
-    prefix = pack_storage_prefix(creator_id, content_id, version_id)
+    prefix = pack_root_prefix(creator_id, content_id)
     target_dir = tmp_path / "generated" / prefix
     target_dir.mkdir(parents=True, exist_ok=True)
+    file_version_id = "fv_20260612_120000_document_doc_01"
     content = {
         "id": "content_quality_doc_01",
         "type": "document",
         "schemaVersion": 1,
         "title": "品質チェック用ドキュメント",
         "language": "ja",
+        "assetBaseUrl": f"http://localhost:8000/generated/{prefix}",
         "documents": [
             {"id": "doc-1", "text": "SQLとJSONを説明します。ドキュメントによると重要です。"}
         ],
     }
-    (target_dir / pack_name).write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
+    (target_dir / "objects" / "doc").mkdir(parents=True, exist_ok=True)
+    (target_dir / "versions" / version_id).mkdir(parents=True, exist_ok=True)
+    (target_dir / "objects" / "doc" / f"{file_version_id}.json").write_text(
+        json.dumps(content, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    manifest = {
+        "id": "content_quality_manifest_r1",
+        "type": "pack_manifest",
+        "schemaVersion": 2,
+        "contentId": content_id,
+        "title": "品質チェック用ドキュメント",
+        "creator": {"id": creator_id, "displayName": None},
+        "revision": 1,
+        "versionId": version_id,
+        "buildId": "build_20260612_120000",
+        "generatedAt": "2026-06-12T12:00:00+09:00",
+        "change": {"operation": "initial_generate"},
+        "items": [
+            {
+                "kind": "document",
+                "name": pack_name,
+                "title": "品質チェック用ドキュメント",
+                "logicalId": "doc_01",
+                "fileVersionId": file_version_id,
+                "url": f"http://localhost:8000/generated/{prefix}/objects/doc/{file_version_id}.json",
+            }
+        ],
+    }
+    (target_dir / "versions" / version_id / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding="utf-8",
+    )
     return {
         "creatorId": creator_id,
         "contentId": content_id,

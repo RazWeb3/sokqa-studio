@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.schemas.common import Difficulty, QuizPurpose, Scale, SourceMode, TtsReadingMode, TtsRule
+from app.schemas.pack_v2 import PackManifestV2
 
 
 def validate_audio_relative_path(value: str | None) -> str | None:
@@ -168,36 +169,6 @@ class SokqaQuizPack(BaseModel):
     questions: list[SokqaQuestion]
 
 
-class ManifestItem(BaseModel):
-    kind: Literal["document", "quiz"]
-    url: str
-
-
-class ManifestCreator(BaseModel):
-    id: str
-    displayName: str | None = None
-
-
-class PackManifest(BaseModel):
-    id: str
-    type: Literal["pack_manifest"] = "pack_manifest"
-    schemaVersion: int = 1
-    contentId: str | None = None
-    slug: str | None = None
-    versionId: str | None = None
-    buildId: str | None = None
-    generatedAt: str | None = None
-    creator: ManifestCreator | None = None
-    title: str | None = None
-    description: str = ""
-    language: str = "ja"
-    author: str | None = "Sokqa Team"
-    version: str | None = None
-    scale: Scale | None = None
-    globalTags: list[str] = Field(default_factory=list)
-    items: list[ManifestItem]
-
-
 class GeneratedFile(BaseModel):
     name: str
     kind: Literal["document", "quiz", "manifest"]
@@ -238,7 +209,7 @@ class GeneratePackResponse(BaseModel):
     jobId: str
     plan: CoursePlan
     files: list[GeneratedFile]
-    manifest: PackManifest
+    manifest: PackManifestV2
     validation: ValidationResult
     ttsReport: TtsReport | None = None
     logs: list[str] = Field(default_factory=list)

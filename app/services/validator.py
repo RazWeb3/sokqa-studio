@@ -3,9 +3,9 @@ from urllib.parse import urlparse
 from pydantic import ValidationError
 
 from app.config import get_settings
+from app.schemas.pack_v2 import PackManifestV2
 from app.schemas.sokqa import (
     GeneratedFile,
-    PackManifest,
     SokqaDocumentPack,
     SokqaQuizPack,
     ValidationErrorItem,
@@ -19,7 +19,7 @@ def _append_pydantic_errors(file_name: str, error: ValidationError, errors: list
         errors.append(ValidationErrorItem(file=file_name, path=path, message=issue.get("msg", "invalid value")))
 
 
-def validate_files(files: list[GeneratedFile], manifest: PackManifest | None = None) -> ValidationResult:
+def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None = None) -> ValidationResult:
     errors: list[ValidationErrorItem] = []
     for file in files:
         try:
@@ -30,7 +30,7 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifest | None = N
                 pack = SokqaQuizPack.model_validate(file.content)
                 errors.extend(validate_quiz_semantics(file.name, pack))
             elif file.kind == "manifest":
-                PackManifest.model_validate(file.content)
+                PackManifestV2.model_validate(file.content)
         except ValidationError as exc:
             _append_pydantic_errors(file.name, exc, errors)
 
@@ -119,11 +119,11 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
     return errors
 
 
-def validate_manifest(manifest: PackManifest) -> ValidationResult:
+def validate_manifest(manifest: PackManifestV2) -> ValidationResult:
     settings = get_settings()
     errors: list[ValidationErrorItem] = []
     try:
-        PackManifest.model_validate(manifest.model_dump())
+        PackManifestV2.model_validate(manifest.model_dump())
     except ValidationError as exc:
         _append_pydantic_errors("pack_manifest.json", exc, errors)
 

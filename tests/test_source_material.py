@@ -94,7 +94,11 @@ def test_blank_source_text_falls_back_to_theme_generation(monkeypatch) -> None:
 
     assert with_blank_source["plan"]["sourceText"] is None
     assert with_blank_source["plan"]["sourceMode"] is None
-    assert with_blank_source["files"][0]["content"] == without_source["files"][0]["content"]
+    without_content = without_source["files"][0]["content"].copy()
+    blank_content = with_blank_source["files"][0]["content"].copy()
+    without_content.pop("assetBaseUrl", None)
+    blank_content.pop("assetBaseUrl", None)
+    assert blank_content == without_content
 
 
 def test_source_fields_do_not_leak_into_sokqa_outputs(monkeypatch) -> None:

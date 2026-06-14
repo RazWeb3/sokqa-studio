@@ -7,7 +7,7 @@ from google.cloud import storage
 
 from app.config import get_settings
 from app.schemas.request import DeletePackRequest, DeletePackResponse
-from app.services.pack_metadata import pack_storage_prefix
+from app.services.pack_paths import pack_root_prefix
 from app.services.storage_status import record_storage_event
 
 
@@ -27,26 +27,26 @@ def delete_pack_version(request: DeletePackRequest) -> DeletePackResponse:
 
 def resolve_delete_storage_prefix(request: DeletePackRequest) -> str:
     if request.storagePrefix:
-        return validate_pack_version_prefix(request.storagePrefix)
+        return validate_pack_root_prefix(request.storagePrefix)
     if request.manifestUrl:
-        return validate_pack_version_prefix(_storage_prefix_from_manifest_url(request.manifestUrl))
-    if request.creatorId and request.contentId and request.versionId:
-        return validate_pack_version_prefix(pack_storage_prefix(request.creatorId, request.contentId, request.versionId))
-    raise ValueError("delete target must include storagePrefix, manifestUrl, or creatorId/contentId/versionId")
+        return validate_pack_root_prefix(_storage_prefix_from_manifest_url(request.manifestUrl))
+    if request.creatorId and request.contentId:
+        return validate_pack_root_prefix(pack_root_prefix(request.creatorId, request.contentId))
+    raise ValueError("delete target must include storagePrefix, manifestUrl, or creatorId/contentId")
 
 
-def validate_pack_version_prefix(storage_prefix: str) -> str:
+def validate_pack_root_prefix(storage_prefix: str) -> str:
     prefix = storage_prefix.strip().strip("/")
     parts = prefix.split("/")
     base_parts = _storage_base_prefix().split("/")
     tail = parts[len(base_parts) :]
     if parts[: len(base_parts)] != base_parts:
         raise ValueError("storagePrefix is outside the configured sokqa base prefix")
-    if len(tail) != 6:
-        raise ValueError("storagePrefix must target a single pack version")
-    if tail[0] != "creators" or tail[2] != "packs" or tail[4] != "versions":
-        raise ValueError("storagePrefix must be sokqa/creators/{creatorId}/packs/{contentId}/versions/{versionId}")
-    if not all(_safe_path_token(value) for value in (tail[1], tail[3], tail[5])):
+    if len(tail) != 4:
+        raise ValueError("storagePrefix must target a single pack root")
+    if tail[0] != "creators" or tail[2] != "packs":
+        raise ValueError("storagePrefix must be sokqa/creators/{creatorId}/packs/{contentId}")
+    if not all(_safe_path_token(value) for value in (tail[1], tail[3])):
         raise ValueError("storagePrefix contains an unsafe path token")
     return prefix
 
@@ -91,7 +91,11 @@ def _storage_prefix_from_manifest_url(url: str) -> str:
         path = path.removeprefix("generated/")
     if not path.endswith("/manifest.json"):
         raise ValueError("manifestUrl must end with manifest.json")
-    return path.removesuffix("/manifest.json").strip("/")
+    manifest_prefix = path.removesuffix("/manifest.json").strip("/")
+    suffix = "/versions/"
+    if suffix not in manifest_prefix:
+        raise ValueError("manifestUrl must point to a v2 versions manifest")
+    return manifest_prefix.split(suffix, 1)[0].strip("/")
 
 
 def _safe_path_token(value: str) -> bool:

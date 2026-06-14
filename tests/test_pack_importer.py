@@ -90,12 +90,15 @@ def test_import_clears_audio_urls_but_keeps_tts_text(tmp_path, monkeypatch) -> N
 
     assert response.status_code == 200
     data = response.json()
-    storage_prefix = data["files"][0]["url"].split("/generated/", 1)[1].rsplit("/", 1)[0]
-    doc_content = json.loads((tmp_path / "generated" / storage_prefix / "doc_01.json").read_text(encoding="utf-8"))
-    quiz_content = json.loads((tmp_path / "generated" / storage_prefix / "quiz_01.json").read_text(encoding="utf-8"))
+    doc_file = next(file for file in data["files"] if file["kind"] == "document")
+    quiz_file = next(file for file in data["files"] if file["kind"] == "quiz")
+    doc_path = doc_file["url"].split("/generated/", 1)[1]
+    quiz_path = quiz_file["url"].split("/generated/", 1)[1]
+    doc_content = json.loads((tmp_path / "generated" / doc_path).read_text(encoding="utf-8"))
+    quiz_content = json.loads((tmp_path / "generated" / quiz_path).read_text(encoding="utf-8"))
 
-    assert "assetBaseUrl" not in doc_content
-    assert "assetBaseUrl" not in quiz_content
+    assert doc_content["assetBaseUrl"].endswith("/sokqa/creators/creator_import/packs/cnt_import_audio")
+    assert quiz_content["assetBaseUrl"] == doc_content["assetBaseUrl"]
     assert doc_content["documents"][0]["tts"] == {"text": "エーアイの説明です。"}
     quiz_tts = quiz_content["questions"][0]["tts"]
     assert quiz_tts["questionText"] == "エーアイとは何ですか?"
@@ -130,3 +133,5 @@ def test_import_without_audio_urls_still_succeeds(tmp_path, monkeypatch) -> None
 
     assert response.status_code == 200
     assert response.json()["validation"]["valid"] is True
+    assert response.json()["manifest"]["schemaVersion"] == 2
+    assert response.json()["manifest"]["change"]["operation"] == "import"

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from google.cloud import storage
 
 from app.config import get_settings
+from app.schemas.pack_v2 import PackManifestV2
+from app.services.pack_paths import pack_root_prefix, validate_safe_token
+from app.services.storage_client import StorageClient
 
 
 def list_generated_packs(creator_id: str | None = None) -> list[dict[str, Any]]:
@@ -38,58 +40,17 @@ def _list_local_packs(creator_id: str | None) -> list[dict[str, Any]]:
         return []
 
     creator_dirs = [creators_root / creator_id] if creator_id else sorted(creators_root.iterdir())
+    storage = StorageClient()
     items: list[dict[str, Any]] = []
     for creator_dir in creator_dirs:
         packs_root = creator_dir / "packs"
         if not packs_root.is_dir():
             continue
         for content_dir in sorted(path for path in packs_root.iterdir() if path.is_dir()):
-            versions_root = content_dir / "versions"
-            if not versions_root.is_dir():
-                continue
-            for version_dir in sorted(path for path in versions_root.iterdir() if path.is_dir()):
-                storage_prefix = _relative_prefix_from_version_dir(version_dir, creator_dir.name, content_dir.name)
-                manifest_content = _read_local_manifest(version_dir)
-                if manifest_content is None:
-                    continue
-                for path in sorted(version_dir.glob("*.json")):
-                    item = _pack_item_from_content_path(
-                        path,
-                        creator_dir.name,
-                        content_dir.name,
-                        version_dir.name,
-                        storage_prefix,
-                        manifest_content,
-                    )
-                    if item:
-                        items.append(item)
-    return _latest_version_items(items)
-
-
-def _relative_prefix_from_version_dir(version_dir: Path, creator_id: str, content_id: str) -> str:
-    return f"{_storage_base_prefix()}/creators/{creator_id}/packs/{content_id}/versions/{version_dir.name}"
-
-
-def _pack_item_from_content_path(
-    path: Path,
-    creator_id: str,
-    content_id: str,
-    version_id: str,
-    storage_prefix: str,
-    manifest_content: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    try:
-        content = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return _pack_item_from_content(content, path.name, creator_id, content_id, version_id, storage_prefix, manifest_content)
-
-
-def _read_local_manifest(version_dir: Path) -> dict[str, Any] | None:
-    try:
-        return json.loads((version_dir / "manifest.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+            v2_items = _list_v2_items_for_content(storage, creator_dir.name, content_dir.name)
+            if v2_items:
+                items.extend(v2_items)
+    return sorted(items, key=_pack_sort_key)
 
 
 def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
@@ -101,88 +62,109 @@ def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
     bucket = client.bucket(settings.gcs_bucket)
     base = _storage_base_prefix()
     prefix = f"{base}/creators/{creator_id}/" if creator_id else f"{base}/creators/"
+    storage_client = StorageClient()
+    blobs = list(bucket.list_blobs(prefix=prefix))
+    content_keys = _list_gcs_content_keys(blobs, base, creator_id)
     items: list[dict[str, Any]] = []
-    for blob in bucket.list_blobs(prefix=prefix):
-        parsed = _parse_pack_blob_name(blob.name, base)
-        if parsed is None:
+    for blob_creator_id, content_id in sorted(content_keys):
+        v2_items = _list_v2_items_for_content(storage_client, blob_creator_id, content_id)
+        if v2_items:
+            items.extend(v2_items)
+    return sorted(items, key=_pack_sort_key)
+
+
+def _list_gcs_content_keys(blobs, base: str, creator_id: str | None) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    for blob in blobs:
+        parts = blob.name.strip("/").split("/")
+        base_parts = base.split("/")
+        tail = parts[len(base_parts) :]
+        if len(tail) < 4:
             continue
-        blob_creator_id, content_id, version_id, pack_name, storage_prefix = parsed
-        manifest_content = _read_gcs_manifest(bucket, storage_prefix)
-        if manifest_content is None:
+        if tail[0] != "creators" or tail[2] != "packs":
+            continue
+        if creator_id and tail[1] != creator_id:
+            continue
+        keys.add((tail[1], tail[3]))
+    return keys
+
+
+def _list_v2_items_for_content(storage: StorageClient, creator_id: str, content_id: str) -> list[dict[str, Any]]:
+    try:
+        validate_safe_token(creator_id)
+        validate_safe_token(content_id)
+        prefix = pack_root_prefix(creator_id, content_id)
+    except ValueError:
+        return []
+
+    manifest_paths = sorted(
+        storage.list_manifests(prefix),
+        key=lambda path: _version_id_from_manifest_path(path) or "",
+        reverse=True,
+    )
+    for manifest_path in manifest_paths:
+        version_id = _version_id_from_manifest_path(manifest_path)
+        if not version_id:
             continue
         try:
-            content = json.loads(blob.download_as_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            manifest_data = storage.read_manifest(prefix, version_id)
+            if manifest_data.get("schemaVersion") != 2:
+                continue
+            manifest = PackManifestV2.model_validate(manifest_data)
+        except Exception:
             continue
-        item = _pack_item_from_content(
-            content,
-            pack_name,
-            blob_creator_id,
-            content_id,
-            version_id,
-            storage_prefix,
-            manifest_content,
-        )
-        if item:
-            items.append(item)
-    return _latest_version_items(items)
+        return [_pack_item_from_v2_manifest_item(manifest, item, creator_id, content_id, prefix) for item in manifest.items]
+    return []
 
 
-def _read_gcs_manifest(bucket, storage_prefix: str) -> dict[str, Any] | None:
-    try:
-        return json.loads(bucket.blob(f"{storage_prefix}/manifest.json").download_as_text(encoding="utf-8"))
-    except Exception:
+def _version_id_from_manifest_path(path: str) -> str | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "versions" or parts[2] != "manifest.json":
         return None
+    return parts[1]
 
 
-def _parse_pack_blob_name(blob_name: str, base: str) -> tuple[str, str, str, str, str] | None:
-    parts = blob_name.strip("/").split("/")
-    base_parts = base.split("/")
-    tail = parts[len(base_parts) :]
-    if len(tail) != 7:
-        return None
-    if tail[0] != "creators" or tail[2] != "packs" or tail[4] != "versions":
-        return None
-    creator_id, content_id, version_id, pack_name = tail[1], tail[3], tail[5], tail[6]
-    if not pack_name.endswith(".json"):
-        return None
-    storage_prefix = "/".join(parts[:-1])
-    return creator_id, content_id, version_id, pack_name, storage_prefix
-
-
-def _pack_item_from_content(
-    content: dict[str, Any],
-    pack_name: str,
+def _pack_item_from_v2_manifest_item(
+    manifest: PackManifestV2,
+    item,
     creator_id: str,
     content_id: str,
-    version_id: str,
     storage_prefix: str,
-    manifest_content: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    kind = content.get("type")
-    if kind not in {"document", "quiz"}:
-        return None
+) -> dict[str, Any]:
     base_url = get_settings().public_base_url.rstrip("/")
-    url = f"{base_url}/{storage_prefix}/{pack_name}"
-    manifest_url = f"{base_url}/{storage_prefix}/manifest.json"
+    manifest_url = f"{base_url}/{storage_prefix}/versions/{manifest.versionId}/manifest.json"
     return {
         "creatorId": creator_id,
         "contentId": content_id,
-        "versionId": version_id,
-        "packName": pack_name,
-        "kind": kind,
-        "title": content.get("title") or content.get("id") or pack_name,
-        "manifestTitle": (manifest_content or {}).get("title"),
+        "versionId": manifest.versionId,
+        "revision": manifest.revision,
+        "schemaVersion": 2,
+        "packName": item.name,
+        "kind": item.kind,
+        "logicalId": item.logicalId,
+        "fileVersionId": item.fileVersionId,
+        "title": item.title or item.name,
+        "manifestTitle": manifest.title,
         "manifestUrl": manifest_url,
-        "url": url,
-        "assetBaseUrl": content.get("assetBaseUrl"),
+        "url": item.url,
+        "assetBaseUrl": f"{base_url}/{storage_prefix}",
         "storagePrefix": storage_prefix,
+        "items": [
+            {
+                "kind": manifest_item.kind,
+                "name": manifest_item.name,
+                "title": manifest_item.title or manifest_item.name,
+                "logicalId": manifest_item.logicalId,
+                "fileVersionId": manifest_item.fileVersionId,
+            }
+            for manifest_item in manifest.items
+        ],
         "target": {
             "creatorId": creator_id,
             "contentId": content_id,
-            "versionId": version_id,
-            "packName": pack_name,
-            "kind": kind,
+            "versionId": manifest.versionId,
+            "packName": item.name,
+            "kind": item.kind,
         },
     }
 
@@ -194,19 +176,3 @@ def _pack_sort_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
         str(item["versionId"]),
         str(item["packName"]),
     )
-
-
-def _latest_version_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    latest_versions: dict[tuple[str, str], str] = {}
-    for item in items:
-        key = (str(item["creatorId"]), str(item["contentId"]))
-        version_id = str(item["versionId"])
-        if version_id > latest_versions.get(key, ""):
-            latest_versions[key] = version_id
-
-    latest_items = [
-        item
-        for item in items
-        if str(item["versionId"]) == latest_versions[(str(item["creatorId"]), str(item["contentId"]))]
-    ]
-    return sorted(latest_items, key=_pack_sort_key)

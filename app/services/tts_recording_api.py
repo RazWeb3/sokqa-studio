@@ -8,9 +8,26 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from app.config import get_settings
+from app.schemas.pack_v2 import (
+    AudioObject,
+    ChangedPackFile,
+    CommitPackRevisionInput,
+    ManifestItemV2,
+    PackManifestV2,
+)
 from app.schemas.request import TtsRecordingTarget
-from app.schemas.sokqa import GeneratedFile, PackManifest, SokqaDocumentPack, SokqaQuizPack
-from app.services.pack_metadata import build_pack_version_metadata, pack_storage_prefix
+from app.schemas.sokqa import GeneratedFile, SokqaDocumentPack, SokqaQuizPack
+from app.services.pack_metadata import pack_storage_prefix
+from app.services.pack_paths import (
+    audio_object_relative_path,
+    doc_object_relative_path,
+    generate_audio_version_id,
+    pack_root_prefix,
+    quiz_object_relative_path,
+    resolve_asset_url,
+    validate_safe_token,
+)
+from app.services.revision_store import persist_revision_commit
 from app.services.storage_client import StorageClient
 from app.services.tts_estimation import RecordingTextSource, RecordingUnit, extract_recording_units
 from app.services.tts_recorder import RecordingSummary, Synthesizer, clear_pack_audio_urls, record_generated_file_audio
@@ -46,45 +63,80 @@ def run_recording(
 
     loaded = load_target_pack(target)
     creator_id, content_id, _ = _identity_from_storage_prefix(loaded.storage_prefix)
+    _validate_target_matches_loaded_prefix(target, creator_id, content_id, loaded.storage_prefix)
     storage = storage_client or StorageClient()
     all_units = extract_recording_units(loaded.pack, text_source)
     selected = _select_units(all_units, unit_ids, include_recorded=True)
     recording_targets = [unit for unit in selected if force_rerecord or not unit.is_recorded]
-    version_metadata = build_pack_version_metadata(creator_id, content_id) if recording_targets else None
-    recording_storage_prefix = version_metadata.storage_prefix if version_metadata else loaded.storage_prefix
-    if version_metadata:
-        storage.copy_prefix(loaded.storage_prefix, version_metadata.storage_prefix)
+    pack_root = pack_root_prefix(creator_id, content_id)
+    current_manifest = _load_current_manifest_v2(storage, loaded, creator_id, content_id)
+    target_logical_id = _logical_id_from_pack_name(loaded.file.name)
+    current_item = _manifest_item_for_target(current_manifest, loaded.file.name, target_logical_id)
+    audio_path_by_unit: dict[str, str] = {}
+
+    def audio_path_for_unit(unit: RecordingUnit) -> str:
+        audio_version_id = generate_audio_version_id(f"{target_logical_id}__{unit.item_id}")
+        audio_path = audio_object_relative_path(audio_version_id)
+        audio_path_by_unit[unit.item_id] = audio_path
+        return audio_path
+
     kwargs = {"storage_client": storage}
     if synthesize_fn is not None:
         kwargs["synthesize_fn"] = synthesize_fn
     summary = record_generated_file_audio(
         loaded.file,
         selected,
-        recording_storage_prefix,
+        pack_root,
         force_rerecord=force_rerecord,
         language_code=language_code,
         voice_name=voice_name,
         speaking_rate=speaking_rate,
         pitch=pitch,
+        persist_file=False,
+        store_audio=False,
+        audio_path_factory=audio_path_for_unit,
         **kwargs,
     )
     loaded.pack = _pack_from_file(loaded.file)
-    response_storage_prefix = recording_storage_prefix
-    response_version_id = version_metadata.version_id if version_metadata else _identity_from_storage_prefix(response_storage_prefix)[2]
-    asset_base_url = loaded.pack.assetBaseUrl or _public_url_for_prefix(storage, response_storage_prefix)
-    pack_url = f"{asset_base_url.rstrip('/')}/{loaded.file.name}"
-    if version_metadata:
-        _complete_recording_snapshot(
+    successful_results = [result for result in summary.results if result.success and result.audio_path and result.audio_data]
+    commit_result = None
+    if successful_results:
+        commit_result = persist_revision_commit(
             storage,
-            creator_id,
-            content_id,
-            loaded.storage_prefix,
-            version_metadata.storage_prefix,
-            version_metadata.version_id,
-            version_metadata.build_id,
-            version_metadata.generated_at,
-            loaded.file.name,
+            current_manifest,
+            CommitPackRevisionInput(
+                target={
+                    "creatorId": creator_id,
+                    "contentId": content_id,
+                    "versionId": current_manifest.versionId,
+                },
+                operation="recording",
+                changedFiles=[
+                    ChangedPackFile(
+                        name=loaded.file.name,
+                        kind=loaded.file.kind,
+                        logicalId=target_logical_id,
+                        previousFileVersionId=current_item.fileVersionId,
+                        content=loaded.file.content,
+                    )
+                ],
+                newAudioObjects=[
+                    AudioObject(
+                        audioVersionId=_audio_version_id_from_path(result.audio_path),
+                        relativePath=result.audio_path,
+                        data=result.audio_data,
+                    )
+                    for result in successful_results
+                ],
+            ),
+            public_base_url=get_settings().public_base_url,
         )
+    response_version_id = commit_result.versionId if commit_result else current_manifest.versionId
+    asset_base_url = commit_result.assetBaseUrl if commit_result else loaded.pack.assetBaseUrl or _public_url_for_prefix(storage, pack_root)
+    if commit_result:
+        pack_url = next(item.url for item in commit_result.items if item.logicalId == target_logical_id)
+    else:
+        pack_url = f"{asset_base_url.rstrip('/')}/{loaded.file.name}"
     return {
         "packId": loaded.pack.id,
         "packType": loaded.pack.type,
@@ -92,9 +144,9 @@ def run_recording(
         "creatorId": creator_id,
         "contentId": content_id,
         "versionId": response_version_id,
-        "buildId": version_metadata.build_id if version_metadata else None,
-        "generatedAt": version_metadata.generated_at if version_metadata else None,
-        "storagePrefix": response_storage_prefix,
+        "buildId": commit_result.manifest.buildId if commit_result else None,
+        "generatedAt": commit_result.manifest.generatedAt if commit_result else None,
+        "storagePrefix": pack_root,
         "assetBaseUrl": asset_base_url,
         "packUrl": pack_url,
         "target": {
@@ -126,19 +178,62 @@ def reset_recording(
     text_source: RecordingTextSource = "raw",
 ) -> dict:
     loaded = load_target_pack(target)
+    creator_id, content_id, _ = _identity_from_storage_prefix(loaded.storage_prefix)
+    _validate_target_matches_loaded_prefix(target, creator_id, content_id, loaded.storage_prefix)
+    storage = StorageClient()
+    current_manifest = _load_current_manifest_v2(storage, loaded, creator_id, content_id)
+    target_logical_id = _logical_id_from_pack_name(loaded.file.name)
+    current_item = _manifest_item_for_target(current_manifest, loaded.file.name, target_logical_id)
     all_units = extract_recording_units(loaded.pack, text_source)
     selected = _select_units(all_units, unit_ids, include_recorded=True)
     cleared_count = clear_pack_audio_urls(loaded.pack, selected)
     loaded.file.content = loaded.pack.model_dump(exclude_none=True)
-    StorageClient().save_files(loaded.pack.id, [loaded.file], loaded.storage_prefix)
+    commit_result = None
+    if cleared_count:
+        commit_result = persist_revision_commit(
+            storage,
+            current_manifest,
+            CommitPackRevisionInput(
+                target={
+                    "creatorId": creator_id,
+                    "contentId": content_id,
+                    "versionId": current_manifest.versionId,
+                },
+                operation="recording_reset",
+                changedFiles=[
+                    ChangedPackFile(
+                        name=loaded.file.name,
+                        kind=loaded.file.kind,
+                        logicalId=target_logical_id,
+                        previousFileVersionId=current_item.fileVersionId,
+                        content=loaded.file.content,
+                    )
+                ],
+            ),
+            public_base_url=get_settings().public_base_url,
+        )
     refreshed_units = extract_recording_units(loaded.pack, text_source)
     affected_ids = {unit.item_id for unit in selected}
+    response_version_id = commit_result.versionId if commit_result else current_manifest.versionId
+    pack_root = pack_root_prefix(creator_id, content_id)
     return {
         "packId": loaded.pack.id,
         "packType": loaded.pack.type,
         "packName": loaded.file.name,
-        "storagePrefix": loaded.storage_prefix,
-        "assetBaseUrl": loaded.pack.assetBaseUrl,
+        "creatorId": creator_id,
+        "contentId": content_id,
+        "versionId": response_version_id,
+        "buildId": commit_result.manifest.buildId if commit_result else None,
+        "generatedAt": commit_result.manifest.generatedAt if commit_result else None,
+        "storagePrefix": pack_root if commit_result else loaded.storage_prefix,
+        "assetBaseUrl": commit_result.assetBaseUrl if commit_result else loaded.pack.assetBaseUrl,
+        "target": {
+            "creatorId": creator_id,
+            "contentId": content_id,
+            "versionId": response_version_id,
+            "packName": loaded.file.name,
+            "kind": loaded.file.kind,
+        },
         "textSource": text_source,
         "requestedUnitCount": len(selected),
         "clearedCount": cleared_count,
@@ -156,22 +251,57 @@ class LoadedPack:
 def load_target_pack(target: TtsRecordingTarget) -> LoadedPack:
     if target.packUrl:
         pack_name = target.packName or _url_basename(target.packUrl)
-        storage_prefix = _storage_prefix_from_pack_url(target.packUrl, pack_name)
+        if not (target.creatorId and target.contentId and target.versionId):
+            raise ValueError("packUrl targets require creatorId/contentId/versionId in v2 mode")
+        storage_prefix = pack_storage_prefix(target.creatorId, target.contentId, target.versionId)
         return _loaded_from_content(_load_json_url(target.packUrl), pack_name, storage_prefix)
 
     if target.manifestUrl:
-        manifest = PackManifest.model_validate(_load_json_url(target.manifestUrl))
+        manifest = PackManifestV2.model_validate(_load_json_url(target.manifestUrl))
         item_url = _select_manifest_item_url(manifest, target)
         pack_name = target.packName or _url_basename(item_url)
-        storage_prefix = _storage_prefix_from_pack_url(item_url, pack_name)
+        if not (target.creatorId and target.contentId and target.versionId):
+            raise ValueError("manifestUrl targets require creatorId/contentId/versionId in v2 mode")
+        storage_prefix = pack_storage_prefix(target.creatorId, target.contentId, target.versionId)
         return _loaded_from_content(_load_json_url(item_url), pack_name, storage_prefix)
 
     if target.creatorId and target.contentId and target.versionId and target.packName:
         storage_prefix = pack_storage_prefix(target.creatorId, target.contentId, target.versionId)
-        content = StorageClient().load_json_file(target.contentId, target.packName, storage_prefix)
+        storage = StorageClient()
+        content = _load_v2_pack_content(storage, target)
         return _loaded_from_content(content, target.packName, storage_prefix)
 
     raise ValueError("target must include packUrl, manifestUrl, or creatorId/contentId/versionId/packName")
+
+
+def _load_v2_pack_content(storage: StorageClient, target: TtsRecordingTarget) -> dict:
+    if not (target.creatorId and target.contentId and target.versionId and target.packName):
+        raise ValueError("v2 target requires creatorId/contentId/versionId/packName")
+    prefix = pack_root_prefix(target.creatorId, target.contentId)
+    manifest = PackManifestV2.model_validate(storage.read_manifest(prefix, target.versionId))
+    candidates = [item for item in manifest.items if item.name == target.packName]
+    if target.kind:
+        candidates = [item for item in candidates if item.kind == target.kind]
+    if len(candidates) != 1:
+        raise ValueError("v2 manifest target is ambiguous; provide packName or kind")
+    relative_path = _relative_path_from_v2_item(candidates[0], prefix)
+    return json.loads(storage.read_object(prefix, relative_path).decode("utf-8"))
+
+
+def _relative_path_from_v2_item(item: ManifestItemV2, prefix: str) -> str:
+    path = urlparse(item.url).path.strip("/")
+    if path.startswith("generated/"):
+        path = path.removeprefix("generated/")
+    marker = f"{prefix}/"
+    if marker in path:
+        relative = path.split(marker, 1)[1]
+        if relative.startswith("objects/"):
+            return relative
+    if item.kind == "document":
+        return doc_object_relative_path(item.fileVersionId)
+    if item.kind == "quiz":
+        return quiz_object_relative_path(item.fileVersionId)
+    raise ValueError(f"unsupported v2 manifest item kind: {item.kind}")
 
 
 def _load_json_url(url: str) -> dict:
@@ -207,7 +337,7 @@ def _pack_from_file(file: GeneratedFile) -> SokqaDocumentPack | SokqaQuizPack:
     return _pack_from_content(file.content)
 
 
-def _select_manifest_item_url(manifest: PackManifest, target: TtsRecordingTarget) -> str:
+def _select_manifest_item_url(manifest: PackManifestV2, target: TtsRecordingTarget) -> str:
     candidates = manifest.items
     if target.kind:
         candidates = [item for item in candidates if item.kind == target.kind]
@@ -248,6 +378,56 @@ def _estimate_response(
         "estimatedCredits": total_chars * rate,
         "units": [_unit_to_dict(unit) for unit in units],
     }
+
+
+def _load_current_manifest_v2(
+    storage: StorageClient,
+    loaded: LoadedPack,
+    creator_id: str,
+    content_id: str,
+) -> PackManifestV2:
+    _, _, source_version_id = _identity_from_storage_prefix(loaded.storage_prefix)
+    pack_root = pack_root_prefix(creator_id, content_id)
+    manifest = PackManifestV2.model_validate(storage.read_manifest(pack_root, source_version_id))
+    if manifest.schemaVersion != 2:
+        raise ValueError("target manifest must be schemaVersion 2")
+    return manifest
+
+
+def _manifest_item_for_target(manifest: PackManifestV2, pack_name: str, logical_id: str) -> ManifestItemV2:
+    for item in manifest.items:
+        if item.logicalId == logical_id:
+            return item
+    raise ValueError(f"manifest does not contain target pack file: {pack_name}")
+
+
+def _logical_id_from_pack_name(pack_name: str) -> str:
+    stem = _url_basename(pack_name)
+    if stem.lower().endswith(".json"):
+        stem = stem[:-5]
+    return validate_safe_token(stem)
+
+
+def _audio_version_id_from_path(audio_path: str) -> str:
+    name = audio_path.rsplit("/", 1)[-1]
+    if not name.endswith(".mp3"):
+        raise ValueError("audioPath must end with .mp3")
+    return validate_safe_token(name[:-4])
+
+
+def _validate_target_matches_loaded_prefix(
+    target: TtsRecordingTarget,
+    creator_id: str,
+    content_id: str,
+    storage_prefix: str,
+) -> None:
+    _, _, version_id = _identity_from_storage_prefix(storage_prefix)
+    if target.creatorId and target.creatorId != creator_id:
+        raise ValueError("target creatorId does not match loaded pack")
+    if target.contentId and target.contentId != content_id:
+        raise ValueError("target contentId does not match loaded pack")
+    if target.versionId and target.versionId != version_id:
+        raise ValueError("target versionId does not match loaded pack")
 
 
 def _unit_to_dict(unit: RecordingUnit) -> dict:
@@ -291,15 +471,6 @@ def _url_basename(url: str) -> str:
     return urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
 
 
-def _storage_prefix_from_pack_url(url: str, pack_name: str) -> str:
-    path = urlparse(url).path.strip("/")
-    if path.startswith("generated/"):
-        path = path.removeprefix("generated/")
-    if not path.endswith(pack_name):
-        raise ValueError("pack URL does not end with packName")
-    return path[: -len(pack_name)].rstrip("/")
-
-
 def _identity_from_storage_prefix(storage_prefix: str) -> tuple[str, str, str]:
     parts = storage_prefix.strip("/").split("/")
     base = get_settings().gcs_prefix.strip("/") or "sokqa"
@@ -318,50 +489,3 @@ def _public_url_for_prefix(storage: StorageClient, storage_prefix: str) -> str:
     if hasattr(storage, "public_url_for_prefix"):
         return storage.public_url_for_prefix(storage_prefix)
     return f"{get_settings().public_base_url.rstrip('/')}/{storage_prefix.strip('/')}"
-
-
-def _complete_recording_snapshot(
-    storage: StorageClient,
-    creator_id: str,
-    content_id: str,
-    source_prefix: str,
-    target_prefix: str,
-    version_id: str,
-    build_id: str,
-    generated_at: str,
-    updated_pack_name: str,
-) -> None:
-    try:
-        manifest = PackManifest.model_validate(storage.load_json_file(content_id, "manifest.json", source_prefix))
-    except Exception:
-        return
-
-    base_url = _public_url_for_prefix(storage, target_prefix).rstrip("/")
-    snapshot_files: list[GeneratedFile] = []
-    for item in manifest.items:
-        pack_name = _url_basename(item.url)
-        if not pack_name or pack_name == updated_pack_name:
-            item.url = f"{base_url}/{pack_name or updated_pack_name}"
-            continue
-        try:
-            content = storage.load_json_file(content_id, pack_name, source_prefix)
-        except Exception:
-            item.url = f"{base_url}/{pack_name}"
-            continue
-        if content.get("type") in {"document", "quiz"}:
-            content["assetBaseUrl"] = base_url
-            snapshot_files.append(GeneratedFile(name=pack_name, kind=content["type"], content=content))
-        item.url = f"{base_url}/{pack_name}"
-
-    if snapshot_files:
-        storage.save_files(content_id, snapshot_files, target_prefix)
-
-    manifest.versionId = version_id
-    manifest.buildId = build_id
-    manifest.generatedAt = generated_at
-    manifest_file = GeneratedFile(
-        name="manifest.json",
-        kind="manifest",
-        content=manifest.model_dump(exclude_none=True),
-    )
-    storage.save_files(content_id, [manifest_file], target_prefix)

@@ -1,8 +1,9 @@
+from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
 from app.schemas.sokqa import GeneratePackResponse, GeneratedFile
 from app.config import get_settings
 from app.services.document_generator import generate_document_pack
-from app.services.exporter import build_generated_files, build_manifest
+from app.services.exporter import build_generated_files
 from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
 from app.services.model_resolver import resolve_task_models
@@ -10,6 +11,8 @@ from app.services.pack_metadata import build_pack_metadata, resolve_plan_identit
 from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
+from app.services.revision_commit import build_revision_commit
+from app.services.revision_store import persist_revision_commit
 from app.services.source_material import normalize_source
 from app.services.storage_client import StorageClient
 from app.services.storage_status import pop_storage_events
@@ -17,6 +20,97 @@ from app.services.tts_optimizer import optimize_generated_files, optimize_genera
 from app.services.validator import validate_files
 from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
+
+
+def _logical_id_for_file(file: GeneratedFile) -> str:
+    name = file.name[:-5] if file.name.lower().endswith(".json") else file.name
+    return name
+
+
+def _added_file(file: GeneratedFile) -> AddedPackFile:
+    return AddedPackFile(
+        name=file.name,
+        kind=file.kind,
+        logicalId=_logical_id_for_file(file),
+        content=file.content,
+    )
+
+
+def _changed_file(file: GeneratedFile, current_manifest: PackManifestV2) -> ChangedPackFile:
+    logical_id = _logical_id_for_file(file)
+    item = next((item for item in current_manifest.items if item.logicalId == logical_id), None)
+    if item is None:
+        raise ValueError(f"file is not present in current manifest: {file.name}")
+    return ChangedPackFile(
+        name=file.name,
+        kind=file.kind,
+        logicalId=logical_id,
+        previousFileVersionId=item.fileVersionId,
+        content=file.content,
+    )
+
+
+def _files_from_revision_result(result) -> list[GeneratedFile]:
+    files: list[GeneratedFile] = []
+    objects_by_name = {obj.name: obj for obj in [*result.docObjects, *result.quizObjects]}
+    for item in result.items:
+        obj = objects_by_name.get(item.name)
+        content = obj.content if obj is not None else {}
+        files.append(GeneratedFile(name=item.name, kind=item.kind, content=content, url=item.url))
+    files.append(
+        GeneratedFile(
+            name="manifest.json",
+            kind="manifest",
+            content=result.manifest.model_dump(mode="json", exclude_none=True),
+            url=result.manifestUrl,
+        )
+    )
+    return files
+
+
+def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operation: str) -> CommitPackRevisionInput:
+    return CommitPackRevisionInput(
+        target=RevisionTarget(creatorId=metadata.creator_id, contentId=metadata.content_id),
+        operation=operation,
+        slug=metadata.slug,
+        title=plan.title,
+        description=plan.description,
+        language=plan.language,
+        author=plan.author,
+        scale=plan.scale,
+        globalTags=getattr(plan, "globalTags", []),
+        creatorDisplayName=metadata.creator_display_name,
+        addedFiles=[_added_file(file) for file in files],
+    )
+
+
+def _persist_initial_revision(plan, metadata, files: list[GeneratedFile], operation: str, persist: bool):
+    storage = StorageClient()
+    request = _initial_commit_request(plan, metadata, files, operation)
+    if persist:
+        return persist_revision_commit(storage, None, request)
+    return build_revision_commit(None, request)
+
+
+def _persist_changed_revision(
+    plan,
+    metadata,
+    files: list[GeneratedFile],
+    current_manifest: PackManifestV2,
+    persist: bool,
+):
+    request = CommitPackRevisionInput(
+        target=RevisionTarget(
+            creatorId=metadata.creator_id,
+            contentId=metadata.content_id,
+            versionId=current_manifest.versionId,
+        ),
+        operation="tts_fix",
+        changedFiles=[_changed_file(file, current_manifest) for file in files],
+    )
+    if persist:
+        return persist_revision_commit(StorageClient(), current_manifest, request)
+    return build_revision_commit(current_manifest, request)
 
 
 def _document_packs_for_quiz(plan, quiz_pack, document_packs):
@@ -117,30 +211,12 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         tts_report = None
         logs.append("Skipping TTS optimization")
 
+    logs.append("Persisting generated files" if request.persist else "Building Manifest")
+    commit_result = _persist_initial_revision(plan, metadata, files, "initial_generate", request.persist)
     if request.persist:
-        logs.append("Persisting generated files")
-        files = StorageClient().save_files(plan.id, files, metadata.storage_prefix)
         logs.extend(event.message for event in pop_storage_events())
-    else:
-        base_url = get_settings().public_base_url.rstrip("/")
-        for file in files:
-            file.url = f"{base_url}/{metadata.storage_prefix}/{file.name}"
-
-    logs.append("Exporting Manifest")
-    manifest = build_manifest(plan, files, metadata)
-    manifest_file = GeneratedFile(
-        name="manifest.json",
-        kind="manifest",
-        content=manifest.model_dump(exclude_none=True),
-    )
-    if request.persist:
-        manifest_file = StorageClient().save_files(plan.id, [manifest_file], metadata.storage_prefix)[0]
-        logs.extend(event.message for event in pop_storage_events())
-        manifest_file.content = manifest.model_dump(exclude_none=True)
-    else:
-        base_url = get_settings().public_base_url.rstrip("/")
-        manifest_file.url = f"{base_url}/{metadata.storage_prefix}/{manifest_file.name}"
-    files.append(manifest_file)
+    manifest = commit_result.manifest
+    files = _files_from_revision_result(commit_result)
 
     validation = validate_files(files, manifest)
     append_validation_logs(logs, validation)
@@ -177,30 +253,15 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     optimized_files = optimize_generated_files(content_files, plan.ttsRules, plan.ttsReadingMode)
 
     logs = [*existing.logs, "Revising TTS", "Optimizing TTS"]
-    if request.persist:
-        logs.append("Uploading to Cloud Storage")
-        optimized_files = StorageClient().save_files(plan.id, optimized_files, metadata.storage_prefix)
-        logs.extend(event.message for event in pop_storage_events())
-    else:
-        base_url = get_settings().public_base_url.rstrip("/")
-        for file in optimized_files:
-            file.url = f"{base_url}/{metadata.storage_prefix}/{file.name}"
+    if not isinstance(existing.manifest, PackManifestV2):
+        raise ValueError("revise_tts requires a schemaVersion 2 job manifest")
 
-    logs.append("Exporting Manifest")
-    manifest = build_manifest(plan, optimized_files, metadata)
-    manifest.version = plan.version
-    manifest_file = GeneratedFile(
-        name="manifest.json",
-        kind="manifest",
-        content=manifest.model_dump(exclude_none=True),
-    )
+    logs.append("Persisting TTS revision" if request.persist else "Building TTS revision")
+    commit_result = _persist_changed_revision(plan, metadata, optimized_files, existing.manifest, request.persist)
     if request.persist:
-        manifest_file = StorageClient().save_files(plan.id, [manifest_file], metadata.storage_prefix)[0]
         logs.extend(event.message for event in pop_storage_events())
-    else:
-        base_url = get_settings().public_base_url.rstrip("/")
-        manifest_file.url = f"{base_url}/{metadata.storage_prefix}/{manifest_file.name}"
-    optimized_files.append(manifest_file)
+    manifest = commit_result.manifest
+    optimized_files = _files_from_revision_result(commit_result)
 
     validation = validate_files(optimized_files, manifest)
     append_validation_logs(logs, validation)

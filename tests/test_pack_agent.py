@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from app.schemas.pack_v2 import PackManifestV2
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
-from app.schemas.sokqa import CoursePlan, PackManifest
+from app.schemas.sokqa import CoursePlan
 from app.services.pack_agent import generate_pack, plan_pack
 from app.services.pack_metadata import build_pack_metadata
 from main import app
@@ -119,7 +120,10 @@ def test_manifest_identity_and_storage_path_for_generated_pack(monkeypatch) -> N
     generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
     manifest = generated.manifest
 
-    assert manifest.id == "cnt_8f3a2c9d7e_manifest"
+    assert manifest.id == "cnt_8f3a2c9d7e_manifest_r1"
+    assert manifest.schemaVersion == 2
+    assert manifest.revision == 1
+    assert manifest.change.operation == "initial_generate"
     assert manifest.contentId == "cnt_8f3a2c9d7e"
     assert manifest.slug == "it-passport-basic"
     assert manifest.creator
@@ -131,13 +135,13 @@ def test_manifest_identity_and_storage_path_for_generated_pack(monkeypatch) -> N
     assert manifest.generatedAt
     assert manifest.generatedAt.endswith("+09:00")
 
-    expected_prefix = f"https://cdn.convly.jp/sokqa/creators/creator_8f3a2c9d/packs/cnt_8f3a2c9d7e/versions/{manifest.versionId}"
+    expected_root = "https://cdn.convly.jp/sokqa/creators/creator_8f3a2c9d/packs/cnt_8f3a2c9d7e"
     manifest_file = next(file for file in generated.files if file.kind == "manifest")
-    assert manifest_file.url == f"{expected_prefix}/manifest.json"
-    assert all(item.url.startswith(f"{expected_prefix}/") for item in manifest.items)
+    assert manifest_file.url == f"{expected_root}/versions/{manifest.versionId}/manifest.json"
+    assert all(item.url.startswith(f"{expected_root}/objects/") for item in manifest.items)
 
 
-def test_legacy_gcs_prefix_is_normalized_to_production_storage_path(monkeypatch) -> None:
+def test_old_gcs_prefix_is_normalized_to_production_storage_path(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gcs_prefix", "sokqa/packs")
 
@@ -203,10 +207,10 @@ def test_standard_plan_shape() -> None:
     _assert_partitioned_quiz_packs(plan, expected_count=3, expected_questions=30)
 
 
-def test_legacy_plan_and_manifest_with_or_without_quality_remain_valid() -> None:
+def test_plan_and_v2_manifest_ignore_removed_quality_field() -> None:
     plan = CoursePlan.model_validate(
         {
-            "id": "legacy_pack",
+            "id": "quality_removed_pack",
             "title": "Legacy Pack",
             "description": "Legacy course plan",
             "targetUser": "Legacy learners",
@@ -219,10 +223,17 @@ def test_legacy_plan_and_manifest_with_or_without_quality_remain_valid() -> None
     assert plan.scale is None
     assert not hasattr(plan, "quality")
 
-    manifest = PackManifest.model_validate(
+    manifest = PackManifestV2.model_validate(
         {
-            "id": "legacy_manifest",
+            "id": "quality_removed_manifest",
             "title": "Legacy Pack",
+            "contentId": "cnt_quality_removed",
+            "creator": {"id": "creator_default", "displayName": None},
+            "revision": 1,
+            "versionId": "v20260613_120000",
+            "buildId": "build_20260613_120000",
+            "generatedAt": "2026-06-13T12:00:00+09:00",
+            "change": {"operation": "initial_generate"},
             "quality": "coverage",
             "items": [],
         }

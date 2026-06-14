@@ -6,7 +6,7 @@ from main import app
 client = TestClient(app)
 
 
-def test_tts_revision_bumps_manifest_version() -> None:
+def test_tts_revision_creates_new_manifest_revision() -> None:
     plan_response = client.post(
         "/plan-pack",
         json={
@@ -41,5 +41,9 @@ def test_tts_revision_bumps_manifest_version() -> None:
 
     assert revised_response.status_code == 200
     revised = revised_response.json()
-    assert revised["manifest"]["version"] == "1.0.1"
+    assert revised["manifest"]["schemaVersion"] == 2
+    assert revised["manifest"]["revision"] == generated["manifest"]["revision"] + 1
+    assert revised["manifest"]["versionId"] != generated["manifest"]["versionId"]
+    assert revised["manifest"]["sourceVersionId"] == generated["manifest"]["versionId"]
+    assert revised["manifest"]["change"]["operation"] == "tts_fix"
     assert revised["validation"]["valid"] is True

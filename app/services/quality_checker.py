@@ -156,8 +156,9 @@ TTS null rules:
 - Do not create low/info issues for missing audio or unrecorded units. recording-estimate handles recording state separately.
 
 TTS fix suggestion rules:
-- For reading, double_utterance, notation, and tts_text_mismatch, put the exact replacement TTS text in suggestion whenever possible.
-- For tts.choiceTexts[index] issues, suggestion must be the replacement string for that one index only. Do not return the full choiceTexts array.
+- For reading, double_utterance, notation, and tts_text_mismatch, excerpt must contain the exact source fragment to replace.
+- suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
+- For tts.choiceTexts[index] issues, suggestion must be the replacement text for the excerpt inside that one choice index only. Do not return the full choice text or the full choiceTexts array unless the excerpt itself is the full choice text.
 - If an exact replacement cannot be produced safely, keep suggestion as a concise explanation; the fix step may leave it unapplied.
 """.strip()
         focus = "Inspect only audio/TTS quality. Do not report factual/style/leak display-text issues unless they directly affect TTS."
@@ -236,9 +237,9 @@ def _mock_quality_response(file_name: str, model: str, max_issues: int, *, mode:
             "severity": "medium",
             "confidence": 0.82,
             "location": {"fileName": file_name, "unitId": "doc-2", "field": "text"},
-            "excerpt": "SQLとJSONを利用します。",
+            "excerpt": "SQLとJSON",
             "issue": "略語がTTSで意図しない読みになる可能性があります。",
-            "suggestion": "エスキューエルとジェイソンを利用します。",
+            "suggestion": "エスキューエルとジェイソン",
         },
         {
             "category": "double_utterance",
@@ -287,9 +288,9 @@ def _mock_quality_response(file_name: str, model: str, max_issues: int, *, mode:
                     "severity": "medium",
                     "confidence": 0.68,
                     "location": {"fileName": file_name, "unitId": "doc-5", "field": "tts.text"},
-                    "excerpt": "text and tts.text differ in meaning",
+                    "excerpt": "meaning-changing fragment",
                     "issue": "tts.text が元テキストと意味的にずれている可能性があります。",
-                    "suggestion": "元テキストの意味を保った読み上げテキスト",
+                    "suggestion": "meaning-preserving fragment",
                 }
             )
         )

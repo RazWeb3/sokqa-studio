@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
-from app.services.pack_metadata import pack_storage_prefix
+from app.services.pack_paths import pack_root_prefix
 from app.services.tts_recorder import RecordingResult, RecordingSummary
 from main import app
 
@@ -44,30 +45,44 @@ def _write_pack(tmp_path: Path, monkeypatch) -> tuple[str, str]:
     monkeypatch.setattr(settings, "tts_credit_per_char", 0.0001)
     monkeypatch.setattr(settings, "cloud_tts_recording_request_max_units", 2)
 
-    prefix = pack_storage_prefix("creator_test", "content_test", "v20260607_120000")
+    prefix = pack_root_prefix("creator_test", "content_test")
     target_dir = tmp_path / "generated" / prefix
     target_dir.mkdir(parents=True)
-    pack_path = target_dir / "quiz.json"
-    pack_path.write_text(__import__("json").dumps(_quiz_content(), ensure_ascii=False), encoding="utf-8")
+    file_version_id = "fv_20260607_120000_quiz_quiz_01"
+    content = _quiz_content()
+    content["assetBaseUrl"] = f"http://localhost:8000/generated/{prefix}"
+    object_path = target_dir / "objects" / "quiz" / f"{file_version_id}.json"
+    object_path.parent.mkdir(parents=True, exist_ok=True)
+    object_path.write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
     manifest = {
-        "id": "content_test_manifest",
+        "id": "content_test_manifest_r1",
         "type": "pack_manifest",
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "contentId": "content_test",
         "slug": "content-test",
+        "revision": 1,
         "versionId": "v20260607_120000",
         "buildId": "build_20260607_120000",
         "generatedAt": "2026-06-07T12:00:00+09:00",
         "creator": {"id": "creator_test", "displayName": None},
         "title": "録音APIクイズ",
+        "description": "録音APIクイズの説明",
+        "language": "ja",
+        "change": {"operation": "initial_generate"},
         "items": [
             {
                 "kind": "quiz",
-                "url": f"http://localhost:8000/generated/{prefix}/quiz.json",
+                "name": "quiz.json",
+                "title": "録音APIクイズ",
+                "logicalId": "quiz",
+                "fileVersionId": file_version_id,
+                "url": f"http://localhost:8000/generated/{prefix}/objects/quiz/{file_version_id}.json",
             }
         ],
     }
-    (target_dir / "manifest.json").write_text(__import__("json").dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    manifest_path = target_dir / "versions" / "v20260607_120000" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     return prefix, "quiz.json"
 
 
@@ -165,6 +180,10 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
         captured["texts"] = [unit.text for unit in units]
         captured["forceRerecord"] = kwargs.get("force_rerecord")
         captured["storage_prefix"] = storage_prefix
+        audio_path = kwargs["audio_path_factory"](units[1])
+        file.content["assetBaseUrl"] = f"http://localhost:8000/generated/{storage_prefix}"
+        file.content["questions"][0]["tts"]["choiceAudioPaths"] = [audio_path, None, None, None]
+        file.content["questions"][0]["tts"]["choiceAudioUrls"] = None
         return RecordingSummary(
             total_units=len(units),
             skipped_units=1,
@@ -176,14 +195,19 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
                 RecordingResult(
                     unit_id="q_q-1_choice_0",
                     success=True,
-                    audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
-                    audio_path="audio/q_q-1_choice_0.mp3",
+                    audio_url=f"http://localhost:8000/generated/{storage_prefix}/{audio_path}",
+                    audio_path=audio_path,
+                    audio_data=b"mp3",
                     used_text_source=units[1].used_text_source,
                 ),
             ],
         )
 
     monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
+    monkeypatch.setattr(
+        "app.services.storage_client.StorageClient.copy_prefix",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("copy_prefix must not be called")),
+    )
 
     response = client.post(
         "/tts/record",
@@ -199,30 +223,39 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
     assert captured["unitIds"] == ["q_q-1_question", "q_q-1_choice_0"]
     assert captured["texts"] == ["AI の説明はどれですか?", "人工知能"]
     assert captured["forceRerecord"] is False
-    assert captured["storage_prefix"] != pack_storage_prefix("creator_test", "content_test", "v20260607_120000")
+    assert captured["storage_prefix"] == "sokqa/creators/creator_test/packs/content_test"
     assert data["textSource"] == "raw"
     assert data["versionId"].startswith("v")
     assert data["versionId"] != "v20260607_120000"
-    assert data["assetBaseUrl"].endswith(f"/versions/{data['versionId']}")
+    assert data["assetBaseUrl"].endswith("/sokqa/creators/creator_test/packs/content_test")
     assert data["target"]["versionId"] == data["versionId"]
     assert data["summary"]["skippedUnits"] == 1
     assert data["summary"]["successCount"] == 1
-    assert data["audioUrls"] == [
-        {
-            "unitId": "q_q-1_choice_0",
-            "audioUrl": f"https://cdn.example.test/{data['storagePrefix']}/audio/q_q-1_choice_0.mp3",
-            "audioPath": "audio/q_q-1_choice_0.mp3",
-            "usedTextSource": "raw",
-        }
-    ]
-    new_manifest = tmp_path / "generated" / data["storagePrefix"] / "manifest.json"
+    assert data["audioUrls"][0]["unitId"] == "q_q-1_choice_0"
+    assert data["audioUrls"][0]["audioPath"].startswith("objects/audio/")
+    assert data["audioUrls"][0]["audioUrl"].endswith(data["audioUrls"][0]["audioPath"])
+    assert data["audioUrls"][0]["usedTextSource"] == "raw"
+    new_manifest = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
     assert new_manifest.exists()
     manifest = __import__("json").loads(new_manifest.read_text(encoding="utf-8"))
+    assert manifest["schemaVersion"] == 2
     assert manifest["versionId"] == data["versionId"]
     assert manifest["buildId"] == data["buildId"]
     assert manifest["generatedAt"] == data["generatedAt"]
-    assert manifest["items"][0]["url"] == f"http://localhost:8000/generated/{data['storagePrefix']}/quiz.json"
-    assert (tmp_path / "generated" / pack_storage_prefix("creator_test", "content_test", "v20260607_120000") / "manifest.json").exists()
+    assert manifest["revision"] == 2
+    assert manifest["sourceVersionId"] == "v20260607_120000"
+    assert manifest["title"] == "録音APIクイズ"
+    assert manifest["description"] == "録音APIクイズの説明"
+    assert manifest["language"] == "ja"
+    assert manifest["change"]["operation"] == "recording"
+    assert manifest["items"][0]["title"] == "録音APIクイズ"
+    assert manifest["items"][0]["url"].startswith(f"http://localhost:8000/generated/{data['storagePrefix']}/objects/quiz/")
+    assert (tmp_path / "generated" / data["storagePrefix"] / data["audioUrls"][0]["audioPath"]).exists()
+    assert (
+        tmp_path
+        / "generated"
+        / "sokqa/creators/creator_test/packs/content_test/versions/v20260607_120000/manifest.json"
+    ).exists()
 
 
 def test_recording_endpoint_can_force_rerecord_recorded_units(tmp_path, monkeypatch) -> None:
@@ -270,6 +303,11 @@ def test_recording_endpoint_can_force_rerecord_recorded_units(tmp_path, monkeypa
 
 def test_recording_reset_clears_audio_urls_and_persists_pack(tmp_path, monkeypatch) -> None:
     _, pack_name = _write_pack(tmp_path, monkeypatch)
+    old_prefix = "sokqa/creators/creator_test/packs/content_test"
+    monkeypatch.setattr(
+        "app.services.storage_client.StorageClient.copy_prefix",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("copy_prefix must not be called")),
+    )
 
     response = client.post(
         "/tts/recording-reset",
@@ -281,10 +319,27 @@ def test_recording_reset_clears_audio_urls_and_persists_pack(tmp_path, monkeypat
 
     assert data["clearedCount"] == 1
     assert data["requestedUnitCount"] == 1
+    assert data["versionId"] != "v20260607_120000"
+    assert data["storagePrefix"] == "sokqa/creators/creator_test/packs/content_test"
+    assert data["target"]["versionId"] == data["versionId"]
     assert data["units"][0]["itemId"] == "q_q-1_question"
     assert data["units"][0]["isRecorded"] is False
 
-    estimate = client.post("/tts/recording-estimate", json={"target": _target(pack_name)}).json()
+    manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
+    assert manifest_path.exists()
+    manifest = __import__("json").loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schemaVersion"] == 2
+    assert manifest["revision"] == 2
+    assert manifest["sourceVersionId"] == "v20260607_120000"
+    assert manifest["change"]["operation"] == "recording_reset"
+    object_path = manifest["items"][0]["url"].split(f"{data['storagePrefix']}/", 1)[1]
+    updated_pack = __import__("json").loads((tmp_path / "generated" / data["storagePrefix"] / object_path).read_text(encoding="utf-8"))
+    assert "questionAudioUrl" not in updated_pack["questions"][0]["tts"]
+    assert updated_pack["questions"][0]["tts"]["questionText"] == "エーアイ の説明はどれですか?"
+    assert "ttsNeedsRefresh" not in updated_pack["questions"][0]["tts"]
+    assert (tmp_path / "generated" / old_prefix / "versions" / "v20260607_120000" / "manifest.json").exists()
+
+    estimate = client.post("/tts/recording-estimate", json={"target": data["target"]}).json()
     question = next(unit for unit in estimate["units"] if unit["itemId"] == "q_q-1_question")
     assert question["isRecorded"] is False
 
@@ -306,6 +361,72 @@ def test_recording_reset_alias_paths_are_available(tmp_path, monkeypatch) -> Non
     )
 
     assert response.status_code == 200
+
+
+def test_recording_then_reset_creates_consecutive_v2_revisions_and_keeps_old_audio_object(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+
+    def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
+        audio_path = kwargs["audio_path_factory"](units[0])
+        file.content["assetBaseUrl"] = f"http://localhost:8000/generated/{storage_prefix}"
+        file.content["questions"][0]["tts"]["choiceAudioPaths"] = [audio_path, None, None, None]
+        return RecordingSummary(
+            total_units=len(units),
+            skipped_units=0,
+            success_count=1,
+            failure_count=0,
+            failed_unit_ids=[],
+            results=[
+                RecordingResult(
+                    unit_id="q_q-1_choice_0",
+                    success=True,
+                    audio_url=f"http://localhost:8000/generated/{storage_prefix}/{audio_path}",
+                    audio_path=audio_path,
+                    audio_data=b"mp3",
+                    used_text_source=units[0].used_text_source,
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
+
+    recording = client.post(
+        "/tts/record",
+        json={"target": _target(pack_name), "unitIds": ["q_q-1_choice_0"]},
+    )
+    assert recording.status_code == 200
+    recording_data = recording.json()
+    audio_path = recording_data["audioUrls"][0]["audioPath"]
+    audio_file = tmp_path / "generated" / recording_data["storagePrefix"] / audio_path
+    assert audio_file.exists()
+
+    reset = client.post(
+        "/tts/recording-reset",
+        json={"target": recording_data["target"], "unitIds": ["q_q-1_choice_0"]},
+    )
+    assert reset.status_code == 200
+    reset_data = reset.json()
+
+    assert reset_data["versionId"] != recording_data["versionId"]
+    recording_manifest_path = (
+        tmp_path / "generated" / recording_data["storagePrefix"] / "versions" / recording_data["versionId"] / "manifest.json"
+    )
+    reset_manifest_path = (
+        tmp_path / "generated" / reset_data["storagePrefix"] / "versions" / reset_data["versionId"] / "manifest.json"
+    )
+    recording_manifest = __import__("json").loads(recording_manifest_path.read_text(encoding="utf-8"))
+    reset_manifest = __import__("json").loads(reset_manifest_path.read_text(encoding="utf-8"))
+
+    assert recording_manifest["revision"] == 2
+    assert recording_manifest["change"]["operation"] == "recording"
+    assert reset_manifest["revision"] == 3
+    assert reset_manifest["sourceVersionId"] == recording_data["versionId"]
+    assert reset_manifest["change"]["operation"] == "recording_reset"
+    assert audio_file.exists()
+
+    listing = client.get("/packs?creatorId=creator_test").json()
+    assert listing["items"][0]["versionId"] == reset_data["versionId"]
+    assert listing["items"][0]["revision"] == 3
 
 
 def test_recording_endpoint_rejects_too_many_units(tmp_path, monkeypatch) -> None:

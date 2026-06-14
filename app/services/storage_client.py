@@ -4,11 +4,13 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from google.cloud import storage
 
 from app.config import get_settings
 from app.schemas.sokqa import GeneratedFile
+from app.services.pack_paths import assert_resolved_under_root, manifest_relative_path, validate_relative_path
 from app.services.storage_status import record_storage_event
 
 
@@ -45,6 +47,40 @@ class StorageClient:
         if self.settings.storage_backend == "gcs":
             return self._copy_gcs_prefix(source_prefix, target_prefix)
         return self._copy_local_prefix(source_prefix, target_prefix)
+
+    def save_object(self, prefix: str, relative_path: str, data: bytes | str, content_type: str) -> str:
+        safe_prefix = validate_relative_path(prefix)
+        safe_relative_path = validate_relative_path(relative_path)
+        payload = data.encode("utf-8") if isinstance(data, str) else data
+        if self.settings.storage_backend == "gcs":
+            return self._save_gcs_object(safe_prefix, safe_relative_path, payload, content_type)
+        return self._save_local_object(safe_prefix, safe_relative_path, payload, content_type)
+
+    def save_manifest(self, prefix: str, version_id: str, manifest_json: dict[str, Any] | str) -> str:
+        relative_path = manifest_relative_path(version_id)
+        payload = (
+            manifest_json
+            if isinstance(manifest_json, str)
+            else json.dumps(manifest_json, ensure_ascii=False, indent=2)
+        )
+        return self.save_object(prefix, relative_path, payload, "application/json; charset=utf-8")
+
+    def read_manifest(self, prefix: str, version_id: str) -> dict:
+        payload = self.read_object(prefix, manifest_relative_path(version_id))
+        return json.loads(payload.decode("utf-8"))
+
+    def read_object(self, prefix: str, relative_path: str) -> bytes:
+        safe_prefix = validate_relative_path(prefix)
+        safe_relative_path = validate_relative_path(relative_path)
+        if self.settings.storage_backend == "gcs":
+            return self._read_gcs_object(safe_prefix, safe_relative_path)
+        return self._read_local_object(safe_prefix, safe_relative_path)
+
+    def list_manifests(self, prefix: str) -> list[str]:
+        safe_prefix = validate_relative_path(prefix)
+        if self.settings.storage_backend == "gcs":
+            return self._list_gcs_manifests(safe_prefix)
+        return self._list_local_manifests(safe_prefix)
 
     def _save_local(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         relative_prefix = (storage_prefix or pack_id).strip("/")
@@ -118,6 +154,37 @@ class StorageClient:
         record_storage_event(f"local copied prefix: {source_prefix} -> {target_prefix} ({len(copied)} objects)")
         return copied
 
+    def _save_local_object(self, prefix: str, relative_path: str, data: bytes, content_type: str) -> str:
+        root = Path.cwd() / self.settings.local_storage_dir / prefix
+        target = assert_resolved_under_root(root, relative_path)
+        storage_available = ensure_dir(target.parent)
+        if storage_available:
+            try:
+                target.write_bytes(data)
+                record_storage_event(f"local saved v2 object: {prefix}/{relative_path} ({content_type})")
+            except OSError as exc:
+                record_storage_event(f"local v2 object save failed: {prefix}/{relative_path}: {exc}")
+                raise
+        else:
+            raise FileNotFoundError(target)
+        return f"{self.settings.public_base_url.rstrip('/')}/{prefix}/{relative_path}"
+
+    def _read_local_object(self, prefix: str, relative_path: str) -> bytes:
+        root = Path.cwd() / self.settings.local_storage_dir / prefix
+        target = assert_resolved_under_root(root, relative_path)
+        return target.read_bytes()
+
+    def _list_local_manifests(self, prefix: str) -> list[str]:
+        root = Path.cwd() / self.settings.local_storage_dir / prefix
+        versions = root / "versions"
+        if not versions.exists():
+            return []
+        manifests: list[str] = []
+        for path in versions.glob("*/manifest.json"):
+            if path.is_file():
+                manifests.append(path.relative_to(root).as_posix())
+        return sorted(manifests)
+
     def _save_gcs(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         if not self.settings.gcs_bucket:
             raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
@@ -183,6 +250,35 @@ class StorageClient:
             copied.append(destination_name)
         record_storage_event(f"gcs copied prefix: {source_prefix} -> {target_prefix} ({len(copied)} objects)")
         return copied
+
+    def _save_gcs_object(self, prefix: str, relative_path: str, data: bytes, content_type: str) -> str:
+        if not self.settings.gcs_bucket:
+            raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
+        client = storage.Client()
+        bucket = client.bucket(self.settings.gcs_bucket)
+        blob_name = f"{prefix}/{relative_path}"
+        bucket.blob(blob_name).upload_from_string(data, content_type=content_type)
+        record_storage_event(f"gcs saved v2 object: {blob_name} ({content_type})")
+        return f"{self.settings.public_base_url.rstrip('/')}/{prefix}/{relative_path}"
+
+    def _read_gcs_object(self, prefix: str, relative_path: str) -> bytes:
+        if not self.settings.gcs_bucket:
+            raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
+        client = storage.Client()
+        bucket = client.bucket(self.settings.gcs_bucket)
+        return bucket.blob(f"{prefix}/{relative_path}").download_as_bytes()
+
+    def _list_gcs_manifests(self, prefix: str) -> list[str]:
+        if not self.settings.gcs_bucket:
+            raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
+        client = storage.Client()
+        bucket = client.bucket(self.settings.gcs_bucket)
+        manifests: list[str] = []
+        for blob in bucket.list_blobs(prefix=f"{prefix}/versions/"):
+            relative = blob.name.removeprefix(f"{prefix}/")
+            if relative.endswith("/manifest.json"):
+                manifests.append(relative)
+        return sorted(manifests)
 
 
 def ensure_dir(path: Path) -> bool:

@@ -20,13 +20,28 @@ from app.schemas.quality_fix import (
     ReRecordNeededUnit,
     UnappliedFix,
 )
-from app.schemas.sokqa import DocumentTts, GeneratedFile, PackManifest, QuizTts, SokqaDocumentPack, SokqaQuizPack
+from app.schemas.pack_v2 import (
+    ChangedPackFile,
+    ChangedUnit,
+    CommitPackRevisionInput,
+    ReRecordNeededUnit as ManifestReRecordNeededUnit,
+)
+from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentPack, SokqaQuizPack
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
-from app.services.pack_metadata import build_pack_version_metadata
+from app.services.pack_paths import pack_root_prefix
 from app.services.quality_checker import _generate_json_with_retry
+from app.services.revision_store import persist_revision_commit
 from app.services.storage_client import StorageClient
-from app.services.tts_recording_api import _identity_from_storage_prefix, _url_basename, load_target_pack
+from app.services.tts_recording_api import (
+    _identity_from_storage_prefix,
+    _load_current_manifest_v2,
+    _manifest_item_for_target,
+    _relative_path_from_v2_item,
+    _url_basename,
+    _validate_target_matches_loaded_prefix,
+    load_target_pack,
+)
 from app.services.validator import validate_files
 
 
@@ -138,15 +153,27 @@ def _generate_tts_fix_without_llm(
             logger.info("tts fix skipped issue: unresolved location %s", location.model_dump())
             continue
 
-        before = _get_tts_field(loaded.file.content, location) or _get_raw_field(loaded.file.content, location)
-        after = _fix_after_text(issue.suggestion, location)
-        if after is None or not _is_applicable_tts_suggestion(issue.suggestion, after):
+        before = _get_tts_field(updated_json, location) or _get_raw_field(updated_json, location)
+        replacement = _fix_after_text(issue.suggestion, location)
+        if replacement is None or not _is_applicable_tts_suggestion(issue.suggestion, replacement):
             unapplied.append(
                 _unapplied_fix(
                     issue,
-                    loaded.file.content,
+                    updated_json,
                     index,
                     reason="suggestion が空、または適用可能な修正後テキストではありません。",
+                )
+            )
+            continue
+
+        after = _apply_partial_tts_replacement(before, issue.excerpt, replacement)
+        if after is None:
+            unapplied.append(
+                _unapplied_fix(
+                    issue,
+                    updated_json,
+                    index,
+                    reason="excerpt が対象テキスト内に見つからないため、破壊的な全体上書きを避けて未適用にしました。",
                 )
             )
             continue
@@ -238,38 +265,84 @@ def save_quality_fix_version(
 ) -> QualityFixSaveResponse:
     loaded = load_target_pack(target)
     creator_id, content_id, _ = _identity_from_storage_prefix(loaded.storage_prefix)
-    metadata = build_pack_version_metadata(creator_id, content_id)
     storage = storage_client or StorageClient()
-    storage.copy_prefix(loaded.storage_prefix, metadata.storage_prefix)
-    asset_base_url = storage.public_url_for_prefix(metadata.storage_prefix).rstrip("/")
+    _validate_target_matches_loaded_prefix(target, creator_id, content_id, loaded.storage_prefix)
+    current_manifest = _load_current_manifest_v2(storage, loaded, creator_id, content_id)
 
-    generated_files: list[GeneratedFile] = []
+    text_changed = False
     response_files: list[QualityFixSaveFile] = []
+    changed_files: list[ChangedPackFile] = []
+    changed_units: list[ChangedUnit] = []
+    manifest_rerecord_units: list[ManifestReRecordNeededUnit] = []
     for file in files:
         content = copy.deepcopy(file.content)
         if content.get("type") != file.kind:
             raise ValueError(f"{file.name} kind does not match content type")
-        content["assetBaseUrl"] = asset_base_url
+        original = _load_original_file_content(storage, current_manifest, loaded.storage_prefix, creator_id, content_id, file)
+        raw_changed_units = _raw_text_changed_units(file.name, original, content)
+        if raw_changed_units:
+            text_changed = True
+            for unit in raw_changed_units:
+                _reset_unit_tts(content, QualityLocation(fileName=file.name, unitId=unit.unitId, field=unit.fields[0] if unit.fields else None))
+                manifest_rerecord_units.append(
+                    ManifestReRecordNeededUnit(fileName=file.name, unitId=unit.unitId, reason="text_changed")
+                )
+            changed_units.extend(raw_changed_units)
+        else:
+            for fix in applied_fixes:
+                if fix.location.fileName == file.name:
+                    _clear_audio_for_tts_fix(content, fix.location)
+                    manifest_rerecord_units.append(
+                        ManifestReRecordNeededUnit(fileName=file.name, unitId=fix.location.unitId, reason="tts_changed")
+                    )
+                    changed_units.append(
+                        ChangedUnit(
+                            fileName=file.name,
+                            unitId=fix.location.unitId,
+                            fields=[fix.field],
+                            category=fix.category,
+                        )
+                    )
         _validate_pack_json(file.name, content)
-        generated_files.append(GeneratedFile(name=file.name, kind=file.kind, content=content))
+        logical_id = _logical_id_from_file_name(file.name)
+        current_item = _manifest_item_for_target(current_manifest, file.name, logical_id)
+        changed_files.append(
+            ChangedPackFile(
+                name=file.name,
+                kind=file.kind,
+                logicalId=logical_id,
+                previousFileVersionId=current_item.fileVersionId,
+                content=content,
+            )
+        )
         response_files.append(QualityFixSaveFile(name=file.name, kind=file.kind, content=content))
 
-    storage.save_files(content_id, generated_files, metadata.storage_prefix)
-    _complete_fix_snapshot(
+    operation = "text_fix" if text_changed else "tts_fix"
+    commit_result = persist_revision_commit(
         storage,
-        content_id,
-        loaded.storage_prefix,
-        metadata.storage_prefix,
-        metadata.version_id,
-        metadata.build_id,
-        metadata.generated_at,
-        {file.name for file in files},
+        current_manifest,
+        CommitPackRevisionInput(
+            target={
+                "creatorId": creator_id,
+                "contentId": content_id,
+                "versionId": current_manifest.versionId,
+            },
+            operation=operation,
+            changedFiles=changed_files,
+            changedUnits=changed_units,
+            reRecordNeededUnits=_dedupe_manifest_rerecord_units(manifest_rerecord_units),
+        ),
+        public_base_url=get_settings().public_base_url,
     )
+    saved_by_name = {obj.name: obj.content for obj in [*commit_result.docObjects, *commit_result.quizObjects]}
     return QualityFixSaveResponse(
-        newVersionId=metadata.version_id,
-        newAssetBaseUrl=asset_base_url,
-        storagePrefix=metadata.storage_prefix,
-        files=response_files,
+        newVersionId=commit_result.versionId,
+        newAssetBaseUrl=commit_result.assetBaseUrl,
+        storagePrefix=pack_root_prefix(creator_id, content_id),
+        files=[
+            QualityFixSaveFile(name=file.name, kind=file.kind, content=saved_by_name.get(file.name, file.content))
+            for file in response_files
+        ],
         reRecordNeededUnits=[
             ReRecordNeededUnit(
                 fileName=fix.location.fileName,
@@ -303,8 +376,104 @@ def _validate_tts_fix_input(content: dict[str, Any]) -> None:
         for index, value in enumerate(choice_texts):
             if value is None:
                 continue
-            if not isinstance(value, str):
-                raise ValueError(f"{path}.{index} must be a string or null")
+        if not isinstance(value, str):
+            raise ValueError(f"{path}.{index} must be a string or null")
+
+
+def _load_original_file_content(
+    storage: StorageClient,
+    current_manifest,
+    storage_prefix: str,
+    creator_id: str,
+    content_id: str,
+    file: QualityFixSaveFile,
+) -> dict[str, Any]:
+    logical_id = _logical_id_from_file_name(file.name)
+    item = _manifest_item_for_target(current_manifest, file.name, logical_id)
+    prefix = pack_root_prefix(creator_id, content_id)
+    relative_path = _relative_path_from_v2_item(item, prefix)
+    return json.loads(storage.read_object(prefix, relative_path).decode("utf-8"))
+
+
+def _logical_id_from_file_name(file_name: str) -> str:
+    stem = _url_basename(file_name)
+    if stem.lower().endswith(".json"):
+        stem = stem[:-5]
+    return stem
+
+
+def _raw_text_changed_units(file_name: str, original: dict[str, Any], updated: dict[str, Any]) -> list[ChangedUnit]:
+    if original.get("type") == "document":
+        original_by_id = {item.get("id"): item for item in original.get("documents") or [] if isinstance(item, dict)}
+        changed: list[ChangedUnit] = []
+        for item in updated.get("documents") or []:
+            if not isinstance(item, dict):
+                continue
+            before = original_by_id.get(item.get("id")) or {}
+            if item.get("text") != before.get("text"):
+                changed.append(ChangedUnit(fileName=file_name, unitId=item.get("id"), fields=["text"], category="text_fix"))
+        return changed
+
+    if original.get("type") == "quiz":
+        original_by_id = {item.get("id"): item for item in original.get("questions") or [] if isinstance(item, dict)}
+        changed = []
+        for item in updated.get("questions") or []:
+            if not isinstance(item, dict):
+                continue
+            before = original_by_id.get(item.get("id")) or {}
+            fields: list[str] = []
+            for field in ("question", "explanation"):
+                if item.get(field) != before.get(field):
+                    fields.append(field)
+            if item.get("choices") != before.get("choices"):
+                fields.append("choices")
+            if fields:
+                changed.append(ChangedUnit(fileName=file_name, unitId=item.get("id"), fields=fields, category="text_fix"))
+        return changed
+    return []
+
+
+def _clear_audio_for_tts_fix(content: dict[str, Any], location: QualityLocation) -> None:
+    unit = _find_unit(content, location.unitId)
+    if not unit or not isinstance(unit.get("tts"), dict):
+        return
+    tts = dict(unit.get("tts") or {})
+    if content.get("type") == "document":
+        tts.pop("audioUrl", None)
+        tts.pop("audioPath", None)
+        unit["tts"] = DocumentTts.model_validate(tts).model_dump(exclude_none=True)
+        return
+
+    field = location.field or "question"
+    if _is_choice_field(field):
+        index = _choice_index(field)
+        for key in ("choiceAudioUrls", "choiceAudioPaths"):
+            values = list(tts.get(key) or [])
+            if 0 <= index < len(values):
+                values[index] = None
+                if any(values):
+                    tts[key] = values
+                else:
+                    tts.pop(key, None)
+    elif field == "explanation":
+        tts.pop("explanationAudioUrl", None)
+        tts.pop("explanationAudioPath", None)
+    else:
+        tts.pop("questionAudioUrl", None)
+        tts.pop("questionAudioPath", None)
+    unit["tts"] = QuizTts.model_validate(tts).model_dump(exclude_none=True)
+
+
+def _dedupe_manifest_rerecord_units(units: list[ManifestReRecordNeededUnit]) -> list[ManifestReRecordNeededUnit]:
+    deduped: list[ManifestReRecordNeededUnit] = []
+    seen: set[tuple[str, str | None, str]] = set()
+    for unit in units:
+        key = (unit.fileName, unit.unitId, unit.reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(unit)
+    return deduped
 
 
 def _fix_response_from_data(
@@ -466,6 +635,16 @@ def _fix_after_text(value: Any, location: QualityLocation) -> str | None:
             return None
         return text
     return _non_empty_text(value)
+
+
+def _apply_partial_tts_replacement(base: str | None, excerpt: str | None, replacement: str) -> str | None:
+    base_text = _non_empty_text(base)
+    excerpt_text = _non_empty_text(excerpt)
+    if base_text is None or excerpt_text is None:
+        return None
+    if excerpt_text not in base_text:
+        return None
+    return base_text.replace(excerpt_text, replacement, 1)
 
 
 def _is_applicable_tts_suggestion(raw_value: Any, after: str) -> bool:
@@ -802,54 +981,3 @@ def _choice_index(field: str | None) -> int:
         return max(0, min(3, int(match)))
     except ValueError:
         return 0
-
-
-def _complete_fix_snapshot(
-    storage: StorageClient,
-    content_id: str,
-    source_prefix: str,
-    target_prefix: str,
-    version_id: str,
-    build_id: str,
-    generated_at: str,
-    updated_pack_names: set[str],
-) -> None:
-    try:
-        manifest = PackManifest.model_validate(storage.load_json_file(content_id, "manifest.json", source_prefix))
-    except Exception:
-        return
-
-    base_url = storage.public_url_for_prefix(target_prefix).rstrip("/")
-    snapshot_files: list[GeneratedFile] = []
-    for item in manifest.items:
-        pack_name = _url_basename(item.url)
-        if not pack_name:
-            continue
-        item.url = f"{base_url}/{pack_name}"
-        if pack_name in updated_pack_names:
-            continue
-        try:
-            content = storage.load_json_file(content_id, pack_name, source_prefix)
-        except Exception:
-            continue
-        if content.get("type") in {"document", "quiz"}:
-            content["assetBaseUrl"] = base_url
-            snapshot_files.append(GeneratedFile(name=pack_name, kind=content["type"], content=content))
-
-    if snapshot_files:
-        storage.save_files(content_id, snapshot_files, target_prefix)
-
-    manifest.versionId = version_id
-    manifest.buildId = build_id
-    manifest.generatedAt = generated_at
-    storage.save_files(
-        content_id,
-        [
-            GeneratedFile(
-                name="manifest.json",
-                kind="manifest",
-                content=manifest.model_dump(exclude_none=True),
-            )
-        ],
-        target_prefix,
-    )

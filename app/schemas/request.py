@@ -3,7 +3,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import Difficulty, Scale, SourceMode, TtsReadingMode, TtsRule
-from app.schemas.sokqa import CoursePlan, GeneratedFile, PackManifest, ValidationResult
+from app.schemas.pack_v2 import PackManifestV2
+from app.schemas.sokqa import CoursePlan, GeneratedFile, ValidationResult
 
 
 class QuizPackSpec(BaseModel):
@@ -229,7 +230,7 @@ class GeneratePackRequest(BaseModel):
 
 class ValidatePackRequest(BaseModel):
     files: list[GeneratedFile] = Field(default_factory=list)
-    manifest: PackManifest | None = None
+    manifest: PackManifestV2 | None = None
 
 
 class ImportPackInputFile(BaseModel):
@@ -249,7 +250,7 @@ class ImportPackRequest(BaseModel):
 class ImportPackResponse(BaseModel):
     status: Literal["imported"] = "imported"
     files: list[GeneratedFile]
-    manifest: PackManifest
+    manifest: PackManifestV2
     validation: ValidationResult
     logs: list[str] = Field(default_factory=list)
 

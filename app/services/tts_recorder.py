@@ -9,11 +9,13 @@ from typing import Callable
 
 from app.config import get_settings
 from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentPack, SokqaQuizPack
+from app.services.pack_paths import resolve_asset_url
 from app.services.storage_client import StorageClient
 from app.services.tts_estimation import RecordingUnit
 from app.services.tts_synthesizer import synthesize_text_to_mp3
 
 Synthesizer = Callable[[str], bytes]
+AudioPathFactory = Callable[[RecordingUnit], str]
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class RecordingResult:
     success: bool
     audio_url: str | None = None
     audio_path: str | None = None
+    audio_data: bytes | None = field(default=None, repr=False)
     error: str | None = None
     used_text_source: str = "raw"
 
@@ -49,6 +52,9 @@ def record_generated_file_audio(
     voice_name: str | None = None,
     speaking_rate: float | None = None,
     pitch: float | None = None,
+    persist_file: bool = True,
+    store_audio: bool = True,
+    audio_path_factory: AudioPathFactory | None = None,
 ) -> RecordingSummary:
     """Record audio for a generated pack file and persist the updated JSON."""
     if file.kind == "document":
@@ -72,9 +78,11 @@ def record_generated_file_audio(
         voice_name=voice_name,
         speaking_rate=speaking_rate,
         pitch=pitch,
+        store_audio=store_audio,
+        audio_path_factory=audio_path_factory,
     )
     file.content = pack.model_dump(exclude_none=True)
-    if summary.success_count:
+    if persist_file and summary.success_count:
         storage.save_files(pack.id, [file], storage_prefix)
     return summary
 
@@ -93,6 +101,8 @@ def record_pack_audio(
     voice_name: str | None = None,
     speaking_rate: float | None = None,
     pitch: float | None = None,
+    store_audio: bool = True,
+    audio_path_factory: AudioPathFactory | None = None,
 ) -> RecordingSummary:
     """Record unrecorded units, upload MP3 files, and attach audio URLs in-place."""
     storage = storage_client or StorageClient()
@@ -104,7 +114,11 @@ def record_pack_audio(
 
     def record_unit(unit: RecordingUnit) -> RecordingResult:
         try:
-            audio_path = f"audio/{namespace}__{_safe_audio_stem(unit.item_id)}.mp3"
+            audio_path = (
+                audio_path_factory(unit)
+                if audio_path_factory
+                else f"audio/{namespace}__{_safe_audio_stem(unit.item_id)}.mp3"
+            )
             audio = _synthesize_audio(
                 synthesize_fn,
                 unit.text,
@@ -113,18 +127,22 @@ def record_pack_audio(
                 speaking_rate=speaking_rate,
                 pitch=pitch,
             )
-            audio_url = storage.save_bytes(
-                unit.pack_id,
-                audio_path,
-                audio,
-                content_type="audio/mpeg",
-                storage_prefix=storage_prefix,
-            )
+            if store_audio:
+                audio_url = storage.save_bytes(
+                    unit.pack_id,
+                    audio_path,
+                    audio,
+                    content_type="audio/mpeg",
+                    storage_prefix=storage_prefix,
+                )
+            else:
+                audio_url = resolve_asset_url(asset_base_url, audio_path)
             return RecordingResult(
                 unit_id=unit.item_id,
                 success=True,
                 audio_url=audio_url,
                 audio_path=audio_path,
+                audio_data=audio,
                 used_text_source=unit.used_text_source,
             )
         except Exception as exc:

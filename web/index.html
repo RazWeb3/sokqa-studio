@@ -874,6 +874,8 @@
       let playbackIndex = -1;
       let currentPlayingUnitId = "";
       let isPlaybackPaused = true;
+      let isSpeechPlayback = false;
+      let currentSpeechUtterance = null;
       const RECORDING_REQUEST_UNIT_LIMIT = 20;
 
       function escapeHtml(value) {
@@ -1055,6 +1057,10 @@
         };
       }
 
+      function packSchemaVersion(pack) {
+        return Number(pack?.schemaVersion || 2);
+      }
+
       function manifestUrl(pack) {
         if (pack?.manifestUrl) return pack.manifestUrl;
         if (!pack?.url || !pack?.packName) return "";
@@ -1078,6 +1084,8 @@
               creatorId: pack.creatorId,
               contentId: pack.contentId,
               versionId: pack.versionId,
+              revision: pack.revision,
+              schemaVersion: packSchemaVersion(pack),
               storagePrefix: pack.storagePrefix,
               packs: []
             };
@@ -1089,30 +1097,39 @@
         return groups;
       }
 
-      function packBaseUrl() {
-        if (!selectedPack?.url || !selectedPack?.packName) return "";
-        return selectedPack.url.slice(0, -selectedPack.packName.length).replace(/\/$/, "");
+      function derivedPackRootUrl(pack = selectedPack) {
+        const explicit = pack?.assetBaseUrl || "";
+        if (explicit) return explicit.replace(/\/$/, "");
+        const url = pack?.url || manifestUrl(pack);
+        if (!url) return "";
+        const objectIndex = url.indexOf("/objects/");
+        if (objectIndex >= 0) return url.slice(0, objectIndex).replace(/\/$/, "");
+        const versionIndex = url.indexOf("/versions/");
+        if (versionIndex >= 0) return url.slice(0, versionIndex).replace(/\/$/, "");
+        return "";
       }
 
-      function assetBaseUrl() {
-        return (fullEstimate?.assetBaseUrl || selectedPack?.assetBaseUrl || packBaseUrl() || "").replace(/\/$/, "");
+      function assetBaseUrl(pack = selectedPack) {
+        const estimateBase = pack === selectedPack ? fullEstimate?.assetBaseUrl : "";
+        return (estimateBase || pack?.assetBaseUrl || derivedPackRootUrl(pack) || "").replace(/\/$/, "");
       }
 
-      function audioUrlFromPath(audioPath) {
+      function isAbsoluteUrl(value) {
+        return /^https?:\/\//i.test(String(value || ""));
+      }
+
+      function isUnsafeRelativePath(value) {
+        const text = String(value || "");
+        return !text || text.startsWith("/") || text.includes("\\") || text.includes("..") || /%2e/i.test(text);
+      }
+
+      function audioUrlFromPath(audioPath, pack = selectedPack) {
         if (!audioPath) return "";
-        const baseUrl = assetBaseUrl();
-        return baseUrl ? `${baseUrl}/${String(audioPath).replace(/^\/+/, "")}` : "";
-      }
-
-      function safeAudioStem(value) {
-        const safe = String(value || "").replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^[._]+|[._]+$/g, "");
-        return safe || "audio";
-      }
-
-      function packAudioNamespace() {
-        const packName = selectedPack?.packName || selectedPack?.contentId || selectedPack?.url || "";
-        const baseName = packName.split("/").pop().split("\\").pop().replace(/\.json$/i, "");
-        return safeAudioStem(baseName);
+        if (isAbsoluteUrl(audioPath)) return audioPath;
+        if (isUnsafeRelativePath(audioPath)) return "";
+        const path = String(audioPath).replace(/^\/+/, "");
+        const baseUrl = assetBaseUrl(pack);
+        return baseUrl ? `${baseUrl}/${path}` : "";
       }
 
       function packAudioKey(unitId, pack = selectedPack) {
@@ -1124,20 +1141,61 @@
         return packAudioKey(unitId, pack);
       }
 
-      function unitAudioUrl(unit) {
+      function packIdentityMatches(pack, reference, includeVersion = false) {
+        if (!pack || !reference) return false;
+        const sameOwner = (!reference.creatorId || pack.creatorId === reference.creatorId)
+          && (!reference.contentId || pack.contentId === reference.contentId)
+          && (!reference.kind || pack.kind === reference.kind);
+        const sameFile = reference.logicalId && pack.logicalId
+          ? pack.logicalId === reference.logicalId
+          : (!reference.packName || pack.packName === reference.packName);
+        const sameVersion = !includeVersion || !reference.versionId || pack.versionId === reference.versionId;
+        return sameOwner && sameFile && sameVersion;
+      }
+
+      function revisionSortValue(pack) {
+        const revision = Number(pack?.revision);
+        return Number.isFinite(revision) ? revision : -1;
+      }
+
+      function latestMatchingPack(reference) {
+        const candidates = currentPacks.filter((pack) => packIdentityMatches(pack, reference, false));
+        if (!candidates.length) return null;
+        return candidates.sort((a, b) => {
+          const revisionDiff = revisionSortValue(b) - revisionSortValue(a);
+          if (revisionDiff) return revisionDiff;
+          return String(b.versionId || "").localeCompare(String(a.versionId || ""));
+        })[0];
+      }
+
+      function exactMatchingPack(reference) {
+        return currentPacks.find((pack) => packIdentityMatches(pack, reference, true)) || null;
+      }
+
+      function shortVersionId(value) {
+        const text = String(value || "");
+        return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+      }
+
+      function unitAudioUrl(unit, pack = selectedPack) {
         if (!unit) return "";
-        if (unit.audioPath) return audioUrlFromPath(unit.audioPath);
+        if (unit.audioPath) return audioUrlFromPath(unit.audioPath, pack);
         if (unit.audioUrl) return unit.audioUrl;
-        const audioKey = packAudioKey(unit.itemId);
+        const audioKey = packAudioKey(unit.itemId, pack);
         if (knownAudioUrls.has(audioKey)) return knownAudioUrls.get(audioKey);
-        if (!unit.isRecorded) return "";
-        const baseUrl = packBaseUrl();
-        const fileName = `${packAudioNamespace()}__${safeAudioStem(unit.itemId)}.mp3`;
-        return baseUrl ? `${baseUrl}/audio/${encodeURIComponent(fileName)}` : "";
+        return "";
+      }
+
+      function unitPlaybackText(unit) {
+        return String(unit?.ttsText || unit?.text || "").trim();
+      }
+
+      function isUnitPlayable(unit) {
+        return Boolean(unitAudioUrl(unit) || unitPlaybackText(unit));
       }
 
       function playableUnits(units) {
-        return units.filter((unit) => Boolean(unitAudioUrl(unit)));
+        return units.filter((unit) => isUnitPlayable(unit));
       }
 
       function selectedPlaybackRate() {
@@ -1148,8 +1206,19 @@
         $("recordingAudio").playbackRate = selectedPlaybackRate();
       }
 
+      function speechLanguage() {
+        const language = String(selectedPack?.language || fullEstimate?.language || "ja-JP");
+        if (language === "ja") return "ja-JP";
+        if (language === "en") return "en-US";
+        return language.includes("-") ? language : "ja-JP";
+      }
+
       function rememberAudioUrlsFromUnits(units, pack = selectedPack) {
         (units || []).forEach((unit) => {
+          if (unit.audioPath) {
+            const resolved = audioUrlFromPath(unit.audioPath, pack);
+            if (resolved) knownAudioUrls.set(packAudioKey(unit.itemId, pack), resolved);
+          }
           if (unit.audioUrl) {
             knownAudioUrls.set(packAudioKey(unit.itemId, pack), unit.audioUrl);
           }
@@ -1158,8 +1227,11 @@
 
       function rememberAudioUrlsFromRecording(data, pack = selectedPack) {
         (data.audioUrls || []).forEach((item) => {
+          const resolved = item.audioUrl || audioUrlFromPath(item.audioPath, pack);
           if (item.unitId && item.audioUrl) {
             knownAudioUrls.set(packAudioKey(item.unitId, pack), item.audioUrl);
+          } else if (item.unitId && resolved) {
+            knownAudioUrls.set(packAudioKey(item.unitId, pack), resolved);
           }
         });
       }
@@ -1221,11 +1293,13 @@
         const groups = groupedPacks(packs);
         list.innerHTML = groups
           .map((group, groupIndex) => {
+            const revisionLabel = group.revision ? `リビジョン ${group.revision}` : "リビジョン -";
+            const versionMeta = `${group.contentId || ""} / ${revisionLabel} / ${group.versionId || ""}`;
             return `
               <div class="manifest-card">
                 <div class="manifest-header">
                   <strong><a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.title)}</a></strong>
-                  <div class="meta">${escapeHtml(group.contentId)} / ${escapeHtml(group.versionId)}</div>
+                  <div class="meta">${escapeHtml(versionMeta)}</div>
                   <div class="url-line">manifest JSON: <a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.manifestUrl)}</a></div>
                   <div class="actions">
                     <button type="button" class="secondary" data-delete-manifest-index="${groupIndex}"${isRecordingBusy ? " disabled" : ""}>削除</button>
@@ -1235,12 +1309,14 @@
                   ${group.packs
                     .map(({ pack, index }) => {
                       const active = selectedPack && selectedPack.url === pack.url ? " active" : "";
-                      const meta = `${pack.kind} / ${pack.contentId} / ${pack.versionId}`;
+                      const meta = `${pack.kind} / ${pack.logicalId || pack.name || pack.packName}`;
+                      const subMeta = `${pack.contentId || ""} / file=${shortVersionId(pack.fileVersionId || "-")}`;
                       return `
                         <div class="pack-row${active}">
                           <div>
                             <strong>${escapeHtml(pack.title)}</strong>
                             <div class="meta"><a href="${escapeHtml(pack.url)}" target="_blank" rel="noreferrer">${escapeHtml(meta)}</a></div>
+                            ${subMeta ? `<div class="meta">${escapeHtml(subMeta)}</div>` : ""}
                           </div>
                           <button type="button" class="secondary" data-pack-index="${index}"${isRecordingBusy ? " disabled" : ""}>選択</button>
                         </div>
@@ -1352,25 +1428,25 @@
         }
       }
 
-      async function refreshPackRows() {
+      async function refreshPackRows(referencePack = selectedPack, preferLatest = false) {
         const creatorId = $("packCreatorId").value.trim();
         const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
         const data = await requestGet(`/packs${query}`);
         currentPacks = data.items || [];
-        if (selectedPack) {
-          const selectedKey = recordingTarget(selectedPack);
-          const refreshedPack = currentPacks.find((pack) => {
-            return pack.creatorId === selectedKey.creatorId
-              && pack.contentId === selectedKey.contentId
-              && pack.versionId === selectedKey.versionId
-              && pack.packName === selectedKey.packName
-              && pack.kind === selectedKey.kind;
-          });
+        if (referencePack) {
+          const refreshedPack = preferLatest
+            ? latestMatchingPack(referencePack)
+            : exactMatchingPack(referencePack) || latestMatchingPack(referencePack);
           if (refreshedPack) {
             selectedPack = refreshedPack;
           }
         }
         renderPacks(currentPacks);
+      }
+
+      async function refreshSelectedPackToLatest(referencePack = selectedPack) {
+        await refreshPackRows(referencePack, true);
+        return selectedPack;
       }
 
       function renderUnits() {
@@ -1384,6 +1460,7 @@
           .map((unit) => {
             const checked = selectedUnitIds.has(unit.itemId) ? " checked" : "";
             const audioUrl = unitAudioUrl(unit);
+            const fallbackText = unitPlaybackText(unit);
             const isPlaying = currentPlayingUnitId === unit.itemId && !isPlaybackPaused;
             const statusBadge = unit.isRecorded
               ? '<span class="badge muted">録音済み</span>'
@@ -1391,12 +1468,14 @@
             const sourceBadge = recordingSourceBadge(unit);
             const recordedBadge = unit.isRecorded ? recordedSourceBadge(unit) : "";
             const note = unit.isRecorded ? "選択しても追加消費なし" : `${unit.charCount} chars`;
-            const playButton = audioUrl
+            const playButton = audioUrl || fallbackText
               ? `<button type="button" class="icon-button secondary" data-play-unit="${escapeHtml(unit.itemId)}" aria-label="${escapeHtml(unit.itemId)}を再生">${isPlaying ? "⏸" : "▶"}</button>`
               : "";
             const audioLink = audioUrl
               ? `<div class="url-line">audio: <a href="${escapeHtml(audioUrl)}" target="_blank" rel="noreferrer">${escapeHtml(audioUrl)}</a></div>`
-              : '<div class="url-line">audio: 未録音</div>';
+              : fallbackText
+                ? '<div class="url-line">audio: 未録音（OS TTSで読み上げ）</div>'
+                : '<div class="url-line">audio: 未録音</div>';
             return `
               <div class="unit-row${isPlaying ? " playing" : ""}">
                 <input type="checkbox" value="${escapeHtml(unit.itemId)}"${checked} />
@@ -1439,6 +1518,10 @@
 
       function stopPlayback() {
         const audio = $("recordingAudio");
+        if (window.speechSynthesis) {
+          currentSpeechUtterance = null;
+          window.speechSynthesis.cancel();
+        }
         audio.pause();
         audio.removeAttribute("src");
         audio.load();
@@ -1446,19 +1529,56 @@
         playbackIndex = -1;
         currentPlayingUnitId = "";
         isPlaybackPaused = true;
+        isSpeechPlayback = false;
         renderUnits();
       }
 
       async function playUnit(unit, queue = [unit], index = 0) {
         const audioUrl = unitAudioUrl(unit);
-        if (!audioUrl) {
-          setRecordingStatus("再生できる音声URLがありません。", true);
-          return;
-        }
         const audio = $("recordingAudio");
         playbackQueue = queue;
         playbackIndex = index;
         currentPlayingUnitId = unit.itemId;
+        if (!audioUrl) {
+          const fallbackText = unitPlaybackText(unit);
+          if (!fallbackText || !window.speechSynthesis) {
+            setRecordingStatus("再生できる音声URLまたは読み上げテキストがありません。", true);
+            return;
+          }
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+          currentSpeechUtterance = new SpeechSynthesisUtterance(fallbackText);
+          currentSpeechUtterance.lang = speechLanguage();
+          currentSpeechUtterance.rate = selectedPlaybackRate();
+          currentSpeechUtterance.onend = () => {
+            if (!currentSpeechUtterance) return;
+            currentSpeechUtterance = null;
+            isSpeechPlayback = false;
+            isPlaybackPaused = true;
+            renderUnits();
+            playNextTrack();
+          };
+          currentSpeechUtterance.onerror = (event) => {
+            currentSpeechUtterance = null;
+            isSpeechPlayback = false;
+            isPlaybackPaused = true;
+            renderUnits();
+            setRecordingStatus(`OS TTSで再生できませんでした: ${event.error || "unknown"}`, true);
+          };
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(currentSpeechUtterance);
+          isSpeechPlayback = true;
+          isPlaybackPaused = false;
+          renderUnits();
+          setRecordingStatus(`${unit.itemId} をOS TTSで読み上げています。`);
+          return;
+        }
+        if (window.speechSynthesis) {
+          currentSpeechUtterance = null;
+          window.speechSynthesis.cancel();
+        }
+        isSpeechPlayback = false;
         audio.src = audioUrl;
         applyPlaybackRate();
         try {
@@ -1475,6 +1595,17 @@
 
       async function toggleUnitPlayback(unitId) {
         const audio = $("recordingAudio");
+        if (currentPlayingUnitId === unitId && isSpeechPlayback) {
+          if (isPlaybackPaused) {
+            window.speechSynthesis.resume();
+            isPlaybackPaused = false;
+          } else {
+            window.speechSynthesis.pause();
+            isPlaybackPaused = true;
+          }
+          renderUnits();
+          return;
+        }
         if (currentPlayingUnitId === unitId && !audio.paused) {
           audio.pause();
           return;
@@ -1519,6 +1650,18 @@
       async function togglePauseTrack() {
         const audio = $("recordingAudio");
         if (!currentPlayingUnitId) return;
+        if (isSpeechPlayback) {
+          if (isPlaybackPaused) {
+            window.speechSynthesis.resume();
+            isPlaybackPaused = false;
+          } else {
+            window.speechSynthesis.pause();
+            isPlaybackPaused = true;
+          }
+          renderUnits();
+          updatePlaybackControls();
+          return;
+        }
         if (audio.paused) {
           try {
             await audio.play();
@@ -1865,6 +2008,7 @@
 
       async function saveQualityFixVersion() {
         if (!selectedPack || !lastQualityApplyResult || !lastQualityFixResult) return;
+        const packBeforeSave = selectedPack;
         try {
           isRecordingBusy = true;
           updateRecordButton();
@@ -1880,17 +2024,22 @@
             ],
             appliedFixes: lastQualityFixResult.appliedFixes || []
           });
-          Object.assign(selectedPack, {
-            versionId: data.newVersionId,
-            assetBaseUrl: data.newAssetBaseUrl,
-            storagePrefix: data.storagePrefix,
-            url: `${String(data.newAssetBaseUrl).replace(/\/$/, "")}/${selectedPack.packName}`
-          });
           $("qualityResult").insertAdjacentHTML(
             "beforeend",
             `<p><strong>保存:</strong> newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</p>`
           );
-          await refreshPackRows();
+          const refreshedReference = {
+            ...packBeforeSave,
+            versionId: data.newVersionId || data.versionId || packBeforeSave.versionId,
+            assetBaseUrl: data.newAssetBaseUrl || data.assetBaseUrl || packBeforeSave.assetBaseUrl,
+            storagePrefix: data.storagePrefix || packBeforeSave.storagePrefix
+          };
+          await refreshSelectedPackToLatest(refreshedReference);
+          fullEstimate = await fetchEstimate();
+          selectedUnitIds = new Set();
+          selectedEstimate = null;
+          renderUnits();
+          await updateSelectedEstimate();
           setRecordingStatus("修正版を新バージョンとして保存しました。必要に応じて再チェックしてください。");
         } catch (error) {
           setRecordingStatus(error.message, true);
@@ -1903,11 +2052,12 @@
 
       async function recordSelectedUnits(forceRerecord = false) {
         if (!selectedPack || !selectedUnitIds.size) return;
+        const selectedPackBeforeRecord = selectedPack;
         try {
           isRecordingBusy = true;
           updateRecordButton();
           setRecordingStatus(forceRerecord ? "強制再録音を実行しています..." : "録音を実行しています...");
-          const packSnapshot = selectedPack;
+          const packSnapshot = { ...selectedPackBeforeRecord };
           const targetSnapshot = recordingTarget(packSnapshot);
           const textSourceSnapshot = $("recordingTextSource").value;
           const voiceConfigSnapshot = selectedVoiceConfig();
@@ -1933,13 +2083,15 @@
             saveCredits(creditBalance - recordedChars * rate);
           }
           renderRecordingResult(data);
-          fullEstimate = await fetchEstimate(null, packSnapshot, textSourceSnapshot);
-          rememberAudioUrlsFromUnits(fullEstimate?.units, packSnapshot);
+          const refreshedPack = await refreshSelectedPackToLatest(packSnapshot);
+          fullEstimate = await fetchEstimate(null, refreshedPack, textSourceSnapshot);
+          rememberAudioUrlsFromUnits(fullEstimate?.units, refreshedPack);
+          rememberAudioUrlsFromRecording(data, refreshedPack);
+          rememberUsedTextSourcesFromRecording(data, refreshedPack);
           selectedUnitIds = new Set();
           selectedEstimate = null;
           renderUnits();
           await updateSelectedEstimate();
-          await refreshPackRows();
           setRecordingStatus(forceRerecord ? "強制再録音が完了しました。" : "録音処理が完了しました。");
         } catch (error) {
           setRecordingStatus(error.message, true);
@@ -1952,6 +2104,7 @@
 
       async function resetRecordingState(unitIds = null) {
         if (!selectedPack) return;
+        const packBeforeReset = selectedPack;
         try {
           isRecordingBusy = true;
           updateRecordButton();
@@ -1969,7 +2122,13 @@
             knownAudioUrls.delete(packAudioKey(unitId));
             knownUsedTextSources.delete(packUnitKey(unitId));
           });
-          fullEstimate = await fetchEstimate();
+          const refreshedPack = await refreshSelectedPackToLatest({
+            ...packBeforeReset,
+            ...(data.target || {}),
+            versionId: data.versionId || data.newVersionId || data.target?.versionId || packBeforeReset.versionId,
+            assetBaseUrl: data.assetBaseUrl || data.newAssetBaseUrl || packBeforeReset.assetBaseUrl
+          });
+          fullEstimate = await fetchEstimate(null, refreshedPack, $("recordingTextSource").value);
           selectedUnitIds = new Set();
           selectedEstimate = null;
           renderUnits();
@@ -1999,7 +2158,14 @@
             ${(data.audioUrls || [])
               .map((item) => {
                 const sourceLabel = item.usedTextSource === "corrected" ? "補正で録音" : "生で録音";
-                return `<li>${escapeHtml(item.unitId)}: <span class="badge ${item.usedTextSource === "corrected" ? "source-corrected" : "source"}">${sourceLabel}</span> <a href="${escapeHtml(item.audioUrl)}" target="_blank" rel="noreferrer">mp3</a></li>`;
+                const resultPack = data.assetBaseUrl
+                  ? { ...selectedPack, ...(data.target || {}), assetBaseUrl: data.assetBaseUrl }
+                  : selectedPack;
+                const audioUrl = item.audioUrl || audioUrlFromPath(item.audioPath, resultPack);
+                const link = audioUrl
+                  ? `<a href="${escapeHtml(audioUrl)}" target="_blank" rel="noreferrer">mp3</a>`
+                  : `<span class="meta">${escapeHtml(item.audioPath || "audio path updated")}</span>`;
+                return `<li>${escapeHtml(item.unitId)}: <span class="badge ${item.usedTextSource === "corrected" ? "source-corrected" : "source"}">${sourceLabel}</span> ${link}</li>`;
               })
               .join("")}
           </ul>

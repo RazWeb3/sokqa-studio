@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.sokqa import GeneratePackResponse, PackManifest
+from app.schemas.pack_v2 import PackManifestV2
+from app.schemas.sokqa import GeneratePackResponse
 from app.services.job_store import get_job
 
 
@@ -15,8 +16,8 @@ def read_job(job_id: str) -> GeneratePackResponse:
     return job
 
 
-@router.get("/jobs/{job_id}/manifest", response_model=PackManifest)
-def read_job_manifest(job_id: str) -> PackManifest:
+@router.get("/jobs/{job_id}/manifest", response_model=PackManifestV2)
+def read_job_manifest(job_id: str) -> PackManifestV2:
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")

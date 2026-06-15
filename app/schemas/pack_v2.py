@@ -96,6 +96,25 @@ class PackManifestV2(BaseModel):
         return self
 
 
+class PackLatestV2(BaseModel):
+    type: Literal["pack_latest"] = "pack_latest"
+    schemaVersion: Literal[2] = 2
+    creatorId: str = Field(..., min_length=1)
+    contentId: str = Field(..., min_length=1)
+    storagePrefix: str = Field(..., min_length=1)
+    versionId: str = Field(..., min_length=1)
+    revision: int = Field(..., ge=1)
+    manifestUrl: str = Field(..., min_length=1)
+    assetBaseUrl: str = Field(..., min_length=1)
+    title: str | None = None
+    description: str = ""
+    slug: str | None = None
+    language: str = "ja"
+    generatedAt: str = Field(..., min_length=1)
+    change: ManifestChange
+    items: list[ManifestItemV2] = Field(default_factory=list)
+
+
 class RevisionTarget(BaseModel):
     creatorId: str = Field(..., min_length=1)
     contentId: str = Field(..., min_length=1)

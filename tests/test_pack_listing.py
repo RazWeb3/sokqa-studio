@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.schemas.request import TtsRecordingTarget
-from app.services.pack_listing import _list_v2_items_for_content
+from app.services.pack_listing import _list_packs_from_storage, _list_v2_items_for_content
 from app.services.pack_paths import pack_root_prefix
 from app.services.tts_recording_api import run_recording
 from main import app
@@ -108,6 +108,24 @@ def _write_v2_pack(
         ],
     }
     _write_json(root / "versions" / version_id / "manifest.json", manifest)
+    latest = {
+        "type": "pack_latest",
+        "schemaVersion": 2,
+        "creatorId": creator_id,
+        "contentId": content_id,
+        "storagePrefix": root_prefix,
+        "versionId": version_id,
+        "revision": revision,
+        "manifestUrl": f"http://localhost:8000/generated/{root_prefix}/versions/{version_id}/manifest.json",
+        "assetBaseUrl": f"http://localhost:8000/generated/{root_prefix}",
+        "title": manifest_title,
+        "description": "",
+        "language": "ja",
+        "generatedAt": "2026-06-13T12:00:00+09:00",
+        "change": {"operation": "initial_generate"},
+        "items": manifest["items"],
+    }
+    _write_json(root / "latest.json", latest)
 
 
 def test_list_packs_filters_by_creator_id(tmp_path, monkeypatch) -> None:
@@ -148,6 +166,8 @@ def test_list_packs_returns_only_latest_revision_per_content_id(tmp_path, monkey
 
 def test_list_packs_skips_broken_latest_manifest_and_uses_valid_revision(tmp_path, monkeypatch) -> None:
     _write_v2_pack(tmp_path, monkeypatch, "creator_a", "content_v2", "v20260613_120000", 1, manifest_title="有効")
+    latest_path = tmp_path / "generated" / pack_root_prefix("creator_a", "content_v2") / "latest.json"
+    latest_path.write_text("{broken latest", encoding="utf-8")
     broken_dir = tmp_path / "generated" / pack_root_prefix("creator_a", "content_v2") / "versions" / "v20260613_121000"
     broken_dir.mkdir(parents=True, exist_ok=True)
     (broken_dir / "manifest.json").write_text("{broken json", encoding="utf-8")
@@ -158,6 +178,149 @@ def test_list_packs_skips_broken_latest_manifest_and_uses_valid_revision(tmp_pat
     data = response.json()
     assert {item["versionId"] for item in data["items"]} == {"v20260613_120000"}
     assert {item["revision"] for item in data["items"]} == {1}
+
+
+def test_list_packs_uses_latest_without_listing_versions(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://localhost:8000/generated")
+    monkeypatch.setattr(settings, "gcs_prefix", "sokqa")
+    monkeypatch.setattr(settings, "storage_backend", "gcs")
+
+    class FakeStorage:
+        def __init__(self) -> None:
+            self.list_manifest_called = False
+
+        def list_pack_prefixes_for_creator(self, creator_id: str | None = None) -> list[str]:
+            assert creator_id == "creator_a"
+            return ["sokqa/creators/creator_a/packs/content_latest"]
+
+        def read_latest(self, prefix: str) -> dict:
+            assert prefix == "sokqa/creators/creator_a/packs/content_latest"
+            return {
+                "type": "pack_latest",
+                "schemaVersion": 2,
+                "creatorId": "creator_a",
+                "contentId": "content_latest",
+                "storagePrefix": prefix,
+                "versionId": "v20260613_123000",
+                "revision": 4,
+                "manifestUrl": f"http://localhost:8000/generated/{prefix}/versions/v20260613_123000/manifest.json",
+                "assetBaseUrl": f"http://localhost:8000/generated/{prefix}",
+                "title": "latestだけ読む",
+                "description": "",
+                "language": "ja",
+                "generatedAt": "2026-06-13T12:30:00+09:00",
+                "change": {"operation": "recording"},
+                "items": [
+                    {
+                        "kind": "document",
+                        "name": "doc_01.json",
+                        "title": "本文タイトル",
+                        "logicalId": "doc_01",
+                        "fileVersionId": "fv_latest_doc_01",
+                        "url": f"http://localhost:8000/generated/{prefix}/objects/doc/fv_latest_doc_01.json",
+                    }
+                ],
+            }
+
+        def list_manifests(self, prefix: str) -> list[str]:
+            self.list_manifest_called = True
+            raise AssertionError("versions list must not be called when latest exists")
+
+    fake = FakeStorage()
+    monkeypatch.setattr("app.services.pack_listing.StorageClient", lambda: fake)
+
+    response = client.get("/packs?creatorId=creator_a")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["versionId"] == "v20260613_123000"
+    assert data["items"][0]["title"] == "本文タイトル"
+    assert not fake.list_manifest_called
+
+
+def test_list_packs_backfills_empty_latest_from_latest_manifest(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://localhost:8000/generated")
+    monkeypatch.setattr(settings, "gcs_prefix", "sokqa")
+    monkeypatch.setattr(settings, "storage_backend", "gcs")
+
+    prefix = "sokqa/creators/creator_a/packs/content_empty_latest"
+
+    class FakeStorage:
+        def __init__(self) -> None:
+            self.saved_latest: dict | None = None
+
+        def list_pack_prefixes_for_creator(self, creator_id: str | None = None) -> list[str]:
+            return [prefix]
+
+        def read_latest(self, read_prefix: str) -> dict:
+            assert read_prefix == prefix
+            return {
+                "type": "pack_latest",
+                "schemaVersion": 2,
+                "creatorId": "creator_a",
+                "contentId": "content_empty_latest",
+                "storagePrefix": prefix,
+                "versionId": "v20260613_123000",
+                "revision": 4,
+                "manifestUrl": f"http://localhost:8000/generated/{prefix}/versions/v20260613_123000/manifest.json",
+                "assetBaseUrl": f"http://localhost:8000/generated/{prefix}",
+                "title": "空latest",
+                "description": "",
+                "language": "ja",
+                "generatedAt": "2026-06-13T12:30:00+09:00",
+                "change": {"operation": "recording"},
+                "items": [],
+            }
+
+        def list_manifests(self, read_prefix: str) -> list[str]:
+            assert read_prefix == prefix
+            return ["versions/v20260613_123000/manifest.json"]
+
+        def read_manifest(self, read_prefix: str, version_id: str) -> dict:
+            assert read_prefix == prefix
+            assert version_id == "v20260613_123000"
+            return {
+                "id": "content_empty_latest_manifest_r4",
+                "type": "pack_manifest",
+                "schemaVersion": 2,
+                "contentId": "content_empty_latest",
+                "title": "manifestから復旧",
+                "creator": {"id": "creator_a", "displayName": None},
+                "revision": 4,
+                "versionId": version_id,
+                "buildId": "build_20260613_123000",
+                "generatedAt": "2026-06-13T12:30:00+09:00",
+                "change": {"operation": "recording"},
+                "items": [
+                    {
+                        "kind": "document",
+                        "name": "doc_01.json",
+                        "title": "本文タイトル",
+                        "logicalId": "doc_01",
+                        "fileVersionId": "fv_latest_doc_01",
+                        "url": f"http://localhost:8000/generated/{prefix}/objects/doc/fv_latest_doc_01.json",
+                    }
+                ],
+            }
+
+        def save_latest(self, write_prefix: str, latest_json: dict) -> str:
+            assert write_prefix == prefix
+            self.saved_latest = latest_json
+            return f"http://localhost:8000/generated/{prefix}/latest.json"
+
+    fake = FakeStorage()
+    monkeypatch.setattr("app.services.pack_listing.StorageClient", lambda: fake)
+
+    items = _list_packs_from_storage("creator_a")
+
+    assert len(items) == 1
+    assert items[0]["title"] == "本文タイトル"
+    assert fake.saved_latest is not None
+    assert fake.saved_latest["title"] == "manifestから復旧"
+    assert len(fake.saved_latest["items"]) == 1
 
 
 def test_v2_listing_reads_only_latest_manifest_candidate(monkeypatch) -> None:

@@ -128,9 +128,13 @@ def test_initial_commit_persists_objects_then_manifest_and_can_read_back(tmp_pat
     result = persist_revision_commit(storage, None, request, now=NOW_1, public_base_url=PUBLIC_BASE)
     prefix = pack_root_prefix("creator_default", "cnt_store")
 
-    assert storage.calls[-1] == ("manifest", result.versionId)
-    assert all(kind == "object" for kind, _ in storage.calls[:-1])
+    assert storage.calls[-2:] == [("manifest", result.versionId), ("object", "latest.json")]
+    assert all(kind == "object" for kind, _ in storage.calls[:-2])
     assert storage.list_manifests(prefix) == ["versions/v20260613_110000/manifest.json"]
+    latest = storage.read_latest(prefix)
+    assert latest is not None
+    assert latest["versionId"] == result.versionId
+    assert latest["revision"] == 1
 
     manifest = read_pack_manifest_v2(storage, "creator_default", "cnt_store", result.versionId)
     assert manifest.revision == 1
@@ -168,8 +172,9 @@ def test_changed_commit_saves_only_changed_file_object(tmp_path, monkeypatch) ->
         public_base_url=PUBLIC_BASE,
     )
 
-    assert [call[0] for call in storage.calls] == ["object", "manifest"]
+    assert [call[0] for call in storage.calls] == ["object", "manifest", "object"]
     assert storage.calls[0][1].startswith("objects/doc/")
+    assert storage.calls[-1] == ("object", "latest.json")
     assert not result.quizObjects
     unchanged_quiz = next(item for item in result.items if item.logicalId == "quiz_01")
     previous_quiz = next(item for item in initial.items if item.logicalId == "quiz_01")
@@ -210,6 +215,7 @@ def test_recording_audio_object_is_saved_without_copying_old_audio(tmp_path, mon
     assert storage.calls == [
         ("object", "objects/audio/av_20260613_110100_doc_01__doc-1_abcd1234.mp3"),
         ("manifest", result.versionId),
+        ("object", "latest.json"),
     ]
     assert storage.read_object(prefix, "objects/audio/av_20260613_110100_doc_01__doc-1_abcd1234.mp3") == b"mp3-data"
 
@@ -245,7 +251,7 @@ def test_removed_file_updates_manifest_without_deleting_or_resaving_existing_obj
         public_base_url=PUBLIC_BASE,
     )
 
-    assert storage.calls == [("manifest", result.versionId)]
+    assert storage.calls == [("manifest", result.versionId), ("object", "latest.json")]
     assert {item.logicalId for item in result.items} == {"quiz_01"}
     assert storage.read_object(prefix, old_doc_path)
 
@@ -289,16 +295,37 @@ def test_unsafe_audio_path_is_rejected_before_storage_write(tmp_path, monkeypatc
     assert storage.calls == []
 
 
+def test_latest_save_failure_does_not_fail_commit(tmp_path, monkeypatch) -> None:
+    _configure_local(tmp_path, monkeypatch)
+
+    class LatestFailStorage(RecordingStorage):
+        def save_latest(self, prefix: str, latest_json: dict | str) -> str:
+            raise RuntimeError("latest write failed")
+
+    storage = LatestFailStorage()
+    request = CommitPackRevisionInput(
+        target=_target(),
+        operation="initial_generate",
+        addedFiles=[_added_doc("doc_01")],
+    )
+
+    result = persist_revision_commit(storage, None, request, now=NOW_1, public_base_url=PUBLIC_BASE)
+
+    assert result.revision == 1
+    assert ("manifest", result.versionId) in storage.calls
+    assert read_pack_manifest_v2(storage, "creator_default", "cnt_store", result.versionId).versionId == result.versionId
+
+
 class FakeBlob:
     def __init__(self, name: str, bucket: "FakeBucket") -> None:
         self.name = name
         self.bucket = bucket
 
-    def upload_from_string(self, data: bytes, content_type: str) -> None:
+    def upload_from_string(self, data: bytes, content_type: str, **kwargs) -> None:
         self.bucket.calls.append(("upload", self.name, content_type))
         self.bucket.objects[self.name] = data
 
-    def download_as_bytes(self) -> bytes:
+    def download_as_bytes(self, **kwargs) -> bytes:
         return self.bucket.objects[self.name]
 
 
@@ -311,7 +338,7 @@ class FakeBucket:
     def blob(self, name: str) -> FakeBlob:
         return FakeBlob(name, self)
 
-    def list_blobs(self, prefix: str):
+    def list_blobs(self, prefix: str, **kwargs):
         for name in sorted(self.objects):
             if name.startswith(prefix):
                 yield type("BlobRecord", (), {"name": name})()
@@ -356,7 +383,8 @@ def test_gcs_v2_save_uses_uploads_in_order_and_never_copy_prefix(monkeypatch) ->
     result = persist_revision_commit(storage, None, request, now=NOW_1, public_base_url=PUBLIC_BASE)
 
     uploaded_names = [call[1] for call in fake_bucket.calls]
-    assert uploaded_names[-1].endswith(f"versions/{result.versionId}/manifest.json")
+    assert uploaded_names[-2].endswith(f"versions/{result.versionId}/manifest.json")
+    assert uploaded_names[-1].endswith("latest.json")
     assert any("/objects/doc/" in name for name in uploaded_names)
     assert any("/objects/quiz/" in name for name in uploaded_names)
     assert any(name.endswith("/objects/audio/av_20260613_110000_audio_abcd1234.mp3") for name in uploaded_names)
@@ -364,3 +392,101 @@ def test_gcs_v2_save_uses_uploads_in_order_and_never_copy_prefix(monkeypatch) ->
     assert storage.list_manifests(pack_root_prefix("creator_default", "cnt_store")) == [
         "versions/v20260613_110000/manifest.json"
     ]
+
+
+def test_gcs_pack_prefix_listing_uses_delimiter_without_listing_pack_objects(monkeypatch) -> None:
+    _configure_gcs(monkeypatch)
+
+    class PrefixIterator:
+        def __init__(self, prefixes: list[str]) -> None:
+            self.prefixes = prefixes
+
+        def __iter__(self):
+            return iter(())
+
+    class PrefixBucket:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str | None]] = []
+
+        def list_blobs(self, prefix: str, delimiter: str | None = None, **kwargs):
+            self.calls.append((prefix, delimiter))
+            assert delimiter == "/"
+            if prefix == "sokqa/creators/creator_default/packs/":
+                return PrefixIterator(
+                    [
+                        "sokqa/creators/creator_default/packs/cnt_a/",
+                        "sokqa/creators/creator_default/packs/cnt_b/",
+                    ]
+                )
+            raise AssertionError(f"unexpected prefix listing: {prefix}")
+
+    bucket = PrefixBucket()
+
+    class ClientFactory:
+        def bucket(self, name: str) -> PrefixBucket:
+            assert name == "bucket-test"
+            return bucket
+
+    monkeypatch.setattr(storage_module.storage, "Client", lambda: ClientFactory())
+    storage = StorageClient()
+
+    prefixes = storage.list_pack_prefixes_for_creator("creator_default")
+
+    assert prefixes == [
+        "sokqa/creators/creator_default/packs/cnt_a",
+        "sokqa/creators/creator_default/packs/cnt_b",
+    ]
+    assert bucket.calls == [("sokqa/creators/creator_default/packs/", "/")]
+
+
+def test_gcs_bucket_client_is_reused_across_operations(monkeypatch) -> None:
+    _configure_gcs(monkeypatch)
+    storage_module._cached_gcs_bucket_for_factory.cache_clear()
+
+    class PrefixIterator:
+        def __init__(self, prefixes: list[str]) -> None:
+            self.prefixes = prefixes
+
+        def __iter__(self):
+            return iter(())
+
+    class ReuseBucket:
+        def __init__(self) -> None:
+            self.objects = {
+                "sokqa/creators/creator_default/packs/cnt_a/latest.json": b'{"items":[]}',
+            }
+
+        def list_blobs(self, prefix: str, delimiter: str | None = None, **kwargs):
+            if prefix == "sokqa/creators/creator_default/packs/":
+                return PrefixIterator(["sokqa/creators/creator_default/packs/cnt_a/"])
+            return PrefixIterator([])
+
+        def blob(self, name: str):
+            bucket = self
+
+            class Blob:
+                def download_as_bytes(self, **kwargs):
+                    return bucket.objects[name]
+
+            return Blob()
+
+    bucket = ReuseBucket()
+
+    class ClientFactory:
+        calls = 0
+
+        def __init__(self) -> None:
+            ClientFactory.calls += 1
+
+        def bucket(self, name: str) -> ReuseBucket:
+            assert name == "bucket-test"
+            return bucket
+
+    monkeypatch.setattr(storage_module.storage, "Client", ClientFactory)
+    storage = StorageClient()
+
+    assert storage.list_pack_prefixes_for_creator("creator_default") == [
+        "sokqa/creators/creator_default/packs/cnt_a"
+    ]
+    assert storage.read_latest("sokqa/creators/creator_default/packs/cnt_a") == {"items": []}
+    assert ClientFactory.calls == 1

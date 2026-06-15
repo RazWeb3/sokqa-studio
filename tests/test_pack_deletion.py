@@ -43,6 +43,25 @@ def _write_pack_root(tmp_path: Path, monkeypatch, creator_id: str, content_id: s
         ),
         encoding="utf-8",
     )
+    (target_dir / "latest.json").write_text(
+        json.dumps(
+            {
+                "type": "pack_latest",
+                "schemaVersion": 2,
+                "creatorId": creator_id,
+                "contentId": content_id,
+                "storagePrefix": storage_prefix,
+                "versionId": version_id,
+                "revision": 1,
+                "manifestUrl": f"http://localhost:8000/generated/{storage_prefix}/versions/{version_id}/manifest.json",
+                "assetBaseUrl": f"http://localhost:8000/generated/{storage_prefix}",
+                "generatedAt": "2026-06-09T12:00:00+09:00",
+                "change": {"operation": "initial_generate"},
+                "items": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     (target_dir / "objects" / "doc" / "fv_doc_01.json").parent.mkdir(parents=True, exist_ok=True)
     (target_dir / "objects" / "doc" / "fv_doc_01.json").write_text(
         json.dumps(
@@ -71,9 +90,10 @@ def test_delete_pack_removes_local_manifest_json_and_audio(tmp_path, monkeypatch
     data = response.json()
     assert data["status"] == "deleted"
     assert data["storagePrefix"] == storage_prefix
-    assert data["objectCount"] == 3
-    assert data["deletedCount"] == 3
+    assert data["objectCount"] == 4
+    assert data["deletedCount"] == 4
     assert sorted(data["objectNames"]) == [
+        f"{storage_prefix}/latest.json",
         f"{storage_prefix}/objects/audio/av_doc_01__doc-1.mp3",
         f"{storage_prefix}/objects/doc/fv_doc_01.json",
         f"{storage_prefix}/versions/v20260609_120000/manifest.json",

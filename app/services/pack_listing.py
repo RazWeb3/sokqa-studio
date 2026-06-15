@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
-from google.cloud import storage
-
 from app.config import get_settings
-from app.schemas.pack_v2 import PackManifestV2
+from app.schemas.pack_v2 import PackLatestV2, PackManifestV2
 from app.services.pack_paths import pack_root_prefix, validate_safe_token
 from app.services.storage_client import StorageClient
 
+logger = logging.getLogger(__name__)
+
 
 def list_generated_packs(creator_id: str | None = None) -> list[dict[str, Any]]:
-    settings = get_settings()
-    if settings.storage_backend == "gcs":
-        return _list_gcs_packs(creator_id)
-    return _list_local_packs(creator_id)
+    return _list_packs_from_storage(creator_id)
 
 
 def _storage_base_prefix() -> str:
@@ -35,61 +34,127 @@ def _local_storage_root() -> Path:
 
 
 def _list_local_packs(creator_id: str | None) -> list[dict[str, Any]]:
-    creators_root = _local_storage_root() / _storage_base_prefix() / "creators"
-    if not creators_root.exists():
-        return []
-
-    creator_dirs = [creators_root / creator_id] if creator_id else sorted(creators_root.iterdir())
-    storage = StorageClient()
-    items: list[dict[str, Any]] = []
-    for creator_dir in creator_dirs:
-        packs_root = creator_dir / "packs"
-        if not packs_root.is_dir():
-            continue
-        for content_dir in sorted(path for path in packs_root.iterdir() if path.is_dir()):
-            v2_items = _list_v2_items_for_content(storage, creator_dir.name, content_dir.name)
-            if v2_items:
-                items.extend(v2_items)
-    return sorted(items, key=_pack_sort_key)
+    return _list_packs_from_storage(creator_id)
 
 
 def _list_gcs_packs(creator_id: str | None) -> list[dict[str, Any]]:
-    settings = get_settings()
-    if not settings.gcs_bucket:
-        raise ValueError("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
+    return _list_packs_from_storage(creator_id)
 
-    client = storage.Client()
-    bucket = client.bucket(settings.gcs_bucket)
-    base = _storage_base_prefix()
-    prefix = f"{base}/creators/{creator_id}/" if creator_id else f"{base}/creators/"
+
+def _list_packs_from_storage(creator_id: str | None) -> list[dict[str, Any]]:
+    started = time.perf_counter()
     storage_client = StorageClient()
-    blobs = list(bucket.list_blobs(prefix=prefix))
-    content_keys = _list_gcs_content_keys(blobs, base, creator_id)
+    client_ready_ms = _elapsed_ms(started)
+    prefix_started = time.perf_counter()
+    prefixes = storage_client.list_pack_prefixes_for_creator(creator_id)
+    prefix_ms = _elapsed_ms(prefix_started)
     items: list[dict[str, Any]] = []
-    for blob_creator_id, content_id in sorted(content_keys):
-        v2_items = _list_v2_items_for_content(storage_client, blob_creator_id, content_id)
-        if v2_items:
-            items.extend(v2_items)
-    return sorted(items, key=_pack_sort_key)
-
-
-def _list_gcs_content_keys(blobs, base: str, creator_id: str | None) -> set[tuple[str, str]]:
-    keys: set[tuple[str, str]] = set()
-    for blob in blobs:
-        parts = blob.name.strip("/").split("/")
-        base_parts = base.split("/")
-        tail = parts[len(base_parts) :]
-        if len(tail) < 4:
+    latest_total_ms = 0
+    latest_count = 0
+    latest_bytes_total = 0
+    latest_bytes_without_items_total = 0
+    latest_items_total = 0
+    latest_parse_ms_total = 0
+    fallback_count = 0
+    fallback_total_ms = 0
+    for prefix in prefixes:
+        identity = _identity_from_pack_prefix(prefix)
+        if identity is None:
             continue
-        if tail[0] != "creators" or tail[2] != "packs":
-            continue
-        if creator_id and tail[1] != creator_id:
-            continue
-        keys.add((tail[1], tail[3]))
-    return keys
+        blob_creator_id, content_id = identity
+        latest_started = time.perf_counter()
+        pack_items = _list_latest_items_for_content(storage_client, blob_creator_id, content_id)
+        latest_elapsed = _elapsed_ms(latest_started)
+        latest_total_ms += latest_elapsed
+        latest_count += 1
+        latest_meta = _latest_measurements(storage_client, pack_root_prefix(blob_creator_id, content_id))
+        latest_bytes_total += latest_meta["bytes"]
+        latest_bytes_without_items_total += latest_meta["bytesWithoutItems"]
+        latest_items_total += latest_meta["items"]
+        latest_parse_ms_total += latest_meta["parseMs"]
+        if not pack_items:
+            fallback_started = time.perf_counter()
+            pack_items = _list_v2_items_for_content(
+                storage_client,
+                blob_creator_id,
+                content_id,
+                backfill_latest=True,
+            )
+            fallback_elapsed = _elapsed_ms(fallback_started)
+            fallback_total_ms += fallback_elapsed
+            fallback_count += 1
+        items.extend(pack_items)
+    sorted_items = sorted(items, key=_pack_sort_key)
+    logger.info(
+        "packs.list timing creatorId=%s storage=%s client_ready_ms=%s prefix_listing_ms=%s pack_count=%s "
+        "latest_reads=%s latest_total_ms=%s latest_avg_ms=%.1f latest_bytes_total=%s latest_avg_bytes=%.1f "
+        "latest_bytes_without_items_total=%s latest_items_bytes_estimate=%s latest_parse_ms_total=%s "
+        "latest_items_total=%s latest_avg_items=%.1f fallback_count=%s fallback_total_ms=%s total_ms=%s item_count=%s",
+        creator_id,
+        get_settings().storage_backend,
+        client_ready_ms,
+        prefix_ms,
+        len(prefixes),
+        latest_count,
+        latest_total_ms,
+        (latest_total_ms / latest_count) if latest_count else 0.0,
+        latest_bytes_total,
+        (latest_bytes_total / latest_count) if latest_count else 0.0,
+        latest_bytes_without_items_total,
+        max(0, latest_bytes_total - latest_bytes_without_items_total),
+        latest_parse_ms_total,
+        latest_items_total,
+        (latest_items_total / latest_count) if latest_count else 0.0,
+        fallback_count,
+        fallback_total_ms,
+        _elapsed_ms(started),
+        len(sorted_items),
+    )
+    return sorted_items
 
 
-def _list_v2_items_for_content(storage: StorageClient, creator_id: str, content_id: str) -> list[dict[str, Any]]:
+def _identity_from_pack_prefix(prefix: str) -> tuple[str, str] | None:
+    parts = prefix.strip("/").split("/")
+    base_parts = _storage_base_prefix().split("/")
+    tail = parts[len(base_parts) :]
+    if parts[: len(base_parts)] != base_parts:
+        return None
+    if len(tail) != 4 or tail[0] != "creators" or tail[2] != "packs":
+        return None
+    return tail[1], tail[3]
+
+
+def _list_latest_items_for_content(storage: StorageClient, creator_id: str, content_id: str) -> list[dict[str, Any]]:
+    try:
+        validate_safe_token(creator_id)
+        validate_safe_token(content_id)
+        prefix = pack_root_prefix(creator_id, content_id)
+        latest_data = storage.read_latest(prefix)
+        if latest_data is None:
+            return []
+        latest = PackLatestV2.model_validate(latest_data)
+    except Exception:
+        return []
+    return [_pack_item_from_latest_item(latest, item, creator_id, content_id, prefix) for item in latest.items]
+
+
+def _latest_measurements(storage: StorageClient, prefix: str) -> dict[str, int]:
+    raw = getattr(storage, "last_latest_measurement", {}).get(prefix, {})
+    return {
+        "bytes": int(raw.get("bytes") or 0),
+        "bytesWithoutItems": int(raw.get("bytesWithoutItems") or 0),
+        "items": int(raw.get("items") or 0),
+        "parseMs": int(raw.get("parseMs") or 0),
+    }
+
+
+def _list_v2_items_for_content(
+    storage: StorageClient,
+    creator_id: str,
+    content_id: str,
+    *,
+    backfill_latest: bool = False,
+) -> list[dict[str, Any]]:
     try:
         validate_safe_token(creator_id)
         validate_safe_token(content_id)
@@ -113,8 +178,53 @@ def _list_v2_items_for_content(storage: StorageClient, creator_id: str, content_
             manifest = PackManifestV2.model_validate(manifest_data)
         except Exception:
             continue
+        if backfill_latest:
+            _backfill_latest_from_manifest(storage, manifest, creator_id, prefix)
         return [_pack_item_from_v2_manifest_item(manifest, item, creator_id, content_id, prefix) for item in manifest.items]
     return []
+
+
+def _backfill_latest_from_manifest(
+    storage: StorageClient,
+    manifest: PackManifestV2,
+    creator_id: str,
+    prefix: str,
+) -> None:
+    try:
+        base_url = get_settings().public_base_url.rstrip("/")
+        latest = PackLatestV2(
+            creatorId=creator_id,
+            contentId=manifest.contentId,
+            storagePrefix=prefix,
+            versionId=manifest.versionId,
+            revision=manifest.revision,
+            manifestUrl=f"{base_url}/{prefix}/versions/{manifest.versionId}/manifest.json",
+            assetBaseUrl=f"{base_url}/{prefix}",
+            title=manifest.title,
+            description=manifest.description,
+            slug=manifest.slug,
+            language=manifest.language,
+            generatedAt=manifest.generatedAt,
+            change=manifest.change,
+            items=manifest.items,
+        )
+        storage.save_latest(prefix, latest.model_dump(mode="json", exclude_none=True))
+        logger.info(
+            "packs.latest backfilled creatorId=%s contentId=%s versionId=%s revision=%s items=%s",
+            creator_id,
+            manifest.contentId,
+            manifest.versionId,
+            manifest.revision,
+            len(manifest.items),
+        )
+    except Exception as exc:
+        logger.warning(
+            "failed to backfill pack latest pointer for creatorId=%s contentId=%s versionId=%s: %s",
+            creator_id,
+            manifest.contentId,
+            manifest.versionId,
+            exc,
+        )
 
 
 def _version_id_from_manifest_path(path: str) -> str | None:
@@ -169,6 +279,49 @@ def _pack_item_from_v2_manifest_item(
     }
 
 
+def _pack_item_from_latest_item(
+    latest: PackLatestV2,
+    item,
+    creator_id: str,
+    content_id: str,
+    storage_prefix: str,
+) -> dict[str, Any]:
+    return {
+        "creatorId": creator_id,
+        "contentId": content_id,
+        "versionId": latest.versionId,
+        "revision": latest.revision,
+        "schemaVersion": 2,
+        "packName": item.name,
+        "kind": item.kind,
+        "logicalId": item.logicalId,
+        "fileVersionId": item.fileVersionId,
+        "title": item.title or item.name,
+        "manifestTitle": latest.title,
+        "manifestUrl": latest.manifestUrl,
+        "url": item.url,
+        "assetBaseUrl": latest.assetBaseUrl,
+        "storagePrefix": storage_prefix,
+        "items": [
+            {
+                "kind": latest_item.kind,
+                "name": latest_item.name,
+                "title": latest_item.title or latest_item.name,
+                "logicalId": latest_item.logicalId,
+                "fileVersionId": latest_item.fileVersionId,
+            }
+            for latest_item in latest.items
+        ],
+        "target": {
+            "creatorId": creator_id,
+            "contentId": content_id,
+            "versionId": latest.versionId,
+            "packName": item.name,
+            "kind": item.kind,
+        },
+    }
+
+
 def _pack_sort_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
     return (
         str(item["creatorId"]),
@@ -176,3 +329,7 @@ def _pack_sort_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
         str(item["versionId"]),
         str(item["packName"]),
     )
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)

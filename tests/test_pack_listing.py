@@ -79,7 +79,7 @@ def _write_v2_pack(
     manifest = {
         "id": f"{content_id}_manifest_r{revision}",
         "type": "pack_manifest",
-        "schemaVersion": 2,
+        "schemaVersion": 1,
         "contentId": content_id,
         "title": manifest_title,
         "creator": {"id": creator_id, "displayName": None},
@@ -285,7 +285,7 @@ def test_list_packs_backfills_empty_latest_from_latest_manifest(monkeypatch) -> 
             return {
                 "id": "content_empty_latest_manifest_r4",
                 "type": "pack_manifest",
-                "schemaVersion": 2,
+                "schemaVersion": 1,
                 "contentId": "content_empty_latest",
                 "title": "manifestから復旧",
                 "creator": {"id": "creator_a", "displayName": None},
@@ -345,7 +345,7 @@ def test_v2_listing_reads_only_latest_manifest_candidate(monkeypatch) -> None:
             return {
                 "id": "content_v2_manifest_r3",
                 "type": "pack_manifest",
-                "schemaVersion": 2,
+                "schemaVersion": 1,
                 "contentId": "content_v2",
                 "title": "最新だけ読む",
                 "creator": {"id": "creator_a", "displayName": None},

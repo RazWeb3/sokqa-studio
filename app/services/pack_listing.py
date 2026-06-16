@@ -173,7 +173,7 @@ def _list_v2_items_for_content(
             continue
         try:
             manifest_data = storage.read_manifest(prefix, version_id)
-            if manifest_data.get("schemaVersion") != 2:
+            if manifest_data.get("schemaVersion") != 1:
                 continue
             manifest = PackManifestV2.model_validate(manifest_data)
         except Exception:

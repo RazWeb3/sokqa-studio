@@ -133,5 +133,5 @@ def test_import_without_audio_urls_still_succeeds(tmp_path, monkeypatch) -> None
 
     assert response.status_code == 200
     assert response.json()["validation"]["valid"] is True
-    assert response.json()["manifest"]["schemaVersion"] == 2
+    assert response.json()["manifest"]["schemaVersion"] == 1
     assert response.json()["manifest"]["change"]["operation"] == "import"

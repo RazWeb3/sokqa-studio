@@ -70,7 +70,7 @@ class ManifestItemV2(BaseModel):
 class PackManifestV2(BaseModel):
     id: str = Field(..., min_length=1)
     type: Literal["pack_manifest"] = "pack_manifest"
-    schemaVersion: Literal[2] = 2
+    schemaVersion: Literal[1] = 1
     contentId: str = Field(..., min_length=1)
     slug: str | None = None
     title: str | None = None

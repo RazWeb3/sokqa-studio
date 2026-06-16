@@ -254,7 +254,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
 
     logs = [*existing.logs, "Revising TTS", "Optimizing TTS"]
     if not isinstance(existing.manifest, PackManifestV2):
-        raise ValueError("revise_tts requires a schemaVersion 2 job manifest")
+        raise ValueError("revise_tts requires a revision manifest")
 
     logs.append("Persisting TTS revision" if request.persist else "Building TTS revision")
     commit_result = _persist_changed_revision(plan, metadata, optimized_files, existing.manifest, request.persist)

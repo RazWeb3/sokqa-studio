@@ -57,7 +57,7 @@ def _write_pack(tmp_path: Path, monkeypatch) -> tuple[str, str]:
     manifest = {
         "id": "content_test_manifest_r1",
         "type": "pack_manifest",
-        "schemaVersion": 2,
+        "schemaVersion": 1,
         "contentId": "content_test",
         "slug": "content-test",
         "revision": 1,
@@ -238,7 +238,7 @@ def test_recording_endpoint_records_only_requested_units_and_skips_recorded(tmp_
     new_manifest = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
     assert new_manifest.exists()
     manifest = __import__("json").loads(new_manifest.read_text(encoding="utf-8"))
-    assert manifest["schemaVersion"] == 2
+    assert manifest["schemaVersion"] == 1
     assert manifest["versionId"] == data["versionId"]
     assert manifest["buildId"] == data["buildId"]
     assert manifest["generatedAt"] == data["generatedAt"]
@@ -328,7 +328,7 @@ def test_recording_reset_clears_audio_urls_and_persists_pack(tmp_path, monkeypat
     manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
     assert manifest_path.exists()
     manifest = __import__("json").loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schemaVersion"] == 2
+    assert manifest["schemaVersion"] == 1
     assert manifest["revision"] == 2
     assert manifest["sourceVersionId"] == "v20260607_120000"
     assert manifest["change"]["operation"] == "recording_reset"

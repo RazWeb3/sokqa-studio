@@ -30,7 +30,7 @@ def _write_pack_root(tmp_path: Path, monkeypatch, creator_id: str, content_id: s
             {
                 "id": "manifest",
                 "type": "pack_manifest",
-                "schemaVersion": 2,
+                "schemaVersion": 1,
                 "contentId": content_id,
                 "creator": {"id": creator_id},
                 "revision": 1,

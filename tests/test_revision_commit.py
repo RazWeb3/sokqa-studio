@@ -109,7 +109,7 @@ def test_manifest_v2_validates_required_fields_and_unique_logical_ids() -> None:
         items=[item],
     )
 
-    assert manifest.schemaVersion == 2
+    assert manifest.schemaVersion == 1
     with pytest.raises(ValidationError):
         PackManifestV2.model_validate({})
     with pytest.raises(ValidationError):

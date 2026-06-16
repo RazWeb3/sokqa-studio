@@ -121,7 +121,7 @@ def test_manifest_identity_and_storage_path_for_generated_pack(monkeypatch) -> N
     manifest = generated.manifest
 
     assert manifest.id == "cnt_8f3a2c9d7e_manifest_r1"
-    assert manifest.schemaVersion == 2
+    assert manifest.schemaVersion == 1
     assert manifest.revision == 1
     assert manifest.change.operation == "initial_generate"
     assert manifest.contentId == "cnt_8f3a2c9d7e"

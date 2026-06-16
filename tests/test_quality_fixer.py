@@ -64,7 +64,7 @@ def _write_version(tmp_path: Path, monkeypatch) -> dict:
     manifest = {
         "id": "content_fix_manifest_r1",
         "type": "pack_manifest",
-        "schemaVersion": 2,
+        "schemaVersion": 1,
         "contentId": content_id,
         "slug": "content-fix",
         "revision": 1,
@@ -236,7 +236,7 @@ def test_quality_fix_save_text_fix_commits_changed_file_only(tmp_path, monkeypat
     manifest_path = new_dir / "versions" / data["newVersionId"] / "manifest.json"
     assert manifest_path.exists()
     saved_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert saved_manifest["schemaVersion"] == 2
+    assert saved_manifest["schemaVersion"] == 1
     assert saved_manifest["versionId"] == data["newVersionId"]
     assert saved_manifest["revision"] == 2
     assert saved_manifest["sourceVersionId"] == target["versionId"]

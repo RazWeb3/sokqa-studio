@@ -48,7 +48,7 @@ def _write_document_pack(tmp_path: Path, monkeypatch) -> dict:
     manifest = {
         "id": "content_quality_manifest_r1",
         "type": "pack_manifest",
-        "schemaVersion": 2,
+        "schemaVersion": 1,
         "contentId": content_id,
         "title": "品質チェック用ドキュメント",
         "creator": {"id": creator_id, "displayName": None},

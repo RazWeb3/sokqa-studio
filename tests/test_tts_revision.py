@@ -41,7 +41,7 @@ def test_tts_revision_creates_new_manifest_revision() -> None:
 
     assert revised_response.status_code == 200
     revised = revised_response.json()
-    assert revised["manifest"]["schemaVersion"] == 2
+    assert revised["manifest"]["schemaVersion"] == 1
     assert revised["manifest"]["revision"] == generated["manifest"]["revision"] + 1
     assert revised["manifest"]["versionId"] != generated["manifest"]["versionId"]
     assert revised["manifest"]["sourceVersionId"] == generated["manifest"]["versionId"]

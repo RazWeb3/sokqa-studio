@@ -3,946 +3,509 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sokqa Course Pack Agent</title>
+    <title>Sokqa Studio</title>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <style>
       :root {
         color-scheme: light;
-        --bg: #f6f7f9;
-        --panel: #ffffff;
-        --line: #d8dee8;
-        --text: #18202f;
-        --muted: #5f6c80;
-        --accent: #0f766e;
-        --accent-dark: #115e59;
-        --danger: #b42318;
+        --bg: oklch(97.5% 0.005 240);
+        --surface: oklch(100% 0 0);
+        --soft: oklch(99% 0.003 230);
+        --fg: oklch(22% 0.025 235);
+        --muted: oklch(52% 0.018 235);
+        --border: oklch(89% 0.01 235);
+        --accent: oklch(50% 0.11 180);
+        --accent-ink: oklch(30% 0.09 180);
+        --success: oklch(54% 0.13 150);
+        --warn: oklch(68% 0.15 75);
+        --danger: oklch(56% 0.16 30);
+        --info: oklch(58% 0.13 245);
+        --shadow: 0 18px 45px rgba(30, 41, 59, 0.08);
+        --display: "Avenir Next", "Hiragino Sans", "Yu Gothic UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --body: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Segoe UI", system-ui, sans-serif;
+        --mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.5;
-      }
-
-      header {
-        border-bottom: 1px solid var(--line);
-        background: var(--panel);
-      }
-
-      .wrap {
-        width: min(1180px, calc(100% - 32px));
-        margin: 0 auto;
-      }
-
-      header .wrap {
-        padding: 20px 0 18px;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: 1.45rem;
-      }
-
-      .subtitle {
-        margin: 6px 0 0;
-        color: var(--muted);
-      }
-
-      main {
-        padding: 18px 0 48px;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 18px;
-        align-items: start;
-      }
-
-      section {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 18px;
-      }
-
-      h2 {
-        margin: 0 0 14px;
-        font-size: 1.05rem;
-      }
-
-      label {
-        display: block;
-        margin: 12px 0;
-        font-weight: 650;
-      }
-
-      input,
-      select,
-      textarea {
-        width: 100%;
-        margin-top: 6px;
-        border: 1px solid #c5cfdd;
-        border-radius: 6px;
-        padding: 10px 11px;
-        font: inherit;
-        background: white;
-        color: var(--text);
-      }
-
-      textarea {
-        min-height: 260px;
-        resize: vertical;
-        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-        font-size: 0.86rem;
-      }
-
-      .row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-
-      .field-label {
-        display: block;
-        margin: 12px 0;
-        font-weight: 650;
-      }
-
-      .radio-group {
-        display: grid;
-        gap: 8px;
-        margin-top: 6px;
-      }
-
-      .radio-option {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        margin: 0;
-        font-weight: 500;
-      }
-
-      .radio-option input {
-        width: auto;
-        margin-top: 4px;
-      }
-
-      .radio-option small {
-        display: block;
-        color: var(--muted);
-        font-weight: 400;
-      }
-
-      .actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        margin-top: 14px;
-      }
-
-      button,
-      a.button {
-        border: 0;
-        border-radius: 6px;
-        background: var(--accent);
-        color: white;
-        cursor: pointer;
-        font: inherit;
-        font-weight: 700;
+      * { box-sizing: border-box; }
+      html { background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.55; text-size-adjust: 100%; }
+      body { margin: 0; min-width: 320px; background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,0) 320px), var(--bg); }
+      button, input, select, textarea { font: inherit; }
+      button, a.button {
         min-height: 42px;
+        border: 1px solid transparent;
+        border-radius: 8px;
         padding: 0 14px;
         display: inline-flex;
         align-items: center;
-        text-decoration: none;
-      }
-
-      button.secondary,
-      a.button.secondary {
-        background: #334155;
-      }
-
-      button:disabled {
-        opacity: 0.55;
-        cursor: wait;
-      }
-
-      .status {
-        min-height: 28px;
-        margin: 12px 0 0;
-        color: var(--muted);
-      }
-
-      .error {
-        color: var(--danger);
-      }
-
-      .output {
-        display: grid;
-        gap: 18px;
-      }
-
-      .manifest-link {
-        overflow-wrap: anywhere;
-      }
-
-      .share-url {
-        overflow-wrap: anywhere;
-      }
-
-      #qrcode {
-        margin-top: 12px;
-      }
-
-      .logs {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        padding: 0;
-        margin: 0;
-        list-style: none;
-      }
-
-      .logs li {
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 5px 10px;
-        color: var(--muted);
-        background: #f8fafc;
-        font-size: 0.9rem;
-      }
-
-      .studio-tabs {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 14px;
-        padding: 6px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--panel);
-      }
-
-      .tab-button {
-        min-height: 44px;
         justify-content: center;
-        background: transparent;
-        color: var(--muted);
-        border: 1px solid transparent;
-      }
-
-      .tab-button.active {
-        background: var(--accent);
-        color: #fff;
-        border-color: var(--accent);
-      }
-
-      .tab-panel[hidden] {
-        display: none;
-      }
-
-      .tab-panel {
-        display: block;
-      }
-
-      .recording-workflow {
-        display: grid;
-        gap: 14px;
-        background: transparent;
-        border: 0;
-        padding: 0;
-      }
-
-      .workflow-hero,
-      .step-card {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 14px;
-      }
-
-      .workflow-hero {
-        display: grid;
-        gap: 12px;
-      }
-
-      .step-card {
-        display: grid;
-        gap: 12px;
-      }
-
-      .step-head {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: 10px;
-        align-items: start;
-      }
-
-      .step-number {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 30px;
-        min-width: 30px;
-        height: 30px;
-        border-radius: 999px;
-        background: var(--accent);
-        color: #fff;
-        font-weight: 800;
-      }
-
-      .step-title {
-        margin: 0;
-        font-size: 1rem;
-      }
-
-      .step-copy {
-        margin: 2px 0 0;
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
-
-      .step-body {
-        display: grid;
-        gap: 12px;
-      }
-
-      #recordingPanel:not([hidden]) {
-        display: grid;
-        gap: 14px;
-      }
-
-      summary {
+        gap: 8px;
+        font-weight: 620;
+        letter-spacing: 0.02em;
         cursor: pointer;
-        width: fit-content;
+        background: var(--accent);
+        color: white;
+        text-decoration: none;
+        transition: 0.16s ease;
       }
+      button:hover, a.button:hover { transform: translateY(-1px); }
+      button:active, a.button:active { transform: translateY(0); }
+      button:disabled { opacity: 0.55; cursor: wait; transform: none; }
+      button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+        outline: 3px solid color-mix(in oklch, var(--accent) 25%, transparent);
+        outline-offset: 2px;
+      }
+      .secondary, a.secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+      .ghost { background: transparent; color: var(--muted); border-color: transparent; }
+      .danger-btn { background: color-mix(in oklch, var(--danger) 12%, white); color: var(--danger); border-color: color-mix(in oklch, var(--danger) 28%, white); }
+      label { display: grid; gap: 7px; color: var(--fg); font-size: 13px; font-weight: 620; letter-spacing: 0.02em; }
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: white;
+        color: var(--fg);
+        padding: 10px 12px;
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+      textarea { min-height: 132px; resize: vertical; }
+      summary { cursor: pointer; width: fit-content; }
 
-      .estimate-grid {
+      .app { max-width: 1440px; margin: 0 auto; padding: 0 clamp(14px, 2vw, 28px) 48px; }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        margin: 0 calc(clamp(14px, 2vw, 28px) * -1);
+        padding: 14px clamp(14px, 2vw, 28px);
+        background: rgba(247,249,251,.88);
+        backdrop-filter: blur(18px);
+        border-bottom: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
+      }
+      .topbar-inner { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
+      .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .mark { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: white; font-family: var(--display); font-weight: 700; }
+      .brand h1 { margin: 0; font-family: var(--display); font-size: clamp(21px, 2.2vw, 30px); line-height: 1.1; letter-spacing: -0.02em; }
+      .brand p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+      .top-actions, .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .tabs {
+        position: sticky;
+        top: 65px;
+        z-index: 35;
+        margin: 16px 0 0;
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        padding: 8px;
+        background: rgba(255,255,255,.88);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        backdrop-filter: blur(16px);
+        box-shadow: 0 10px 24px rgba(15,23,42,.04);
+      }
+      .tab { min-height: 66px; justify-content: space-between; padding: 10px 12px; background: transparent; color: var(--fg); border-color: transparent; }
+      .tab:hover { background: var(--soft); }
+      .tab[aria-selected="true"] { background: color-mix(in oklch, var(--accent) 10%, white); border-color: color-mix(in oklch, var(--accent) 24%, white); color: var(--accent-ink); }
+      .tab-title { display: grid; gap: 2px; text-align: left; }
+      .tab-title strong { font-size: 14px; line-height: 1.2; }
+      .tab-title span { color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+
+      .badge { min-height: 24px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 9px; background: color-mix(in oklch, var(--border) 55%, white); color: var(--muted); font-size: 12px; font-weight: 650; white-space: nowrap; }
+      .success { background: color-mix(in oklch, var(--success) 14%, white); color: color-mix(in oklch, var(--success) 72%, black); }
+      .warn { background: color-mix(in oklch, var(--warn) 18%, white); color: color-mix(in oklch, var(--warn) 62%, black); }
+      .danger { background: color-mix(in oklch, var(--danger) 14%, white); color: color-mix(in oklch, var(--danger) 72%, black); }
+      .info { background: color-mix(in oklch, var(--info) 13%, white); color: color-mix(in oklch, var(--info) 70%, black); }
+      .accent { background: color-mix(in oklch, var(--accent) 13%, white); color: var(--accent-ink); }
+      .source { background: #fff3d6; color: #8a5700; }
+      .source-corrected { background: #e7f7ed; color: #146c43; }
+
+      .pack-bar {
+        position: sticky;
+        top: 152px;
+        z-index: 30;
+        margin: 10px 0 18px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255,255,255,.92);
+        backdrop-filter: blur(16px);
+        box-shadow: 0 10px 24px rgba(15,23,42,.04);
+      }
+      .pack-inner { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 12px 14px; }
+      .pack-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .pack-icon { width: 42px; height: 42px; border-radius: 10px; background: color-mix(in oklch, var(--accent) 11%, white); display: grid; place-items: center; color: var(--accent-ink); font-weight: 750; font-family: var(--mono); }
+      .pack-meta h2 { margin: 0; font-family: var(--display); font-size: 17px; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+      .pack-meta p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+      .pack-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      main { display: block; }
+      .tab-panel[hidden] { display: none; }
+      .grid { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+      .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 0 rgba(15,23,42,.02); }
+      .panel-head { padding: 16px 18px 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+      .panel h3 { margin: 0; font-family: var(--display); font-size: 18px; line-height: 1.22; letter-spacing: -0.01em; }
+      .hint { margin: 5px 0 0; color: var(--muted); font-size: 13px; max-width: 62ch; }
+      .panel-body { padding: 16px 18px 18px; }
+      .stack { display: grid; gap: 14px; }
+      .tight { display: grid; gap: 9px; }
+      .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
+      .segmented button { min-height: 36px; background: transparent; color: var(--muted); border-color: transparent; border-radius: 7px; padding: 0 8px; font-size: 13px; }
+      .segmented .active { background: white; color: var(--fg); border-color: var(--border); }
+      .switch-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
+      .switch { width: 46px; min-width: 46px; height: 26px; min-height: 26px; border-radius: 999px; padding: 3px; border: 0; background: color-mix(in oklch, var(--accent) 58%, white); justify-content: flex-start; }
+      .switch::before { content: ""; width: 20px; height: 20px; border-radius: 999px; background: white; box-shadow: 0 2px 8px rgba(15,23,42,.18); transition: transform .16s ease; }
+      .switch.off { background: color-mix(in oklch, var(--muted) 28%, white); }
+      .switch.off::before { transform: translateX(20px); }
+      .json { min-height: 210px; font-family: var(--mono); font-size: 13px; line-height: 1.55; color: oklch(27% .03 235); background: oklch(98.8% .004 235); }
+      .result { display: grid; gap: 14px; padding: 14px; border: 1px solid color-mix(in oklch, var(--success) 22%, var(--border)); border-radius: 10px; background: linear-gradient(180deg, color-mix(in oklch, var(--success) 7%, white), white); }
+      .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+      .stat { padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: white; }
+      .stat span { display: block; color: var(--muted); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+      .stat strong { display: block; margin-top: 4px; font-family: var(--mono); font-size: 18px; line-height: 1.2; letter-spacing: -0.01em; }
+      .logs { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0; list-style: none; }
+      .logs li, .log { border: 1px solid var(--border); border-radius: 999px; padding: 5px 10px; color: var(--muted); background: #f8fafc; font-size: 0.9rem; overflow-wrap: anywhere; }
+      .log { min-height: 62px; border-radius: 9px; }
+      .log.done { border-color: color-mix(in oklch, var(--success) 26%, var(--border)); color: var(--fg); }
+      .url { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px; border: 1px dashed color-mix(in oklch, var(--accent) 28%, var(--border)); border-radius: 9px; background: color-mix(in oklch, var(--accent) 5%, white); }
+      .url code { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
+      #qrcode img { width: 120px; height: 120px; }
+      .qr-box { display: grid; justify-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
+      .qr-box img { width: 180px; height: 180px; }
+      .quality { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      .issues { display: grid; gap: 10px; }
+      .issue { border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: white; display: grid; gap: 8px; }
+      .issue-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+      .issue-title { font-weight: 680; font-size: 14px; }
+      .excerpt { padding: 9px 10px; border-radius: 8px; background: var(--soft); color: var(--muted); font-size: 13px; border: 1px solid var(--border); overflow-wrap: anywhere; }
+      .checkline { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 9px; align-items: start; font-size: 13px; color: var(--fg); letter-spacing: 0; font-weight: 520; }
+      .checkline input { width: 18px; height: 18px; margin-top: 2px; }
+      .applied { display: grid; gap: 8px; padding: 11px; border-radius: 9px; background: color-mix(in oklch, var(--success) 7%, white); border: 1px solid color-mix(in oklch, var(--success) 22%, var(--border)); font-size: 13px; }
+      .record { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr); gap: 16px; }
+      .step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
+      .step-num { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-family: var(--mono); font-weight: 750; background: color-mix(in oklch, var(--accent) 10%, white); color: var(--accent-ink); }
+      .units { display: grid; gap: 8px; margin-top: 10px; }
+      .unit { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: white; }
+      .unit input { width: 18px; height: 18px; margin: 0; }
+      .unit.playing { border-color: var(--accent); background: #f0fdfa; box-shadow: 0 0 0 1px rgba(15,118,110,.18); }
+      .unit strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
+      .unit small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .unit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 120px; }
+      .mini { width: 36px; min-width: 36px; min-height: 36px; padding: 0; border-radius: 8px; background: var(--soft); color: var(--fg); border-color: var(--border); font-family: var(--mono); }
+      .meter { height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in oklch, var(--border) 62%, white); }
+      .meter > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+      .player { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
+      .player-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      .modal { position: fixed; inset: 0; z-index: 80; display: none; place-items: center; padding: 20px; background: rgba(15,23,42,.28); }
+      .modal.open { display: grid; }
+      .dialog { width: min(820px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow: auto; background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+      .pack-option { display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 12px; align-items: center; padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: white; }
+      .pack-option.active { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 24%, transparent); }
+      .pack-option-main { min-width: 0; display: grid; gap: 4px; word-break: normal; }
+      .pack-option-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
+      .pack-option-detail { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
+      .version-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .version-grid .stat { min-width: 0; }
+      .change-list { display: grid; gap: 10px; }
+      .change-block { padding: 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
+      .change-block ul { margin: 8px 0 0; padding-left: 1.2em; }
+      .change-block li { overflow-wrap: anywhere; }
+      .muted { color: var(--muted); }
+      .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+      .error { color: color-mix(in oklch, var(--danger) 80%, black); }
+      .toast {
+        position: fixed;
+        right: 22px;
+        bottom: 22px;
+        width: min(430px, calc(100vw - 28px));
+        z-index: 60;
+        border: 1px solid color-mix(in oklch, var(--accent) 26%, var(--border));
+        border-radius: 12px;
+        background: rgba(255,255,255,.96);
+        box-shadow: var(--shadow);
+        padding: 14px;
+        display: none;
         gap: 10px;
       }
+      .toast.active { display: grid; }
+      .progress-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .bar { height: 8px; border-radius: 999px; overflow: hidden; background: color-mix(in oklch, var(--accent) 10%, white); }
+      .bar span { display: block; width: 32%; height: 100%; border-radius: inherit; background: var(--accent); animation: sweep 1.3s ease-in-out infinite; }
+      .bar.static span { animation: none; }
+      @keyframes sweep { 0% { transform: translateX(-105%); } 100% { transform: translateX(250%); } }
+      .recording-result { overflow-wrap: anywhere; }
 
-      .estimate-tile {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 10px;
-        background: #f8fafc;
+      @media (max-width: 1060px) {
+        .grid, .record { grid-template-columns: 1fr; }
+        .tabs { top: 64px; }
+        .pack-bar { top: 151px; }
       }
-
-      .estimate-value {
-        display: block;
-        margin-top: 4px;
-        font-size: 1.08rem;
-        font-weight: 800;
-      }
-
-      .recording-toolbar,
-      .recording-summary,
-      .credit-bar {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px;
-        align-items: end;
-      }
-
-      .credit-bar {
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 12px;
-        background: #f8fafc;
-      }
-
-      .credit-value {
-        font-size: 1.3rem;
-        font-weight: 800;
-      }
-
-      .pack-list,
-      .unit-list {
-        display: grid;
-        gap: 8px;
-        margin-top: 12px;
-      }
-
-      .manifest-card,
-      .pack-row,
-      .unit-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 12px;
-        align-items: center;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 10px 12px;
-        background: #ffffff;
-      }
-
-      .manifest-card {
-        display: block;
-      }
-
-      .manifest-header {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 6px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .pack-children {
-        display: grid;
-        gap: 8px;
-        margin-top: 10px;
-      }
-
-      .pack-row {
-        background: #f8fafc;
-      }
-
-      .pack-row.active {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18);
-      }
-
-      .unit-row {
-        grid-template-columns: auto minmax(0, 1fr) auto;
-      }
-
-      .unit-row input {
-        width: auto;
-        margin: 0;
-      }
-
-      .unit-row.playing {
-        border-color: var(--accent);
-        background: #f0fdfa;
-        box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18);
-      }
-
-      .unit-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        flex-wrap: wrap;
-        min-width: 150px;
-      }
-
-      .icon-button {
-        width: 34px;
-        min-width: 34px;
-        min-height: 34px;
-        padding: 0;
-        justify-content: center;
-        border-radius: 6px;
-      }
-
-      .meta {
-        color: var(--muted);
-        font-size: 0.88rem;
-      }
-
-      .excerpt {
-        margin-top: 4px;
-        color: var(--text);
-        overflow-wrap: anywhere;
-      }
-
-      .url-line {
-        margin-top: 4px;
-        color: var(--muted);
-        font-size: 0.84rem;
-        overflow-wrap: anywhere;
-      }
-
-      .url-line a {
-        color: var(--accent-dark);
-        font-weight: 650;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        min-height: 26px;
-        border-radius: 999px;
-        padding: 0 9px;
-        background: #e8f3f1;
-        color: var(--accent-dark);
-        font-size: 0.82rem;
-        font-weight: 700;
-        white-space: nowrap;
-      }
-
-      .badge.muted {
-        background: #eef2f7;
-        color: var(--muted);
-      }
-
-      .badge.source {
-        background: #fff3d6;
-        color: #8a5700;
-      }
-
-      .badge.source-corrected {
-        background: #e7f7ed;
-        color: #146c43;
-      }
-
-      .recording-result {
-        margin-top: 12px;
-        overflow-wrap: anywhere;
-      }
-
-      @media (min-width: 980px) {
-        main {
-          padding-top: 24px;
-        }
-
-        .grid {
-          grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
-        }
-
-        .workflow-hero {
-          grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-          align-items: center;
-        }
-      }
-
-      @media (max-width: 860px) {
-        .row,
-        .recording-toolbar,
-        .recording-summary,
-        .credit-bar,
-        .estimate-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .actions button,
-        .actions a.button {
-          width: 100%;
-          justify-content: center;
-        }
-
-        .unit-row {
-          grid-template-columns: auto minmax(0, 1fr);
-          align-items: start;
-        }
-
-        .unit-actions {
-          grid-column: 1 / -1;
-          justify-content: flex-start;
-          min-width: 0;
-        }
+      @media (max-width: 760px) {
+        .topbar, .tabs, .pack-bar { position: relative; top: auto; }
+        .topbar-inner, .tabs, .pack-inner, .url, .field-grid, .quality, .stats { grid-template-columns: 1fr; }
+        .top-actions { justify-content: flex-start; }
+        .tab { min-height: 56px; }
+        .pack-main { display: grid; }
+        .pack-actions { justify-content: stretch; }
+        .pack-option { grid-template-columns: 1fr; }
+        .pack-option-title, .pack-option-detail { white-space: normal; }
+        .version-grid { grid-template-columns: 1fr; }
+        .unit { grid-template-columns: auto minmax(0, 1fr); }
+        .unit-actions { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; }
+        button, a.button { width: 100%; }
       }
     </style>
   </head>
   <body>
-    <header>
-      <div class="wrap">
-        <h1>Sokqa Course Pack Agent</h1>
-        <p class="subtitle">パック作成と録音管理を分けて、Sokqa用JSON群と音声ファイルを扱います。</p>
-      </div>
-    </header>
-
-    <main class="wrap">
-      <div class="studio-tabs" role="tablist" aria-label="Sokqa Studio">
-        <button id="createTabBtn" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="createView">パック作成</button>
-        <button id="recordingTabBtn" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="recordingView">録音管理</button>
-      </div>
-
-      <div id="createView" class="tab-panel" role="tabpanel" aria-labelledby="createTabBtn">
-        <div class="grid">
-          <section>
-        <h2>入力</h2>
-        <label>
-          テーマ
-          <input id="theme" value="ITパスポート試験対策" maxlength="160" />
-        </label>
-        <label>
-          対象者
-          <input id="targetUser" value="IT初心者の社会人" maxlength="160" />
-        </label>
-        <div class="row">
-          <div class="field-label">
-            規模
-            <div class="radio-group" role="radiogroup" aria-label="規模">
-              <label class="radio-option">
-                <input type="radio" name="scale" value="quick" checked />
-                <span>クイック <small>3〜5章</small></span>
-              </label>
-              <label class="radio-option">
-                <input type="radio" name="scale" value="standard" />
-                <span>スタンダード <small>6〜10章</small></span>
-              </label>
-              <label class="radio-option">
-                <input type="radio" name="scale" value="auto" />
-                <span>おまかせ <small>範囲制約なし</small></span>
-              </label>
+    <div class="app">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <div class="brand">
+            <div class="mark">S</div>
+            <div>
+              <h1>Sokqa Studio</h1>
+              <p>生成、品質チェック、録音までを1つの制作ラインで扱うクリエイター向けWebスタジオ</p>
             </div>
           </div>
-          <label>
-            難易度
-            <select id="difficulty">
-              <option value="beginner">beginner</option>
-              <option value="standard">standard</option>
-              <option value="advanced">advanced</option>
-            </select>
-          </label>
+          <div class="top-actions">
+            <label style="min-width:180px">creatorId<input id="packCreatorId" value="creator_default" maxlength="120" /></label>
+            <button class="secondary" id="openPackTop" type="button">パック切り替え</button>
+          </div>
         </div>
-        <div class="row">
-          <label>
-            言語
-            <input id="language" value="ja" maxlength="20" />
-          </label>
-          <label>
-            TTS補正
-            <select id="includeTts">
-              <option value="true">ON</option>
-              <option value="false">OFF</option>
-            </select>
-          </label>
+      </header>
+
+      <nav class="tabs" role="tablist" aria-label="Sokqa Studio工程">
+        <button class="tab" role="tab" aria-selected="true" data-tab="generate" type="button"><span class="tab-title"><span>STEP 01</span><strong>パック生成</strong></span><span class="badge" id="genBadge">未生成</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="quality" type="button"><span class="tab-title"><span>STEP 02</span><strong>品質チェック・修正</strong></span><span class="badge" id="qualityBadge">未チェック</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="record" type="button"><span class="tab-title"><span>STEP 03</span><strong>録音</strong></span><span class="badge" id="recordBadge">未判定</span></button>
+      </nav>
+
+      <section class="pack-bar" aria-label="対象パック">
+        <div class="pack-inner">
+          <div class="pack-main">
+            <div class="pack-icon" id="packIcon">--</div>
+            <div class="pack-meta">
+              <h2 id="packName">パックを選択してください</h2>
+              <p><span id="packKind">-</span> · <span id="packRevision">-</span> · <span id="packStatusText">生成、品質チェック、録音の対象として共有されます</span></p>
+            </div>
+          </div>
+          <div class="pack-actions">
+            <button class="secondary" id="openVersionInfo" type="button" hidden>バージョン情報</button>
+            <button class="secondary" id="openImportQr" type="button">QRコード表示</button>
+            <button class="secondary" id="openPack" type="button">別のパックに切り替え</button>
+            <button class="ghost" id="clearPack" type="button">未選択にする</button>
+          </div>
         </div>
-        <label>
-          TTS読みモード
-          <select id="ttsReadingMode">
-            <option value="rule">rule</option>
-            <option value="llm">llm</option>
-            <option value="auto">auto</option>
-          </select>
-        </label>
-        <label>
-          参考資料テキスト
-          <textarea id="sourceText" spellcheck="false" placeholder="貼り付けた資料からコンテンツを生成します（任意）"></textarea>
-        </label>
-        <label>
-          資料の使い方
-          <select id="sourceMode" disabled>
-            <option value="document_reference">資料を参考に</option>
-            <option value="document_only">資料のみ</option>
-          </select>
-        </label>
-        <div class="actions">
-          <button id="planBtn">構成案を作成</button>
-          <button id="generateBtn" class="secondary" disabled>生成する</button>
-        </div>
-        <p id="status" class="status"></p>
       </section>
 
-          <div class="output">
-            <section>
-          <h2>構成案</h2>
-          <textarea id="planJson" spellcheck="false" placeholder="構成案がここに表示されます。編集してから生成できます。"></textarea>
-        </section>
+      <main>
+        <section class="tab-panel" id="tab-generate">
+          <div class="grid">
+            <section class="panel">
+              <div class="panel-head"><div><h3>テーマから構成を作成</h3><p class="hint">生成だけで完結するライト層でも使えるよう、最初の入力は最小限にしています。</p></div></div>
+              <div class="panel-body stack">
+                <label>テーマ<input id="theme" value="ITパスポート試験対策" maxlength="160" /></label>
+                <label>対象ユーザー<input id="targetUser" value="IT初心者の社会人" maxlength="160" /></label>
+                <div class="field-grid">
+                  <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
+                  <label>言語<input id="language" value="ja" maxlength="20" /></label>
+                </div>
+                <div class="tight">
+                  <span class="muted">規模</span>
+                  <div class="segmented" id="scaleSegment">
+                    <button class="active" data-scale="quick" type="button">quick</button>
+                    <button data-scale="standard" type="button">standard</button>
+                    <button data-scale="auto" type="button">auto</button>
+                  </div>
+                </div>
+                <div class="switch-line">
+                  <div><strong>TTS最適化</strong><div class="muted">読み上げ用テキストを同時に整えます</div></div>
+                  <button class="switch" id="ttsSwitch" aria-label="TTS最適化" type="button" aria-pressed="true"></button>
+                </div>
+                <label>TTS読みモード<select id="ttsReadingMode"><option value="rule">rule</option><option value="llm">llm</option><option value="auto">auto</option></select></label>
+                <label>元資料テキスト<textarea id="sourceText" placeholder="社内資料や教材メモを貼り付けると、生成時に参照します。"></textarea></label>
+                <label>資料の扱い<select id="sourceMode" disabled><option value="document_reference">資料を参考に</option><option value="document_only">資料のみ</option></select></label>
+                <div class="actions"><button id="planBtn" type="button">プレビュー作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
+                <p id="status" class="muted"></p>
+              </div>
+            </section>
 
-            <section>
-          <h2>生成結果</h2>
-          <div id="result"></div>
-        </section>
-
-            <section>
-          <h2>TTS読み修正</h2>
-          <label>
-            追加ルール JSON
-            <textarea id="ttsRules" spellcheck="false" style="min-height: 140px;">[
+            <div class="stack">
+              <section class="panel">
+                <div class="panel-head"><div><h3>構成プレビュー</h3><p class="hint">編集可能なJSONとして、生成前に章立てを確認できます。</p></div><span class="badge info">editable</span></div>
+                <div class="panel-body"><textarea id="planJson" class="json" spellcheck="false" placeholder="構成案がここに表示されます。編集してから生成できます。"></textarea></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><h3>生成結果</h3><p class="hint">完了後はスマホ学習アプリへ渡すURLとQRコードを共有します。</p></div></div>
+                <div class="panel-body result" id="result"><p class="muted">まだ生成結果はありません。</p></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><h3>上級者向け TTS再最適化</h3><p class="hint">表示コンテンツは変えず、読みルールだけを追加して再生成します。</p></div></div>
+                <div class="panel-body stack">
+                  <label>読みルールJSON<textarea id="ttsRules" class="json" spellcheck="false">[
   { "source": "日本橋", "reading": "にほんばし", "note": "地名として読む場合" }
-]</textarea>
-          </label>
-          <div class="actions">
-            <button id="reviseBtn" class="secondary" disabled>TTSだけ再最適化</button>
+]</textarea></label>
+                  <button class="secondary" id="reviseBtn" type="button" disabled>TTSだけ再最適化</button>
+                </div>
+              </section>
+            </div>
           </div>
+        </section>
+
+        <section class="tab-panel" id="tab-quality" hidden>
+          <div class="quality">
+            <section class="panel">
+              <div class="panel-head"><div><h3>テキスト品質</h3><p class="hint">factual / style / leak は承認制。事実確認は「疑い」として明示します。</p></div><span class="badge warn">承認制</span></div>
+              <div class="panel-body stack">
+                <button id="textCheckBtn" type="button">テキスト品質チェック</button>
+                <button class="secondary" id="textFixBtn" type="button" disabled>テキスト修正候補を生成</button>
+                <button class="secondary" id="applyTextFixBtn" type="button" disabled>承認した本文修正を反映</button>
+                <div class="issues" id="textQualityResult"><p class="muted">テキスト品質チェックは未実行です。</p></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-head"><div><h3>TTS品質</h3><p class="hint">reading / double_utterance / notation / mismatch は自動・部分置換で処理します。</p></div><span class="badge info">自動適用</span></div>
+              <div class="panel-body stack">
+                <button id="ttsCheckBtn" type="button">TTS品質チェック</button>
+                <button class="secondary" id="ttsFixBtn" type="button" disabled>TTS修正を実行</button>
+                <div class="issues" id="ttsQualityResult"><p class="muted">TTS品質チェックは未実行です。</p></div>
+              </div>
             </section>
           </div>
-        </div>
-      </div>
-
-      <div id="recordingView" class="tab-panel" role="tabpanel" aria-labelledby="recordingTabBtn" hidden>
-        <section class="recording-workflow">
-          <div class="workflow-hero">
-            <div>
-              <h2>録音管理</h2>
-              <p class="step-copy">パックを選び、録音対象と声種を決めてから、概算クレジットを確認して録音します。</p>
-              <p id="recordingStatus" class="status"></p>
+          <section class="panel" style="margin-top:16px">
+            <div class="panel-head"><div><h3>修正版を保存</h3><p class="hint">text / tts の反映結果を共通の保存操作で新リビジョン化します。</p></div><span class="badge accent">共通</span></div>
+            <div class="panel-body stack">
+              <div id="qualitySaveSummary" class="applied"><strong>保存待ち</strong><span>チェックまたは修正後に保存できます。</span></div>
+              <div class="actions"><button id="qualitySaveFixBtn" type="button" disabled>修正版を保存</button></div>
             </div>
-            <div class="credit-bar">
-              <div>
-                <div class="meta">疑似クレジット残高</div>
-                <div class="credit-value"><span id="creditBalance">0.0000</span> credits</div>
-              </div>
-              <button id="resetCreditsBtn" type="button" class="secondary">残高リセット</button>
-            </div>
-          </div>
-
-          <div class="step-card">
-            <div class="step-head">
-              <span class="step-number">1</span>
-              <div>
-                <h3 class="step-title">パックを選ぶ</h3>
-                <p class="step-copy">creatorIdで絞り込み、録音したいdocument/quizを選択します。</p>
-              </div>
-            </div>
-            <div class="step-body">
-              <div class="recording-toolbar">
-                <label>
-                  creatorId
-                  <input id="packCreatorId" value="creator_default" maxlength="120" />
-                </label>
-                <div class="actions">
-                  <button id="loadPacksBtn" type="button">一覧更新</button>
-                </div>
-              </div>
-              <details>
-                <summary class="meta">JSONをインポート</summary>
-                <div class="recording-toolbar">
-                  <label>
-                    インポートJSON
-                    <input id="importFiles" type="file" accept="application/json,.json" multiple />
-                  </label>
-                  <label>
-                    title
-                    <input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" />
-                  </label>
-                  <label>
-                    contentId
-                    <input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" />
-                  </label>
-                  <label>
-                    slug
-                    <input id="importSlug" maxlength="160" placeholder="任意" />
-                  </label>
-                  <div class="actions">
-                    <button id="importPackBtn" type="button" class="secondary">JSONをインポート</button>
-                  </div>
-                </div>
-                <p id="importStatus" class="status"></p>
-              </details>
-              <div id="packList" class="pack-list"></div>
-            </div>
-          </div>
-
-          <div id="recordingPanel" hidden>
-            <div class="step-card">
-              <div class="step-head">
-                <span class="step-number">2</span>
-                <div>
-                  <h3 class="step-title">録音対象を選ぶ</h3>
-                  <p class="step-copy">未録音だけをまとめて選ぶか、必要なユニットだけ選択します。</p>
-                </div>
-              </div>
-              <div class="step-body">
-                <div class="actions">
-                  <button id="selectUnrecordedBtn" type="button" class="secondary">未録音を全選択</button>
-                  <button id="clearUnitSelectionBtn" type="button" class="secondary">選択解除</button>
-                </div>
-                <div id="unitList" class="unit-list"></div>
-              </div>
-            </div>
-
-            <div class="step-card">
-              <div class="step-head">
-                <span class="step-number">3</span>
-                <div>
-                  <h3 class="step-title">読みと声種を選ぶ</h3>
-                  <p class="step-copy">補正版の利用有無とクラウドTTSの声種を録音開始時に固定します。</p>
-                </div>
-              </div>
-              <div class="step-body">
-                <div class="recording-toolbar">
-                  <label>
-                    録音テキスト
-                    <select id="recordingTextSource">
-                      <option value="raw">生テキスト</option>
-                      <option value="corrected">補正版優先</option>
-                    </select>
-                  </label>
-                  <label>
-                    声種
-                    <select id="recordingVoiceSelect">
-                      <option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option>
-                    </select>
-                  </label>
-                  <label>
-                    再生速度
-                    <select id="playbackRateSelect">
-                      <option value="0.75">0.75x</option>
-                      <option value="1" selected>1.0x</option>
-                      <option value="1.25">1.25x</option>
-                      <option value="1.5">1.5x</option>
-                      <option value="2">2.0x</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div class="step-card">
-              <div class="step-head">
-                <span class="step-number">4</span>
-                <div>
-                  <h3 class="step-title">概算を確認する</h3>
-                  <p class="step-copy">選択分の文字数と消費クレジットを確認します。</p>
-                </div>
-              </div>
-              <div class="step-body">
-                <div class="estimate-grid recording-summary">
-                  <div class="estimate-tile">
-                    <span class="meta">選択ユニット</span>
-                    <span class="estimate-value" id="selectedUnitCount">0</span>
-                  </div>
-                  <div class="estimate-tile">
-                    <span class="meta">文字数</span>
-                    <span class="estimate-value" id="selectedChars">0</span>
-                  </div>
-                  <div class="estimate-tile">
-                    <span class="meta">見積もり</span>
-                    <span class="estimate-value"><span id="selectedCredits">0.0000</span> credits</span>
-                  </div>
-                </div>
-                <p id="creditWarning" class="status"></p>
-              </div>
-            </div>
-
-            <div class="step-card">
-              <div class="step-head">
-                <span class="step-number">5</span>
-                <div>
-                  <h3 class="step-title">録音して確認する</h3>
-                  <p class="step-copy">録音後は選択分または全体を連続再生できます。</p>
-                </div>
-              </div>
-              <div class="step-body">
-                <div class="actions">
-                  <button id="qualityCheckBtn" type="button" class="secondary">品質チェック</button>
-                  <button id="qualityFixBtn" type="button" class="secondary" disabled>修正</button>
-                  <button id="qualityApplyFixBtn" type="button" class="secondary" disabled>承認分を反映</button>
-                  <button id="qualitySaveFixBtn" type="button" class="secondary" disabled>新バージョンとして保存</button>
-                  <button id="recordSelectedBtn" type="button" disabled>録音化</button>
-                  <button id="forceRecordSelectedBtn" type="button" class="secondary" disabled>選択分を強制再録音</button>
-                  <button id="resetSelectedRecordingBtn" type="button" class="secondary" disabled>選択分の録音状態をリセット</button>
-                  <button id="resetAllRecordingBtn" type="button" class="secondary">全録音状態をリセット</button>
-                </div>
-                <div class="actions">
-                  <button id="playSelectedBtn" type="button" class="secondary">選択分を連続再生</button>
-                  <button id="playAllBtn" type="button" class="secondary">全体を連続再生</button>
-                  <button id="prevTrackBtn" type="button" class="secondary" disabled>前へ</button>
-                  <button id="pauseTrackBtn" type="button" class="secondary" disabled>一時停止</button>
-                  <button id="nextTrackBtn" type="button" class="secondary" disabled>次へ</button>
-                </div>
-                <div id="qualityResult" class="recording-result"></div>
-                <div id="recordingResult" class="recording-result"></div>
-                <audio id="recordingAudio" preload="none"></audio>
-              </div>
-            </div>
-          </div>
+          </section>
         </section>
 
+        <section class="tab-panel" id="tab-record" hidden>
+          <div class="record">
+            <section class="panel">
+              <div class="panel-head"><div><h3>録音ワークフロー</h3><p class="hint">対象確認から録音、再生までを1画面で扱います。</p></div><span class="badge warn" id="selectionBadge">0件選択中</span></div>
+              <div class="panel-body stack">
+                <div class="step"><div class="step-num">1</div><div><strong>対象パック</strong><p class="muted">共通の対象パックバーと同期します。</p><div class="actions"><button class="secondary" id="openPackFromRecord" type="button">パックを切り替え</button><button class="secondary" id="loadPacksBtn" type="button">一覧更新</button></div></div></div>
+                <details class="step">
+                  <summary><strong>JSONインポート</strong></summary>
+                  <div class="stack" style="grid-column:1/-1">
+                    <label>インポートJSON<input id="importFiles" type="file" accept="application/json,.json" multiple /></label>
+                    <div class="field-grid"><label>title<input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" /></label><label>contentId<input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" /></label></div>
+                    <label>slug<input id="importSlug" maxlength="160" placeholder="任意" /></label>
+                    <button id="importPackBtn" type="button" class="secondary">JSONをインポート</button>
+                    <p id="importStatus" class="muted"></p>
+                  </div>
+                </details>
+                <div class="step"><div class="step-num">2</div><div><strong>録音するユニット</strong><p class="muted">録音状態と使用テキスト元を見ながら選択します。</p><div class="actions"><button class="secondary" id="selectUnrecordedBtn" type="button">未録音をすべて選択</button><button class="ghost" id="clearUnitSelectionBtn" type="button">選択解除</button></div><div class="units" id="unitList"><p class="muted">パックを選択するとユニットが表示されます。</p></div></div></div>
+                <div class="step"><div class="step-num">3</div><div class="field-grid"><label>読み上げテキスト元<select id="recordingTextSource"><option value="raw">raw</option><option value="corrected">corrected</option></select></label><label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label><label>再生速度<select id="playbackRateSelect"><option value="0.75">0.75x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2.0x</option></select></label></div></div>
+              </div>
+            </section>
+            <aside class="stack">
+              <section class="panel">
+                <div class="panel-head"><div><h3>見積もり</h3><p class="hint">選択分の概算クレジットと残高を確認します。</p></div></div>
+                <div class="panel-body stack">
+                  <div class="stats"><div class="stat"><span>UNITS</span><strong id="selectedUnitCount">0</strong></div><div class="stat"><span>CHARS</span><strong id="selectedChars">0</strong></div><div class="stat"><span>CREDITS</span><strong id="selectedCredits">0.0000</strong></div></div>
+                  <div class="tight"><div class="issue-top"><strong>残高</strong><span class="mono"><span id="creditBalance">0.0000</span> credits</span></div><div class="meter"><span id="creditMeter"></span></div><p class="muted" id="creditWarning"></p></div>
+                  <button class="secondary" id="resetCreditsBtn" type="button">残高リセット</button>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><h3>実行と再生</h3><p class="hint">音声がないユニットはOS TTSフォールバックで試聴できます。</p></div></div>
+                <div class="panel-body stack">
+                  <div class="actions"><button id="recordSelectedBtn" type="button">選択分を録音</button><button class="secondary" id="forceRecordSelectedBtn" type="button">強制再録音</button><button class="danger-btn" id="resetSelectedRecordingBtn" type="button">選択リセット</button><button class="danger-btn" id="resetAllRecordingBtn" type="button">全リセット</button></div>
+                  <div class="player"><strong id="nowPlaying">未再生</strong><audio id="recordingAudio"></audio><div class="player-controls"><button class="secondary" id="prevTrackBtn" type="button">前</button><button id="pauseTrackBtn" type="button">再生</button><button class="secondary" id="nextTrackBtn" type="button">次</button><button class="secondary" id="playAllBtn" type="button">全体再生</button></div><button class="secondary" id="playSelectedBtn" type="button">選択分を連続再生</button></div>
+                  <div class="recording-result applied" id="recordingResult"><strong>録音結果</strong><span>まだ実行していません。</span></div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="progressToast" role="status" aria-live="polite">
+      <div class="progress-head"><strong id="progressTitle">待機中</strong><span class="badge accent" id="progressValue">ready</span></div>
+      <div class="bar" id="progressBar"><span id="progressBarFill"></span></div>
+      <p class="muted" id="progressText">処理を開始するとここに進捗を表示します。</p>
+    </div>
+
+    <div class="modal" id="packModal" aria-hidden="true">
+      <div class="dialog">
+        <div class="panel-head"><div><h3>対象パックを切り替え</h3><p class="hint">3タブで共有される対象パックです。既存パックだけを使う単独運用もできます。</p></div><button class="ghost" id="closePack" type="button">閉じる</button></div>
+        <div class="panel-body stack">
+          <div class="actions"><button id="refreshPacksBtn" type="button">一覧更新</button></div>
+          <div id="packList" class="stack"><p class="muted">一覧を取得してください。</p></div>
+        </div>
       </div>
-    </main>
+    </div>
+
+    <div class="modal" id="versionModal" aria-hidden="true">
+      <div class="dialog">
+        <div class="panel-head"><div><h3>マニフェスト / バージョン情報</h3><p class="hint">現在対象にしているリビジョンのmanifestを読み込み、変更内容を表示します。</p></div><button class="ghost" id="closeVersionInfo" type="button">閉じる</button></div>
+        <div class="panel-body stack" id="versionInfoBody"><p class="muted">対象パックを選択してください。</p></div>
+      </div>
+    </div>
+
+    <div class="modal" id="importQrModal" aria-hidden="true">
+      <div class="dialog">
+        <div class="panel-head"><div><h3>インポート用QRコード</h3><p class="hint">現在対象にしている最新リビジョンのmanifest URLをSokqaアプリへ渡します。</p></div><button class="ghost" id="closeImportQr" type="button">閉じる</button></div>
+        <div class="panel-body stack" id="importQrBody"><p class="muted">対象パックを選択してください。</p></div>
+      </div>
+    </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const statusEl = $("status");
-      const planBtn = $("planBtn");
-      const generateBtn = $("generateBtn");
-      const planJson = $("planJson");
-      const result = $("result");
-      let currentJobId = "";
-      const CREDIT_STORAGE_KEY = "sokqaRecordingCreditBalance";
-      const INITIAL_CREDITS = 1;
-      let creditBalance = Number(localStorage.getItem(CREDIT_STORAGE_KEY) || INITIAL_CREDITS);
-      let selectedPack = null;
+      const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+      const INITIAL_CREDITS = 1.0;
+      const RECORDING_CHUNK_SIZE = 20;
+
       let currentPacks = [];
+      let selectedPack = null;
       let fullEstimate = null;
       let selectedEstimate = null;
       let selectedUnitIds = new Set();
-      let lastQualityCheckResult = null;
+      let creditBalance = Number(localStorage.getItem("sokqaCreditBalance") || INITIAL_CREDITS);
+      let currentJobId = "";
+      let activeTab = "generate";
+      let isBusy = false;
+      let manifestCache = new Map();
+      let lastTextCheckResult = null;
+      let lastTextFixResult = null;
+      let lastTextApplyResult = null;
+      let lastTtsCheckResult = null;
+      let lastTtsFixResult = null;
       let lastQualityFixResult = null;
       let lastQualityApplyResult = null;
-      let estimateTimer = null;
-      let isRecordingBusy = false;
       let knownAudioUrls = new Map();
       let knownUsedTextSources = new Map();
-      let playbackQueue = [];
-      let playbackIndex = -1;
-      let currentPlayingUnitId = "";
+      let playQueueItems = [];
+      let playIndex = -1;
+      let currentPlayingUnitId = null;
       let isPlaybackPaused = true;
-      let isSpeechPlayback = false;
-      let currentSpeechUtterance = null;
-      const RECORDING_REQUEST_UNIT_LIMIT = 20;
 
       function escapeHtml(value) {
-        return String(value ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;");
+        return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
       }
 
-      function formatCredits(value) {
-        return Number(value || 0).toFixed(4);
+      function setProgress(title, value, text, ratio = null) {
+        $("progressToast").classList.add("active");
+        $("progressTitle").textContent = title;
+        $("progressValue").textContent = value;
+        $("progressText").textContent = text;
+        const bar = $("progressBar");
+        const fill = $("progressBarFill");
+        if (ratio === null) {
+          bar.classList.remove("static");
+          fill.style.width = "";
+          fill.style.transform = "";
+        } else {
+          bar.classList.add("static");
+          fill.style.transform = "none";
+          fill.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`;
+        }
       }
 
-      function radioValue(name) {
-        return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
-      }
-
-      function isTtsEnabled() {
-        return $("includeTts").value === "true";
-      }
-
-      function sourcePayload() {
-        const sourceText = $("sourceText").value.trim();
-        if (!sourceText) return {};
-        return {
-          sourceText,
-          sourceMode: $("sourceMode").value
-        };
-      }
-
-      function ttsPayload() {
-        if (!isTtsEnabled()) return {};
-        return {
-          ttsReadingMode: $("ttsReadingMode").value
-        };
-      }
-
-      function syncInputState() {
-        $("sourceMode").disabled = !$("sourceText").value.trim();
-        $("ttsReadingMode").disabled = !isTtsEnabled();
-      }
-
-      function setStudioTab(tabName) {
-        if (isRecordingBusy && tabName !== "recording") return;
-        const isCreateTab = tabName === "create";
-        $("createView").hidden = !isCreateTab;
-        $("recordingView").hidden = isCreateTab;
-        $("createTabBtn").classList.toggle("active", isCreateTab);
-        $("recordingTabBtn").classList.toggle("active", !isCreateTab);
-        $("createTabBtn").setAttribute("aria-selected", String(isCreateTab));
-        $("recordingTabBtn").setAttribute("aria-selected", String(!isCreateTab));
-      }
-
-      function setBusy(isBusy, message = "") {
-        planBtn.disabled = isBusy;
-        generateBtn.disabled = isBusy || !planJson.value.trim();
-        statusEl.textContent = message;
-        statusEl.classList.remove("error");
-      }
-
-      function setError(message) {
-        statusEl.textContent = message;
-        statusEl.classList.add("error");
-        planBtn.disabled = false;
-        generateBtn.disabled = !planJson.value.trim();
+      function finishProgress(title, text) {
+        setProgress(title, "完了", text, 1);
       }
 
       async function requestJson(url, payload) {
@@ -952,170 +515,433 @@
           body: JSON.stringify(payload)
         });
         const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
-        }
+        if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
         return data;
       }
 
       async function requestGet(url) {
         const response = await fetch(url);
         const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
-        }
+        if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
         return data;
+      }
+
+      function setBadge(id, text, tone = "") {
+        const el = $(id);
+        el.className = `badge ${tone}`.trim();
+        el.textContent = text;
+      }
+
+      function setTab(name) {
+        activeTab = name;
+        $$(".tab").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
+        $$(".tab-panel").forEach((panel) => { panel.hidden = panel.id !== `tab-${name}`; });
+      }
+
+      function updateGlobalStatus() {
+        if (!selectedPack) {
+          $("packIcon").textContent = "--";
+          $("packName").textContent = "パックを選択してください";
+          $("packKind").textContent = "-";
+          $("packRevision").textContent = "-";
+          $("packStatusText").textContent = "生成、品質チェック、録音の対象として共有されます";
+          $("openVersionInfo").disabled = true;
+          $("openImportQr").disabled = true;
+          setBadge("recordBadge", "未判定");
+          return;
+        }
+        $("packIcon").textContent = `R${selectedPack.revision || "-"}`;
+        $("packName").textContent = selectedPack.manifestTitle || selectedPack.title || selectedPack.contentId || selectedPack.packName;
+        $("packKind").textContent = `${selectedPack.kind || "-"} / ${selectedPack.packName || "-"}`;
+        $("packRevision").textContent = `revision ${selectedPack.revision || "-"}`;
+        $("packStatusText").textContent = `contentId: ${selectedPack.contentId || "-"} / versionId: ${selectedPack.versionId || "-"}`;
+        $("openVersionInfo").disabled = !selectedPack.manifestUrl;
+        $("openImportQr").disabled = !selectedPack.manifestUrl;
+      }
+
+      function updateStatusBadges() {
+        setBadge("genBadge", selectedPack ? "生成済み" : "未生成", selectedPack ? "success" : "");
+        const hasQuality = Boolean(lastTextCheckResult || lastTtsCheckResult);
+        const hasFix = Boolean(lastQualityFixResult || lastQualityApplyResult);
+        setBadge("qualityBadge", hasFix ? "修正済み" : hasQuality ? "チェック済み" : "未チェック", hasFix ? "success" : hasQuality ? "info" : "warn");
+        updateRecordingBadge();
+      }
+
+      function updateRecordingBadge() {
+        if (!fullEstimate?.units?.length) {
+          setBadge("recordBadge", selectedPack ? "未判定" : "未選択", selectedPack ? "warn" : "");
+          return;
+        }
+        const total = fullEstimate.units.length;
+        const recorded = fullEstimate.units.filter((unit) => unit.isRecorded).length;
+        if (recorded === 0) setBadge("recordBadge", "未録音", "warn");
+        else if (recorded === total) setBadge("recordBadge", "録音済み", "success");
+        else setBadge("recordBadge", `一部録音 ${recorded}/${total}`, "warn");
+        $("packStatusText").textContent = `録音 ${recorded}/${total} / ${selectedPack?.contentId || "-"}`;
+      }
+
+      function setBusy(flag, message = "") {
+        isBusy = flag;
+        $("status").textContent = message;
+        [
+          "planBtn", "generateBtn", "reviseBtn", "textCheckBtn", "textFixBtn", "applyTextFixBtn",
+          "ttsCheckBtn", "ttsFixBtn", "qualitySaveFixBtn", "recordSelectedBtn", "forceRecordSelectedBtn",
+          "resetSelectedRecordingBtn", "resetAllRecordingBtn", "loadPacksBtn", "importPackBtn", "openImportQr"
+        ].forEach((id) => { const el = $(id); if (el) el.disabled = flag || el.dataset.forceDisabled === "true"; });
+        updateActionAvailability();
+      }
+
+      function updateActionAvailability() {
+        $("generateBtn").disabled = isBusy || !$("planJson").value.trim();
+        $("textFixBtn").disabled = isBusy || !lastTextCheckResult;
+        $("applyTextFixBtn").disabled = isBusy || !(lastTextFixResult?.pendingFixes || []).length;
+        $("ttsFixBtn").disabled = isBusy || !lastTtsCheckResult;
+        $("qualitySaveFixBtn").disabled = isBusy || !selectedPack || !lastQualityApplyResult || !lastQualityFixResult;
+        const selectedCount = selectedUnitIds.size;
+        const credits = selectedEstimate?.estimatedCredits || 0;
+        const insufficient = credits > creditBalance;
+        $("recordSelectedBtn").disabled = isBusy || !selectedCount || insufficient;
+        $("forceRecordSelectedBtn").disabled = isBusy || !selectedCount;
+        $("resetSelectedRecordingBtn").disabled = isBusy || !selectedCount;
+        $("resetAllRecordingBtn").disabled = isBusy || !selectedPack;
+        $("openImportQr").disabled = isBusy || !selectedPack?.manifestUrl;
+        $("creditWarning").textContent = insufficient ? "クレジットが不足しています。来月のチャージ後に録音できます。" : "";
+      }
+
+      function scaleValue() {
+        return document.querySelector("#scaleSegment button.active")?.dataset.scale || "quick";
+      }
+
+      function isTtsEnabled() {
+        return $("ttsSwitch").getAttribute("aria-pressed") !== "false";
+      }
+
+      function ttsPayload() {
+        return isTtsEnabled() ? { ttsReadingMode: $("ttsReadingMode").value } : {};
+      }
+
+      function sourcePayload() {
+        const sourceText = $("sourceText").value.trim();
+        return sourceText ? { sourceText, sourceMode: $("sourceMode").value } : {};
+      }
+
+      function recordingTarget(pack = selectedPack) {
+        return {
+          creatorId: pack?.creatorId,
+          contentId: pack?.contentId,
+          versionId: pack?.versionId,
+          packName: pack?.packName,
+          kind: pack?.kind
+        };
       }
 
       function selectedVoiceConfig() {
         const select = $("recordingVoiceSelect");
         const option = select?.selectedOptions?.[0];
+        return { voiceName: select?.value || undefined, languageCode: option?.dataset?.languageCode || undefined };
+      }
+
+      function openPackModal() {
+        $("packModal").classList.add("open");
+        $("packModal").setAttribute("aria-hidden", "false");
+      }
+
+      function closePackModal() {
+        $("packModal").classList.remove("open");
+        $("packModal").setAttribute("aria-hidden", "true");
+      }
+
+      function closeVersionModal() {
+        $("versionModal").classList.remove("open");
+        $("versionModal").setAttribute("aria-hidden", "true");
+      }
+
+      function closeImportQrModal() {
+        $("importQrModal").classList.remove("open");
+        $("importQrModal").setAttribute("aria-hidden", "true");
+      }
+
+      function manifestCacheKey(pack = selectedPack) {
+        return pack?.manifestUrl || `${pack?.contentId || ""}:${pack?.versionId || ""}`;
+      }
+
+      async function loadManifestForPack(pack = selectedPack, { force = false } = {}) {
+        if (!pack?.manifestUrl) throw new Error("manifestUrl がありません。");
+        const key = manifestCacheKey(pack);
+        if (!force && manifestCache.has(key)) return manifestCache.get(key);
+        let manifest;
+        try {
+          manifest = await requestGet(pack.manifestUrl);
+        } catch (error) {
+          manifest = manifestFromPackSummary(pack, error);
+        }
+        manifestCache.set(key, manifest);
+        return manifest;
+      }
+
+      function manifestFromPackSummary(pack, error = null) {
         return {
-          voiceName: select?.value || undefined,
-          languageCode: option?.dataset?.languageCode || undefined
+          type: "pack_manifest",
+          schemaVersion: 1,
+          title: pack.manifestTitle || pack.title || pack.contentId || "-",
+          revision: pack.revision || "-",
+          versionId: pack.versionId || "-",
+          generatedAt: null,
+          change: {
+            operation: "manifest fetch fallback",
+            changedFiles: [],
+            addedFiles: [],
+            removedFiles: [],
+            changedUnits: [],
+            reRecordNeededUnits: [],
+            note: error?.message || ""
+          },
+          items: pack.items || []
         };
       }
 
-      async function loadTtsVoices(languageCode = "ja-JP") {
-        const select = $("recordingVoiceSelect");
-        if (!select) return;
-        const current = select.value || "ja-JP-Neural2-B";
-        try {
-          const data = await requestGet(`/tts/voices?languageCode=${encodeURIComponent(languageCode)}`);
-          const voices = data.voices || [];
-          if (!voices.length) return;
-          select.innerHTML = voices
-            .map((voice) => {
-              const primaryLanguage = (voice.languageCodes || [languageCode])[0] || languageCode;
-              const label = voice.label || `${voice.name} / ${primaryLanguage} / ${voice.ssmlGender || "UNKNOWN"}`;
-              return `<option value="${escapeHtml(voice.name)}" data-language-code="${escapeHtml(primaryLanguage)}">${escapeHtml(label)}</option>`;
-            })
-            .join("");
-          select.value = voices.some((voice) => voice.name === current) ? current : voices[0].name;
-        } catch (error) {
-          setRecordingStatus(`声種一覧を取得できませんでした。既定の声種を使用します: ${error.message}`, true);
-        }
+      function arrayOrEmpty(value) {
+        return Array.isArray(value) ? value : [];
       }
 
-      function setImportStatus(message, isError = false) {
-        const el = $("importStatus");
-        el.textContent = message;
-        el.classList.toggle("error", isError);
+      function renderStringList(values, emptyText = "なし") {
+        const list = arrayOrEmpty(values).filter((item) => item !== null && item !== undefined && String(item).trim());
+        return list.length ? `<ul>${list.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</li>`).join("")}</ul>` : `<p class="muted">${emptyText}</p>`;
       }
 
-      function readJsonFile(file) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              resolve({ name: file.name, content: JSON.parse(String(reader.result || "")) });
-            } catch (error) {
-              reject(new Error(`${file.name}: JSONを読み込めませんでした (${error.message})`));
-            }
-          };
-          reader.onerror = () => reject(new Error(`${file.name}: ファイルを読み込めませんでした`));
-          reader.readAsText(file, "utf-8");
-        });
+      function renderChangedUnits(units) {
+        const list = arrayOrEmpty(units);
+        return list.length
+          ? `<ul>${list.map((unit) => `<li>${escapeHtml(unit.fileName || "-")} / ${escapeHtml(unit.unitId || "-")} / ${escapeHtml(arrayOrEmpty(unit.fields).join(", ") || unit.category || "-")}</li>`).join("")}</ul>`
+          : `<p class="muted">なし</p>`;
       }
 
-      async function importSelectedJsonFiles() {
-        const files = Array.from($("importFiles").files || []);
-        if (!files.length) {
-          setImportStatus("インポートするJSONファイルを選択してください。", true);
+      function renderReRecordUnits(units) {
+        const list = arrayOrEmpty(units);
+        return list.length
+          ? `<ul>${list.map((unit) => `<li>${escapeHtml(unit.fileName || "-")} / ${escapeHtml(unit.unitId || "-")} / ${escapeHtml(unit.reason || "-")}</li>`).join("")}</ul>`
+          : `<p class="muted">なし</p>`;
+      }
+
+      function renderManifestInfo(manifest) {
+        const change = manifest.change || {};
+        const items = arrayOrEmpty(manifest.items);
+        $("versionInfoBody").innerHTML = `
+          <div class="version-grid">
+            <div class="stat"><span>TITLE</span><strong>${escapeHtml(manifest.title || selectedPack?.manifestTitle || "-")}</strong></div>
+            <div class="stat"><span>REVISION</span><strong>${escapeHtml(manifest.revision || selectedPack?.revision || "-")}</strong></div>
+            <div class="stat"><span>VERSION ID</span><strong>${escapeHtml(manifest.versionId || selectedPack?.versionId || "-")}</strong></div>
+            <div class="stat"><span>GENERATED AT</span><strong>${escapeHtml(manifest.generatedAt || "-")}</strong></div>
+          </div>
+          <div class="url"><code>${escapeHtml(selectedPack?.manifestUrl || "")}</code>${selectedPack?.manifestUrl ? `<a class="button secondary" href="${escapeHtml(selectedPack.manifestUrl)}" target="_blank" rel="noreferrer">manifest</a>` : ""}</div>
+          ${change.note ? `<p class="muted">${escapeHtml(change.note)}</p>` : ""}
+          <div class="change-list">
+            <div class="change-block"><strong>operation</strong><p>${escapeHtml(change.operation || "-")}</p></div>
+            <div class="change-block"><strong>changedFiles</strong>${renderStringList(change.changedFiles)}</div>
+            <div class="change-block"><strong>addedFiles</strong>${renderStringList(change.addedFiles)}</div>
+            <div class="change-block"><strong>removedFiles</strong>${renderStringList(change.removedFiles)}</div>
+            <div class="change-block"><strong>changedUnits</strong>${renderChangedUnits(change.changedUnits)}</div>
+            <div class="change-block"><strong>reRecordNeededUnits</strong>${renderReRecordUnits(change.reRecordNeededUnits)}</div>
+          </div>
+          <div class="change-block">
+            <strong>files</strong>
+            ${items.length ? `<ul>${items.map((item) => `<li><span class="badge">${escapeHtml(item.kind || "-")}</span> ${escapeHtml(item.title || item.name || "-")} <span class="muted mono">${escapeHtml(item.name || "")}</span></li>`).join("")}</ul>` : `<p class="muted">なし</p>`}
+          </div>
+        `;
+      }
+
+      async function openVersionInfo({ force = false } = {}) {
+        $("versionModal").classList.add("open");
+        $("versionModal").setAttribute("aria-hidden", "false");
+        if (!selectedPack) {
+          $("versionInfoBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
           return;
         }
+        $("versionInfoBody").innerHTML = `<p class="muted">manifest を読み込んでいます...</p>`;
         try {
-          $("importPackBtn").disabled = true;
-          setImportStatus(`${files.length}件のJSONを読み込んでいます...`);
-          const importedFiles = await Promise.all(files.map(readJsonFile));
-          const payload = {
-            files: importedFiles,
-            creatorId: $("packCreatorId").value.trim() || undefined,
-            title: $("importTitle").value.trim() || undefined,
-            contentId: $("importContentId").value.trim() || undefined,
-            slug: $("importSlug").value.trim() || undefined
-          };
-          setImportStatus("JSONを保存しています...");
-          const data = await requestJson("/packs/import", payload);
-          const manifestUrl = data.files?.find((file) => file.kind === "manifest")?.url || data.manifest?.items?.[0]?.url || "";
-          setImportStatus(`インポート完了: ${data.files?.length || 0}ファイル / manifest=${manifestUrl || "saved"}`);
-          await loadPacks();
+          const manifest = await loadManifestForPack(selectedPack, { force });
+          renderManifestInfo(manifest);
         } catch (error) {
-          setImportStatus(error.message, true);
-        } finally {
-          $("importPackBtn").disabled = false;
+          $("versionInfoBody").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         }
       }
 
-      function recordingTarget(pack) {
-        return {
-          creatorId: pack.creatorId,
-          contentId: pack.contentId,
-          versionId: pack.versionId,
-          packName: pack.packName,
-          kind: pack.kind
-        };
+      async function refreshVersionInfoIfOpen() {
+        if ($("versionModal").classList.contains("open") && selectedPack) {
+          await openVersionInfo({ force: true });
+        }
       }
 
-      function packSchemaVersion(pack) {
-        return Number(pack?.schemaVersion || 2);
+      function importUrlForPack(pack = selectedPack) {
+        return pack?.manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(pack.manifestUrl)}` : "";
       }
 
-      function manifestUrl(pack) {
-        if (pack?.manifestUrl) return pack.manifestUrl;
-        if (!pack?.url || !pack?.packName) return "";
-        return `${pack.url.slice(0, -pack.packName.length)}manifest.json`;
+      async function openImportQr({ refreshLatest = true } = {}) {
+        $("importQrModal").classList.add("open");
+        $("importQrModal").setAttribute("aria-hidden", "false");
+        if (!selectedPack) {
+          $("importQrBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
+          return;
+        }
+        $("importQrBody").innerHTML = `<p class="muted">最新のmanifest URLを確認しています...</p>`;
+        if (refreshLatest) {
+          const before = selectedPack;
+          await loadPacks({ keepSelection: true });
+          selectedPack = latestMatchingPack(before) || selectedPack;
+          updateGlobalStatus();
+        }
+        const importUrl = importUrlForPack(selectedPack);
+        if (!importUrl) {
+          $("importQrBody").innerHTML = `<p class="error">manifestUrl がありません。</p>`;
+          return;
+        }
+        $("importQrBody").innerHTML = `
+          <div class="version-grid">
+            <div class="stat"><span>TITLE</span><strong>${escapeHtml(selectedPack.manifestTitle || selectedPack.title || selectedPack.contentId || "-")}</strong></div>
+            <div class="stat"><span>REVISION</span><strong>${escapeHtml(selectedPack.revision || "-")}</strong></div>
+            <div class="stat"><span>VERSION ID</span><strong>${escapeHtml(selectedPack.versionId || "-")}</strong></div>
+          </div>
+          <div class="qr-box"><div id="importQrCode"></div><p class="muted">Sokqaアプリで読み込むと同一contentIdのパックを最新リビジョンで更新します。</p></div>
+          <div class="url"><code id="importUrlText">${escapeHtml(importUrl)}</code><button class="secondary" id="copyImportUrlBtn" type="button">URLコピー</button></div>
+        `;
+        if (window.QRCode) new QRCode($("importQrCode"), { text: importUrl, width: 180, height: 180 });
+        $("copyImportUrlBtn")?.addEventListener("click", async () => navigator.clipboard?.writeText(importUrl));
       }
 
-      function manifestGroupKey(pack) {
-        return manifestUrl(pack) || `${pack.contentId || ""}:${pack.versionId || ""}`;
+      async function refreshImportQrIfOpen() {
+        if ($("importQrModal").classList.contains("open") && selectedPack) {
+          await openImportQr({ refreshLatest: true });
+        }
       }
 
-      function groupedPacks(packs) {
-        const groups = [];
-        const byKey = new Map();
-        packs.forEach((pack, index) => {
-          const key = manifestGroupKey(pack);
-          if (!byKey.has(key)) {
-            const group = {
+      function groupPacks(packs) {
+        const groups = new Map();
+        packs.forEach((pack) => {
+          const key = pack.manifestUrl || `${pack.contentId}:${pack.versionId}`;
+          if (!groups.has(key)) {
+            groups.set(key, {
               key,
-              manifestUrl: manifestUrl(pack),
-              title: pack.manifestTitle || pack.contentId || pack.title || "Manifest",
+              title: pack.manifestTitle || pack.contentId || "Manifest",
               creatorId: pack.creatorId,
               contentId: pack.contentId,
               versionId: pack.versionId,
               revision: pack.revision,
-              schemaVersion: packSchemaVersion(pack),
               storagePrefix: pack.storagePrefix,
+              manifestUrl: pack.manifestUrl,
               packs: []
-            };
-            byKey.set(key, group);
-            groups.push(group);
+            });
           }
-          byKey.get(key).packs.push({ pack, index });
+          groups.get(key).packs.push(pack);
         });
-        return groups;
+        return Array.from(groups.values());
       }
 
-      function derivedPackRootUrl(pack = selectedPack) {
-        const explicit = pack?.assetBaseUrl || "";
-        if (explicit) return explicit.replace(/\/$/, "");
-        const url = pack?.url || manifestUrl(pack);
-        if (!url) return "";
-        const objectIndex = url.indexOf("/objects/");
-        if (objectIndex >= 0) return url.slice(0, objectIndex).replace(/\/$/, "");
-        const versionIndex = url.indexOf("/versions/");
-        if (versionIndex >= 0) return url.slice(0, versionIndex).replace(/\/$/, "");
-        return "";
+      function renderPackList() {
+        const groups = groupPacks(currentPacks);
+        $("packList").innerHTML = groups.length
+          ? groups.map((group) => `
+              <article class="pack-option">
+                <div class="pack-option-main">
+                  <strong class="pack-option-title" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}</strong>
+                  <p class="muted pack-option-detail">revision ${escapeHtml(group.revision || "-")} / ${escapeHtml(group.contentId || "")}</p>
+                  <p class="muted pack-option-detail" title="${escapeHtml(group.packs.map((pack) => `${pack.title || pack.packName} (${pack.kind})`).join(" / "))}">${group.packs.map((pack) => `${escapeHtml(pack.title || pack.packName)} (${escapeHtml(pack.kind)})`).join(" / ")}</p>
+                </div>
+                <div class="actions">
+                  ${group.packs.map((pack) => `<button type="button" class="${selectedPack?.url === pack.url ? "" : "secondary"}" data-pack-url="${escapeHtml(pack.url || "")}" data-pack-key="${escapeHtml(pack.contentId + "::" + pack.packName)}">${escapeHtml(pack.kind)}</button>`).join("")}
+                  <button type="button" class="danger-btn" data-delete-prefix="${escapeHtml(group.storagePrefix || "")}" data-delete-title="${escapeHtml(group.title)}">削除</button>
+                </div>
+              </article>
+            `).join("")
+          : `<p class="muted">パックがありません。</p>`;
+      }
+
+      function findPackFromButton(button) {
+        const url = button.dataset.packUrl;
+        const key = button.dataset.packKey;
+        return currentPacks.find((pack) => (url && pack.url === url) || `${pack.contentId}::${pack.packName}` === key) || null;
+      }
+
+      async function loadPacks({ keepSelection = true } = {}) {
+        setProgress("パック一覧", "取得中", "保存済みパックを読み込んでいます。");
+        const previous = selectedPack;
+        const creatorId = $("packCreatorId").value.trim();
+        const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
+        const data = await requestGet(`/packs${query}`);
+        currentPacks = data.items || [];
+        if (keepSelection && previous) selectedPack = latestMatchingPack(previous) || exactMatchingPack(previous);
+        renderPackList();
+        updateGlobalStatus();
+        updateStatusBadges();
+        finishProgress("パック一覧", `${currentPacks.length}件を表示しました。`);
+      }
+
+      function packIdentityMatches(pack, reference, includeVersion = false) {
+        if (!pack || !reference) return false;
+        const sameOwner = (!reference.creatorId || pack.creatorId === reference.creatorId)
+          && (!reference.contentId || pack.contentId === reference.contentId)
+          && (!reference.kind || pack.kind === reference.kind);
+        const sameFile = reference.logicalId && pack.logicalId ? pack.logicalId === reference.logicalId : (!reference.packName || pack.packName === reference.packName);
+        const sameVersion = !includeVersion || !reference.versionId || pack.versionId === reference.versionId;
+        return sameOwner && sameFile && sameVersion;
+      }
+
+      function latestMatchingPack(reference) {
+        const candidates = currentPacks.filter((pack) => packIdentityMatches(pack, reference, false));
+        if (!candidates.length) return null;
+        return candidates.sort((a, b) => (Number(b.revision || 0) - Number(a.revision || 0)) || String(b.versionId || "").localeCompare(String(a.versionId || "")))[0];
+      }
+
+      function exactMatchingPack(reference) {
+        return currentPacks.find((pack) => packIdentityMatches(pack, reference, true)) || null;
+      }
+
+      async function selectPack(pack, { switchTab = null } = {}) {
+        if (!pack) return;
+        stopPlayback();
+        selectedPack = pack;
+        selectedUnitIds = new Set();
+        selectedEstimate = null;
+        lastTextCheckResult = null;
+        lastTextFixResult = null;
+        lastTextApplyResult = null;
+        lastTtsCheckResult = null;
+        lastTtsFixResult = null;
+        lastQualityFixResult = null;
+        lastQualityApplyResult = null;
+        $("textQualityResult").innerHTML = `<p class="muted">テキスト品質チェックは未実行です。</p>`;
+        $("ttsQualityResult").innerHTML = `<p class="muted">TTS品質チェックは未実行です。</p>`;
+        $("qualitySaveSummary").innerHTML = `<strong>保存待ち</strong><span>チェックまたは修正後に保存できます。</span>`;
+        updateGlobalStatus();
+        setProgress("録音状態", "確認中", "recording-estimate で録音状態を判定しています。");
+        fullEstimate = await fetchEstimate(null, pack, $("recordingTextSource").value);
+        rememberAudioUrlsFromUnits(fullEstimate?.units, pack);
+        renderUnits();
+        await updateSelectedEstimate();
+        updateStatusBadges();
+        if (switchTab) setTab(switchTab);
+        closePackModal();
+        finishProgress("対象パック", `${pack.title || pack.packName} を対象にしました。`);
+      }
+
+      function clearSelectedPack() {
+        selectedPack = null;
+        fullEstimate = null;
+        selectedEstimate = null;
+        selectedUnitIds = new Set();
+        renderUnits();
+        updateGlobalStatus();
+        updateStatusBadges();
+        updateSelectedEstimate();
+        if ($("versionModal").classList.contains("open")) {
+          $("versionInfoBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
+        }
+        if ($("importQrModal").classList.contains("open")) {
+          $("importQrBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
+        }
       }
 
       function assetBaseUrl(pack = selectedPack) {
-        const estimateBase = pack === selectedPack ? fullEstimate?.assetBaseUrl : "";
-        return (estimateBase || pack?.assetBaseUrl || derivedPackRootUrl(pack) || "").replace(/\/$/, "");
-      }
-
-      function isAbsoluteUrl(value) {
-        return /^https?:\/\//i.test(String(value || ""));
+        return String(pack?.assetBaseUrl || "").replace(/\/$/, "");
       }
 
       function isUnsafeRelativePath(value) {
@@ -1125,618 +951,298 @@
 
       function audioUrlFromPath(audioPath, pack = selectedPack) {
         if (!audioPath) return "";
-        if (isAbsoluteUrl(audioPath)) return audioPath;
+        if (/^https?:\/\//i.test(audioPath)) return audioPath;
         if (isUnsafeRelativePath(audioPath)) return "";
-        const path = String(audioPath).replace(/^\/+/, "");
-        const baseUrl = assetBaseUrl(pack);
-        return baseUrl ? `${baseUrl}/${path}` : "";
+        const base = assetBaseUrl(pack);
+        return base ? `${base}/${String(audioPath).replace(/^\/+/, "")}` : "";
       }
 
       function packAudioKey(unitId, pack = selectedPack) {
-        const packKey = pack?.url || `${pack?.contentId || ""}:${pack?.versionId || ""}:${pack?.packName || ""}`;
-        return `${packKey}::${unitId}`;
-      }
-
-      function packUnitKey(unitId, pack = selectedPack) {
-        return packAudioKey(unitId, pack);
-      }
-
-      function packIdentityMatches(pack, reference, includeVersion = false) {
-        if (!pack || !reference) return false;
-        const sameOwner = (!reference.creatorId || pack.creatorId === reference.creatorId)
-          && (!reference.contentId || pack.contentId === reference.contentId)
-          && (!reference.kind || pack.kind === reference.kind);
-        const sameFile = reference.logicalId && pack.logicalId
-          ? pack.logicalId === reference.logicalId
-          : (!reference.packName || pack.packName === reference.packName);
-        const sameVersion = !includeVersion || !reference.versionId || pack.versionId === reference.versionId;
-        return sameOwner && sameFile && sameVersion;
-      }
-
-      function revisionSortValue(pack) {
-        const revision = Number(pack?.revision);
-        return Number.isFinite(revision) ? revision : -1;
-      }
-
-      function latestMatchingPack(reference) {
-        const candidates = currentPacks.filter((pack) => packIdentityMatches(pack, reference, false));
-        if (!candidates.length) return null;
-        return candidates.sort((a, b) => {
-          const revisionDiff = revisionSortValue(b) - revisionSortValue(a);
-          if (revisionDiff) return revisionDiff;
-          return String(b.versionId || "").localeCompare(String(a.versionId || ""));
-        })[0];
-      }
-
-      function exactMatchingPack(reference) {
-        return currentPacks.find((pack) => packIdentityMatches(pack, reference, true)) || null;
-      }
-
-      function shortVersionId(value) {
-        const text = String(value || "");
-        return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+        return `${pack?.url || `${pack?.contentId || ""}:${pack?.versionId || ""}:${pack?.packName || ""}`}::${unitId}`;
       }
 
       function unitAudioUrl(unit, pack = selectedPack) {
-        if (!unit) return "";
         if (unit.audioPath) return audioUrlFromPath(unit.audioPath, pack);
         if (unit.audioUrl) return unit.audioUrl;
-        const audioKey = packAudioKey(unit.itemId, pack);
-        if (knownAudioUrls.has(audioKey)) return knownAudioUrls.get(audioKey);
-        return "";
-      }
-
-      function unitPlaybackText(unit) {
-        return String(unit?.ttsText || unit?.text || "").trim();
-      }
-
-      function isUnitPlayable(unit) {
-        return Boolean(unitAudioUrl(unit) || unitPlaybackText(unit));
-      }
-
-      function playableUnits(units) {
-        return units.filter((unit) => isUnitPlayable(unit));
-      }
-
-      function selectedPlaybackRate() {
-        return Number($("playbackRateSelect")?.value || 1);
-      }
-
-      function applyPlaybackRate() {
-        $("recordingAudio").playbackRate = selectedPlaybackRate();
-      }
-
-      function speechLanguage() {
-        const language = String(selectedPack?.language || fullEstimate?.language || "ja-JP");
-        if (language === "ja") return "ja-JP";
-        if (language === "en") return "en-US";
-        return language.includes("-") ? language : "ja-JP";
+        return knownAudioUrls.get(packAudioKey(unit.itemId, pack)) || "";
       }
 
       function rememberAudioUrlsFromUnits(units, pack = selectedPack) {
         (units || []).forEach((unit) => {
-          if (unit.audioPath) {
-            const resolved = audioUrlFromPath(unit.audioPath, pack);
-            if (resolved) knownAudioUrls.set(packAudioKey(unit.itemId, pack), resolved);
-          }
-          if (unit.audioUrl) {
-            knownAudioUrls.set(packAudioKey(unit.itemId, pack), unit.audioUrl);
-          }
+          const url = unitAudioUrl(unit, pack);
+          if (url) knownAudioUrls.set(packAudioKey(unit.itemId, pack), url);
+          if (unit.usedTextSource) knownUsedTextSources.set(packAudioKey(unit.itemId, pack), unit.usedTextSource);
         });
       }
 
       function rememberAudioUrlsFromRecording(data, pack = selectedPack) {
         (data.audioUrls || []).forEach((item) => {
-          const resolved = item.audioUrl || audioUrlFromPath(item.audioPath, pack);
-          if (item.unitId && item.audioUrl) {
-            knownAudioUrls.set(packAudioKey(item.unitId, pack), item.audioUrl);
-          } else if (item.unitId && resolved) {
-            knownAudioUrls.set(packAudioKey(item.unitId, pack), resolved);
-          }
+          const url = item.audioUrl || audioUrlFromPath(item.audioPath, pack);
+          if (url) knownAudioUrls.set(packAudioKey(item.unitId, pack), url);
+          if (item.usedTextSource) knownUsedTextSources.set(packAudioKey(item.unitId, pack), item.usedTextSource);
         });
-      }
-
-      function rememberUsedTextSourcesFromRecording(data, pack = selectedPack) {
-        const remember = (item) => {
-          if (item?.unitId && item.usedTextSource) {
-            knownUsedTextSources.set(packUnitKey(item.unitId, pack), item.usedTextSource);
-          }
-        };
-        (data.audioUrls || []).forEach(remember);
-        (data.summary?.results || []).forEach(remember);
-      }
-
-      function recordingSourceBadge(unit) {
-        const selectedSource = $("recordingTextSource").value;
-        if (selectedSource === "corrected") {
-          return unit.hasCorrected
-            ? '<span class="badge source-corrected">補正テキスト</span>'
-            : '<span class="badge source">生テキスト（補正なし）</span>';
-        }
-        return '<span class="badge source">生テキスト</span>';
-      }
-
-      function recordedSourceBadge(unit) {
-        const used = knownUsedTextSources.get(packUnitKey(unit.itemId));
-        if (!used) return "";
-        return used === "corrected"
-          ? '<span class="badge source-corrected">補正で録音</span>'
-          : '<span class="badge source">生で録音</span>';
-      }
-
-      function setRecordingStatus(message, isError = false) {
-        const el = $("recordingStatus");
-        el.textContent = message;
-        el.classList.toggle("error", isError);
-      }
-
-      function resetQualityFixState() {
-        lastQualityCheckResult = null;
-        lastQualityFixResult = null;
-        lastQualityApplyResult = null;
-        $("qualityResult").innerHTML = "";
-      }
-
-      function saveCredits(value) {
-        creditBalance = Math.max(0, Number(value || 0));
-        localStorage.setItem(CREDIT_STORAGE_KEY, String(creditBalance));
-        $("creditBalance").textContent = formatCredits(creditBalance);
-        updateRecordButton();
-      }
-
-      function renderPacks(packs) {
-        const list = $("packList");
-        if (!packs.length) {
-          list.innerHTML = '<p class="meta">表示できるパックがありません。</p>';
-          return;
-        }
-        const groups = groupedPacks(packs);
-        list.innerHTML = groups
-          .map((group, groupIndex) => {
-            const revisionLabel = group.revision ? `リビジョン ${group.revision}` : "リビジョン -";
-            const versionMeta = `${group.contentId || ""} / ${revisionLabel} / ${group.versionId || ""}`;
-            return `
-              <div class="manifest-card">
-                <div class="manifest-header">
-                  <strong><a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.title)}</a></strong>
-                  <div class="meta">${escapeHtml(versionMeta)}</div>
-                  <div class="url-line">manifest JSON: <a href="${escapeHtml(group.manifestUrl)}" target="_blank" rel="noreferrer">${escapeHtml(group.manifestUrl)}</a></div>
-                  <div class="actions">
-                    <button type="button" class="secondary" data-delete-manifest-index="${groupIndex}"${isRecordingBusy ? " disabled" : ""}>削除</button>
-                  </div>
-                </div>
-                <div class="pack-children">
-                  ${group.packs
-                    .map(({ pack, index }) => {
-                      const active = selectedPack && selectedPack.url === pack.url ? " active" : "";
-                      const meta = `${pack.kind} / ${pack.logicalId || pack.name || pack.packName}`;
-                      const subMeta = `${pack.contentId || ""} / file=${shortVersionId(pack.fileVersionId || "-")}`;
-                      return `
-                        <div class="pack-row${active}">
-                          <div>
-                            <strong>${escapeHtml(pack.title)}</strong>
-                            <div class="meta"><a href="${escapeHtml(pack.url)}" target="_blank" rel="noreferrer">${escapeHtml(meta)}</a></div>
-                            ${subMeta ? `<div class="meta">${escapeHtml(subMeta)}</div>` : ""}
-                          </div>
-                          <button type="button" class="secondary" data-pack-index="${index}"${isRecordingBusy ? " disabled" : ""}>選択</button>
-                        </div>
-                      `;
-                    })
-                    .join("")}
-                </div>
-              </div>
-            `;
-          })
-          .join("");
-        list.querySelectorAll("[data-pack-index]").forEach((button) => {
-          button.addEventListener("click", () => selectPack(packs[Number(button.dataset.packIndex)]));
-        });
-        list.querySelectorAll("[data-delete-manifest-index]").forEach((button) => {
-          button.addEventListener("click", () => deleteManifestGroup(groups[Number(button.dataset.deleteManifestIndex)]));
-        });
-      }
-
-      async function deleteManifestGroup(group) {
-        if (!group) return;
-        if (isRecordingBusy) return;
-        const confirmed = window.confirm(
-          `このマニフェストを丸ごと削除します。\n\n${group.title}\ncontentId: ${group.contentId}\nversionId: ${group.versionId}\n\nmanifest/doc/quiz/audio すべてが削除されます。`
-        );
-        if (!confirmed) return;
-        try {
-          stopPlayback();
-          setRecordingStatus("パックを削除しています...");
-          const data = await requestJson("/packs/delete", {
-            storagePrefix: group.storagePrefix,
-            manifestUrl: group.manifestUrl,
-            creatorId: group.creatorId,
-            contentId: group.contentId,
-            versionId: group.versionId
-          });
-          const message = `削除しました: ${data.deletedCount}/${data.objectCount} objects (${data.storagePrefix})`;
-          setRecordingStatus(message);
-          selectedPack = null;
-          fullEstimate = null;
-          selectedEstimate = null;
-          selectedUnitIds = new Set();
-          $("recordingPanel").hidden = true;
-          resetQualityFixState();
-          $("recordingResult").innerHTML = "";
-          await loadPacks();
-          setRecordingStatus(message);
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        }
-      }
-
-      async function loadPacks() {
-        if (isRecordingBusy) return;
-        try {
-          stopPlayback();
-          setRecordingStatus("パック一覧を取得しています...");
-          const creatorId = $("packCreatorId").value.trim();
-          const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
-          const data = await requestGet(`/packs${query}`);
-          currentPacks = data.items || [];
-          selectedPack = null;
-          fullEstimate = null;
-          selectedEstimate = null;
-          selectedUnitIds = new Set();
-          $("recordingPanel").hidden = true;
-          resetQualityFixState();
-          $("recordingResult").innerHTML = "";
-          renderPacks(currentPacks);
-          setRecordingStatus(`${currentPacks.length}件のパックを表示しました。`);
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        }
       }
 
       async function fetchEstimate(unitIds = null, pack = selectedPack, textSource = $("recordingTextSource").value) {
         if (!pack) return null;
-        const payload = {
-          target: recordingTarget(pack),
-          textSource
-        };
-        if (unitIds) {
-          payload.unitIds = unitIds;
-        }
+        const payload = { target: recordingTarget(pack), textSource };
+        if (unitIds) payload.unitIds = unitIds;
         return requestJson("/tts/recording-estimate", payload);
       }
 
-      async function selectPack(pack) {
-        if (isRecordingBusy) return;
-        try {
-          stopPlayback();
-          selectedPack = pack;
-          selectedUnitIds = new Set();
-          selectedEstimate = null;
-          $("recordingPanel").hidden = false;
-          resetQualityFixState();
-          $("recordingResult").innerHTML = "";
-          setRecordingStatus("録音対象を読み込んでいます...");
-          renderPacks(currentPacks);
-          fullEstimate = await fetchEstimate();
-          rememberAudioUrlsFromUnits(fullEstimate?.units, pack);
-          renderUnits();
-          await updateSelectedEstimate();
-          setRecordingStatus(`${pack.title} の録音対象を表示しました。`);
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        } finally {
-          await refreshPackRows();
-        }
-      }
-
-      async function refreshPackRows(referencePack = selectedPack, preferLatest = false) {
-        const creatorId = $("packCreatorId").value.trim();
-        const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
-        const data = await requestGet(`/packs${query}`);
-        currentPacks = data.items || [];
-        if (referencePack) {
-          const refreshedPack = preferLatest
-            ? latestMatchingPack(referencePack)
-            : exactMatchingPack(referencePack) || latestMatchingPack(referencePack);
-          if (refreshedPack) {
-            selectedPack = refreshedPack;
-          }
-        }
-        renderPacks(currentPacks);
-      }
-
-      async function refreshSelectedPackToLatest(referencePack = selectedPack) {
-        await refreshPackRows(referencePack, true);
-        return selectedPack;
+      function sourceBadge(unit) {
+        if ($("recordingTextSource").value === "raw") return "生テキスト";
+        return unit.hasCorrected ? "補正テキスト" : "生テキスト（補正なし）";
       }
 
       function renderUnits() {
         const units = fullEstimate?.units || [];
-        const list = $("unitList");
         if (!units.length) {
-          list.innerHTML = '<p class="meta">録音対象ユニットがありません。</p>';
+          $("unitList").innerHTML = `<p class="muted">${selectedPack ? "録音ユニットがありません。" : "パックを選択するとユニットが表示されます。"}</p>`;
+          $("selectionBadge").textContent = "0件選択中";
+          updateActionAvailability();
           return;
         }
-        list.innerHTML = units
-          .map((unit) => {
-            const checked = selectedUnitIds.has(unit.itemId) ? " checked" : "";
-            const audioUrl = unitAudioUrl(unit);
-            const fallbackText = unitPlaybackText(unit);
-            const isPlaying = currentPlayingUnitId === unit.itemId && !isPlaybackPaused;
-            const statusBadge = unit.isRecorded
-              ? '<span class="badge muted">録音済み</span>'
-              : '<span class="badge">未録音</span>';
-            const sourceBadge = recordingSourceBadge(unit);
-            const recordedBadge = unit.isRecorded ? recordedSourceBadge(unit) : "";
-            const note = unit.isRecorded ? "選択しても追加消費なし" : `${unit.charCount} chars`;
-            const playButton = audioUrl || fallbackText
-              ? `<button type="button" class="icon-button secondary" data-play-unit="${escapeHtml(unit.itemId)}" aria-label="${escapeHtml(unit.itemId)}を再生">${isPlaying ? "⏸" : "▶"}</button>`
-              : "";
-            const audioLink = audioUrl
-              ? `<div class="url-line">audio: <a href="${escapeHtml(audioUrl)}" target="_blank" rel="noreferrer">${escapeHtml(audioUrl)}</a></div>`
-              : fallbackText
-                ? '<div class="url-line">audio: 未録音（OS TTSで読み上げ）</div>'
-                : '<div class="url-line">audio: 未録音</div>';
-            return `
-              <div class="unit-row${isPlaying ? " playing" : ""}">
-                <input type="checkbox" value="${escapeHtml(unit.itemId)}"${checked} />
-                <span>
-                  <strong>${escapeHtml(unit.itemId)}</strong>
-                  <span class="meta"> ${escapeHtml(unit.kind)} / ${escapeHtml(note)}</span>
-                  <div class="excerpt">${escapeHtml(unit.text).slice(0, 160)}</div>
-                  ${audioLink}
-                </span>
-                <span class="unit-actions">
-                  ${statusBadge}
-                  ${sourceBadge}
-                  ${recordedBadge}
-                  ${playButton}
-                </span>
-              </div>
-            `;
-          })
-          .join("");
-        list.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-          input.addEventListener("change", () => {
-            if (input.checked) {
-              selectedUnitIds.add(input.value);
-            } else {
-              selectedUnitIds.delete(input.value);
-            }
-            updatePlaybackControls();
-            scheduleSelectedEstimate();
-          });
-        });
-        list.querySelectorAll("[data-play-unit]").forEach((button) => {
-          button.addEventListener("click", () => toggleUnitPlayback(button.dataset.playUnit));
-        });
-        updatePlaybackControls();
-      }
-
-      function unitById(unitId) {
-        return (fullEstimate?.units || []).find((unit) => unit.itemId === unitId) || null;
-      }
-
-      function stopPlayback() {
-        const audio = $("recordingAudio");
-        if (window.speechSynthesis) {
-          currentSpeechUtterance = null;
-          window.speechSynthesis.cancel();
-        }
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
-        playbackQueue = [];
-        playbackIndex = -1;
-        currentPlayingUnitId = "";
-        isPlaybackPaused = true;
-        isSpeechPlayback = false;
-        renderUnits();
-      }
-
-      async function playUnit(unit, queue = [unit], index = 0) {
-        const audioUrl = unitAudioUrl(unit);
-        const audio = $("recordingAudio");
-        playbackQueue = queue;
-        playbackIndex = index;
-        currentPlayingUnitId = unit.itemId;
-        if (!audioUrl) {
-          const fallbackText = unitPlaybackText(unit);
-          if (!fallbackText || !window.speechSynthesis) {
-            setRecordingStatus("再生できる音声URLまたは読み上げテキストがありません。", true);
-            return;
-          }
-          audio.pause();
-          audio.removeAttribute("src");
-          audio.load();
-          currentSpeechUtterance = new SpeechSynthesisUtterance(fallbackText);
-          currentSpeechUtterance.lang = speechLanguage();
-          currentSpeechUtterance.rate = selectedPlaybackRate();
-          currentSpeechUtterance.onend = () => {
-            if (!currentSpeechUtterance) return;
-            currentSpeechUtterance = null;
-            isSpeechPlayback = false;
-            isPlaybackPaused = true;
-            renderUnits();
-            playNextTrack();
-          };
-          currentSpeechUtterance.onerror = (event) => {
-            currentSpeechUtterance = null;
-            isSpeechPlayback = false;
-            isPlaybackPaused = true;
-            renderUnits();
-            setRecordingStatus(`OS TTSで再生できませんでした: ${event.error || "unknown"}`, true);
-          };
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(currentSpeechUtterance);
-          isSpeechPlayback = true;
-          isPlaybackPaused = false;
-          renderUnits();
-          setRecordingStatus(`${unit.itemId} をOS TTSで読み上げています。`);
-          return;
-        }
-        if (window.speechSynthesis) {
-          currentSpeechUtterance = null;
-          window.speechSynthesis.cancel();
-        }
-        isSpeechPlayback = false;
-        audio.src = audioUrl;
-        applyPlaybackRate();
-        try {
-          await audio.play();
-          isPlaybackPaused = false;
-          renderUnits();
-          setRecordingStatus(`${unit.itemId} を再生しています。`);
-        } catch (error) {
-          isPlaybackPaused = true;
-          renderUnits();
-          setRecordingStatus(`再生できませんでした: ${error.message}`, true);
-        }
-      }
-
-      async function toggleUnitPlayback(unitId) {
-        const audio = $("recordingAudio");
-        if (currentPlayingUnitId === unitId && isSpeechPlayback) {
-          if (isPlaybackPaused) {
-            window.speechSynthesis.resume();
-            isPlaybackPaused = false;
-          } else {
-            window.speechSynthesis.pause();
-            isPlaybackPaused = true;
-          }
-          renderUnits();
-          return;
-        }
-        if (currentPlayingUnitId === unitId && !audio.paused) {
-          audio.pause();
-          return;
-        }
-        const unit = unitById(unitId);
-        if (unit) {
-          await playUnit(unit, [unit], 0);
-        }
-      }
-
-      async function playQueue(units) {
-        const queue = playableUnits(units);
-        if (!queue.length) {
-          setRecordingStatus("再生できる録音済みユニットがありません。", true);
-          return;
-        }
-        await playUnit(queue[0], queue, 0);
+        $("unitList").innerHTML = units.map((unit) => {
+          const checked = selectedUnitIds.has(unit.itemId) ? "checked" : "";
+          const recorded = unit.isRecorded ? `<span class="badge success">録音済み</span>` : `<span class="badge warn">未録音</span>`;
+          const url = unitAudioUrl(unit);
+          const playButton = url || unit.text ? `<button type="button" class="mini" data-play-unit="${escapeHtml(unit.itemId)}">${url ? (currentPlayingUnitId === unit.itemId && !isPlaybackPaused ? "⏸" : "▶") : "試聴"}</button>` : "";
+          const playing = currentPlayingUnitId === unit.itemId ? " playing" : "";
+          const fixedSource = knownUsedTextSources.get(packAudioKey(unit.itemId));
+          return `
+            <label class="unit${playing}">
+              <input type="checkbox" data-unit-id="${escapeHtml(unit.itemId)}" ${checked} />
+              <span>
+                <strong>${escapeHtml(unit.itemId)} · ${escapeHtml(unit.kind || "")}</strong>
+                <small>${recorded} <span class="badge">${escapeHtml(sourceBadge(unit))}</span> ${fixedSource ? `<span class="badge source-corrected">${escapeHtml(fixedSource === "corrected" ? "補正で録音" : "生で録音")}</span>` : ""} ${Number(unit.charCount || 0).toLocaleString("ja-JP")}字</small>
+                <small>${escapeHtml(String(unit.text || "").slice(0, 120))}</small>
+                ${url ? `<small><a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a></small>` : ""}
+              </span>
+              <span class="unit-actions">${playButton}</span>
+            </label>`;
+        }).join("");
+        $("selectionBadge").textContent = `${selectedUnitIds.size}件選択中`;
+        updateActionAvailability();
       }
 
       function selectedUnits() {
-        const selected = selectedUnitIds;
-        return (fullEstimate?.units || []).filter((unit) => selected.has(unit.itemId));
+        return (fullEstimate?.units || []).filter((unit) => selectedUnitIds.has(unit.itemId));
       }
 
-      async function playNextTrack() {
-        if (!playbackQueue.length) return;
-        const nextIndex = playbackIndex + 1;
-        if (nextIndex >= playbackQueue.length) {
-          stopPlayback();
-          setRecordingStatus("連続再生が完了しました。");
+      async function updateSelectedEstimate() {
+        const unitIds = Array.from(selectedUnitIds);
+        if (!unitIds.length) {
+          selectedEstimate = null;
+          $("selectedUnitCount").textContent = "0";
+          $("selectedChars").textContent = "0";
+          $("selectedCredits").textContent = "0.0000";
+          $("selectionBadge").textContent = "0件選択中";
+          $("creditMeter").style.width = "0%";
+          updateActionAvailability();
           return;
         }
-        await playUnit(playbackQueue[nextIndex], playbackQueue, nextIndex);
+        selectedEstimate = await fetchEstimate(unitIds);
+        $("selectedUnitCount").textContent = String(unitIds.length);
+        $("selectedChars").textContent = Number(selectedEstimate.totalChars || 0).toLocaleString("ja-JP");
+        $("selectedCredits").textContent = Number(selectedEstimate.estimatedCredits || 0).toFixed(4);
+        $("selectionBadge").textContent = `${unitIds.length}件選択中`;
+        const ratio = Math.min(1, (selectedEstimate.estimatedCredits || 0) / Math.max(creditBalance, 0.0001));
+        $("creditMeter").style.width = `${ratio * 100}%`;
+        updateActionAvailability();
       }
 
-      async function playPreviousTrack() {
-        if (!playbackQueue.length) return;
-        const previousIndex = Math.max(0, playbackIndex - 1);
-        await playUnit(playbackQueue[previousIndex], playbackQueue, previousIndex);
+      function saveCredits(value) {
+        creditBalance = Math.max(0, Number(value || 0));
+        localStorage.setItem("sokqaCreditBalance", String(creditBalance));
+        $("creditBalance").textContent = creditBalance.toFixed(4);
+        updateSelectedEstimate().catch(() => {});
       }
 
-      async function togglePauseTrack() {
-        const audio = $("recordingAudio");
-        if (!currentPlayingUnitId) return;
-        if (isSpeechPlayback) {
-          if (isPlaybackPaused) {
-            window.speechSynthesis.resume();
-            isPlaybackPaused = false;
-          } else {
-            window.speechSynthesis.pause();
-            isPlaybackPaused = true;
-          }
-          renderUnits();
-          updatePlaybackControls();
+      function renderQualityIssues(targetId, data, mode) {
+        const issues = data?.issues || [];
+        if (!issues.length) {
+          $(targetId).innerHTML = `<p class="muted">明確な指摘はありません。</p>`;
           return;
         }
-        if (audio.paused) {
-          try {
-            await audio.play();
-          } catch (error) {
-            setRecordingStatus(`再生できませんでした: ${error.message}`, true);
-          }
-        } else {
-          audio.pause();
-        }
+        $(targetId).innerHTML = issues.map((issue) => `
+          <article class="issue">
+            <div class="issue-top"><span class="issue-title">${escapeHtml(issue.location?.unitId || "-")} / ${escapeHtml(issue.category)}</span><span class="badge ${issue.severity === "high" ? "danger" : issue.severity === "medium" ? "warn" : "info"}">${escapeHtml(issue.severity)}</span></div>
+            <div class="excerpt">${escapeHtml(issue.excerpt || "")}</div>
+            <p class="muted">${escapeHtml(issue.issue || "")}</p>
+            <p>${escapeHtml(issue.suggestion || "")}</p>
+            ${mode === "text" ? `<label class="checkline"><input type="checkbox" checked data-issue-approve />修正候補生成時に対象にする</label>` : ""}
+          </article>
+        `).join("");
       }
 
-      function updatePlaybackControls() {
-        const hasCurrent = Boolean(currentPlayingUnitId);
-        const hasQueue = playbackQueue.length > 0;
-        $("playSelectedBtn").disabled = playableUnits(selectedUnits()).length === 0;
-        $("playAllBtn").disabled = playableUnits(fullEstimate?.units || []).length === 0;
-        $("prevTrackBtn").disabled = !hasQueue || playbackIndex <= 0;
-        $("nextTrackBtn").disabled = !hasQueue || playbackIndex < 0 || playbackIndex >= playbackQueue.length - 1;
-        $("pauseTrackBtn").disabled = !hasCurrent;
-        $("pauseTrackBtn").textContent = isPlaybackPaused ? "再開" : "一時停止";
+      function renderQualityFixResult(data, targetId) {
+        const pending = data.pendingFixes || [];
+        const applied = data.appliedFixes || [];
+        const unapplied = data.unappliedFixes || [];
+        $(targetId).innerHTML = `
+          <div class="applied"><strong>修正案</strong><span>自動適用 ${applied.length}件 / 未適用 ${unapplied.length}件 / 承認待ち ${pending.length}件</span></div>
+          ${applied.map((fix) => `<article class="issue"><div class="issue-top"><span class="issue-title">${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.category)}</span><span class="badge success">適用</span></div><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>→ ${escapeHtml(fix.after || "")}</p></article>`).join("")}
+          ${unapplied.map((fix) => `<article class="issue"><div class="issue-top"><span class="issue-title">${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.category)}</span><span class="badge warn">未適用</span></div><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>${escapeHtml(fix.suggestion || "")}</p><p class="muted">${escapeHtml(fix.reason || "")}</p></article>`).join("")}
+          ${pending.map((fix) => `<article class="issue"><label class="checkline"><input type="checkbox" value="${escapeHtml(fix.id)}" checked data-pending-fix /><span><span class="badge ${fix.category === "factual" ? "danger" : "warn"}">${escapeHtml(fix.category)}${fix.category === "factual" ? " 要確認" : ""}</span> <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong></span></label><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>→ ${escapeHtml(fix.suggestedAfter || "")}</p><p class="muted">${escapeHtml(fix.reason || "")}</p></article>`).join("")}
+        `;
       }
 
-      function scheduleSelectedEstimate() {
-        window.clearTimeout(estimateTimer);
-        estimateTimer = window.setTimeout(updateSelectedEstimate, 250);
+      function approvedPendingFixIds() {
+        return $$("[data-pending-fix]:checked").map((input) => input.value);
       }
 
-      function chunkUnitIds(unitIds, size = RECORDING_REQUEST_UNIT_LIMIT) {
-        const chunks = [];
-        for (let index = 0; index < unitIds.length; index += size) {
-          chunks.push(unitIds.slice(index, index + size));
-        }
-        return chunks;
-      }
-
-      function emptyRecordingResult(forceRerecord, pack = selectedPack, textSource = $("recordingTextSource").value) {
+      function mergeFixResults(primary, secondary) {
+        const base = secondary || primary;
+        if (!base) return null;
         return {
-          packId: "",
-          packType: "",
-          packName: pack?.packName || "",
-          storagePrefix: "",
-          textSource,
-          forceRerecord,
-          summary: {
-            totalUnits: 0,
-            skippedUnits: 0,
-            successCount: 0,
-            failureCount: 0,
-            failedUnitIds: [],
-            results: []
-          },
-          audioUrls: []
+          fileName: base.fileName,
+          model: base.model,
+          updatedJson: (secondary || primary).updatedJson,
+          appliedFixes: [...(primary?.appliedFixes || []), ...(secondary?.appliedFixes || [])],
+          pendingFixes: [...(primary?.pendingFixes || []), ...(secondary?.pendingFixes || [])],
+          unappliedFixes: [...(primary?.unappliedFixes || []), ...(secondary?.unappliedFixes || [])],
+          reRecordNeededUnits: [...(primary?.reRecordNeededUnits || []), ...(secondary?.reRecordNeededUnits || [])]
         };
       }
 
+      async function runTextCheck() {
+        if (!selectedPack) return;
+        setBusy(true);
+        setProgress("テキスト品質チェック", "実行中", "factual / style / leak を確認しています。");
+        try {
+          lastTextCheckResult = await requestJson("/quality/text-check", { target: recordingTarget(selectedPack) });
+          renderQualityIssues("textQualityResult", lastTextCheckResult, "text");
+          setBadge("qualityBadge", "チェック済み", "info");
+          finishProgress("テキスト品質チェック", `${lastTextCheckResult.issues.length}件の指摘を取得しました。`);
+        } catch (error) {
+          $("textQualityResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function runTextFix() {
+        if (!selectedPack || !lastTextCheckResult) return;
+        setBusy(true);
+        setProgress("テキスト修正", "生成中", "承認制の本文修正候補を生成しています。");
+        try {
+          lastTextFixResult = await requestJson("/quality/text-fix", { target: recordingTarget(selectedPack), issues: lastTextCheckResult.issues || [] });
+          renderQualityFixResult(lastTextFixResult, "textQualityResult");
+          lastQualityFixResult = mergeFixResults(lastTtsFixResult, lastTextFixResult);
+          lastQualityApplyResult = null;
+          $("qualitySaveSummary").innerHTML = `<strong>承認待ち</strong><span>本文修正は承認反映後に保存できます。</span>`;
+          finishProgress("テキスト修正", `${lastTextFixResult.pendingFixes.length}件の承認候補を生成しました。`);
+        } catch (error) {
+          $("textQualityResult").insertAdjacentHTML("beforeend", `<p class="error">${escapeHtml(error.message)}</p>`);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function applyTextFixes() {
+        if (!lastTextFixResult) return;
+        setBusy(true);
+        setProgress("承認反映", "実行中", "選択した本文修正をfinalJsonへ反映しています。");
+        try {
+          lastTextApplyResult = await requestJson("/quality/text-fix/apply", {
+            updatedJson: lastTextFixResult.updatedJson,
+            pendingFixes: lastTextFixResult.pendingFixes || [],
+            approvedIds: approvedPendingFixIds()
+          });
+          lastQualityApplyResult = lastTextApplyResult;
+          lastQualityFixResult = mergeFixResults(lastTtsFixResult, lastTextFixResult);
+          $("qualitySaveSummary").innerHTML = `<strong>承認反映済み</strong><span>applied=${lastTextApplyResult.appliedApprovedIds.length}, skipped=${lastTextApplyResult.skippedIds.length}</span>`;
+          finishProgress("承認反映", "保存前に内容を確認してください。");
+        } catch (error) {
+          $("qualitySaveSummary").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function runTtsCheck() {
+        if (!selectedPack) return;
+        setBusy(true);
+        setProgress("TTS品質チェック", "実行中", "reading / double_utterance / notation / mismatch を確認しています。");
+        try {
+          lastTtsCheckResult = await requestJson("/quality/tts-check", { target: recordingTarget(selectedPack) });
+          renderQualityIssues("ttsQualityResult", lastTtsCheckResult, "tts");
+          setBadge("qualityBadge", "チェック済み", "info");
+          finishProgress("TTS品質チェック", `${lastTtsCheckResult.issues.length}件の指摘を取得しました。`);
+        } catch (error) {
+          $("ttsQualityResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function runTtsFix() {
+        if (!selectedPack || !lastTtsCheckResult) return;
+        setBusy(true);
+        setProgress("TTS修正", "実行中", "指摘箇所を部分置換で自動適用しています。");
+        try {
+          lastTtsFixResult = await requestJson("/quality/tts-fix", { target: recordingTarget(selectedPack), issues: lastTtsCheckResult.issues || [] });
+          renderQualityFixResult(lastTtsFixResult, "ttsQualityResult");
+          lastQualityFixResult = mergeFixResults(lastTtsFixResult, lastTextFixResult);
+          if (!lastQualityApplyResult) lastQualityApplyResult = { finalJson: lastTtsFixResult.updatedJson, appliedApprovedIds: [], skippedIds: [] };
+          $("qualitySaveSummary").innerHTML = `<strong>TTS修正済み</strong><span>自動${lastTtsFixResult.appliedFixes.length}件 / 未適用${lastTtsFixResult.unappliedFixes.length}件。保存できます。</span>`;
+          finishProgress("TTS修正", "修正案を適用しました。");
+        } catch (error) {
+          $("ttsQualityResult").insertAdjacentHTML("beforeend", `<p class="error">${escapeHtml(error.message)}</p>`);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function saveQualityFixVersion() {
+        if (!selectedPack || !lastQualityApplyResult || !lastQualityFixResult) return;
+        const before = selectedPack;
+        setBusy(true);
+        setProgress("修正版保存", "保存中", "修正済みJSONを新リビジョンとして保存しています。");
+        try {
+          const data = await requestJson("/quality/save-version", {
+            target: recordingTarget(selectedPack),
+            files: [{ name: selectedPack.packName, kind: selectedPack.kind, content: lastQualityApplyResult.finalJson }],
+            appliedFixes: lastQualityFixResult.appliedFixes || []
+          });
+          await loadPacks({ keepSelection: false });
+          const refreshed = latestMatchingPack({ ...before, versionId: data.newVersionId || before.versionId }) || latestMatchingPack(before);
+          if (refreshed) await selectPack(refreshed);
+          await refreshVersionInfoIfOpen();
+          await refreshImportQrIfOpen();
+          setBadge("qualityBadge", "修正済み", "success");
+          $("qualitySaveSummary").innerHTML = `<strong>保存完了</strong><span>newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</span>`;
+          finishProgress("修正版保存", "新リビジョンへ切り替えました。");
+        } catch (error) {
+          $("qualitySaveSummary").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function chunkUnitIds(unitIds) {
+        const chunks = [];
+        for (let i = 0; i < unitIds.length; i += RECORDING_CHUNK_SIZE) chunks.push(unitIds.slice(i, i + RECORDING_CHUNK_SIZE));
+        return chunks;
+      }
+
+      function emptyRecordingResult(forceRerecord, packSnapshot, textSource) {
+        return { target: recordingTarget(packSnapshot), textSource, forceRerecord, summary: { totalUnits: 0, skippedUnits: 0, successCount: 0, failureCount: 0, failedUnitIds: [], results: [] }, audioUrls: [] };
+      }
+
       function mergeRecordingResult(total, next) {
-        const summary = total.summary;
-        const nextSummary = next.summary || {};
-        total.packId = next.packId || total.packId;
-        total.packType = next.packType || total.packType;
-        total.packName = next.packName || total.packName;
-        total.storagePrefix = next.storagePrefix || total.storagePrefix;
-        total.assetBaseUrl = next.assetBaseUrl || total.assetBaseUrl;
-        total.versionId = next.versionId || total.versionId;
-        total.target = next.target || total.target;
-        total.textSource = next.textSource || total.textSource;
-        total.forceRerecord = Boolean(total.forceRerecord || next.forceRerecord);
-        summary.totalUnits += nextSummary.totalUnits || 0;
-        summary.skippedUnits += nextSummary.skippedUnits || 0;
-        summary.successCount += nextSummary.successCount || 0;
-        summary.failureCount += nextSummary.failureCount || 0;
-        summary.failedUnitIds.push(...(nextSummary.failedUnitIds || []));
-        summary.results.push(...(nextSummary.results || []));
+        const summary = next.summary || {};
+        total.summary.totalUnits += summary.totalUnits || 0;
+        total.summary.skippedUnits += summary.skippedUnits || 0;
+        total.summary.successCount += summary.successCount || 0;
+        total.summary.failureCount += summary.failureCount || 0;
+        total.summary.failedUnitIds.push(...(summary.failedUnitIds || []));
+        total.summary.results.push(...(summary.results || []));
         total.audioUrls.push(...(next.audioUrls || []));
-        return total;
+        total.target = next.target || total.target;
+        total.assetBaseUrl = next.assetBaseUrl || total.assetBaseUrl;
+        total.storagePrefix = next.storagePrefix || total.storagePrefix;
       }
 
       async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot, voiceConfigSnapshot) {
@@ -1745,9 +1251,7 @@
         let completed = 0;
         for (let index = 0; index < chunks.length; index += 1) {
           const chunk = chunks[index];
-          setRecordingStatus(
-            `${forceRerecord ? "強制再録音" : "録音"}進捗: ${completed}/${unitIds.length}件完了（${index + 1}/${chunks.length}チャンク送信中）`
-          );
+          setProgress(forceRerecord ? "強制再録音" : "録音", `${completed}/${unitIds.length}完了`, `${index + 1}/${chunks.length}チャンク送信中`, completed / Math.max(1, unitIds.length));
           const data = await requestJson("/tts/record", {
             target: targetSnapshot,
             unitIds: chunk,
@@ -1757,447 +1261,275 @@
             forceRerecord
           });
           mergeRecordingResult(total, data);
-          if (data.target) {
-            Object.assign(targetSnapshot, data.target);
-            Object.assign(packSnapshot, {
-              creatorId: data.target.creatorId,
-              contentId: data.target.contentId,
-              versionId: data.target.versionId,
-              packName: data.target.packName,
-              kind: data.target.kind,
-              url: data.packUrl || packSnapshot.url,
-              storagePrefix: data.storagePrefix || packSnapshot.storagePrefix,
-              assetBaseUrl: data.assetBaseUrl || packSnapshot.assetBaseUrl
-            });
-          }
+          if (data.target) Object.assign(targetSnapshot, data.target);
           rememberAudioUrlsFromRecording(data, packSnapshot);
-          rememberUsedTextSourcesFromRecording(data, packSnapshot);
           completed += chunk.length;
           renderRecordingResult(total);
-          setRecordingStatus(
-            `${forceRerecord ? "強制再録音" : "録音"}進捗: ${completed}/${unitIds.length}件完了`
-          );
+          setProgress(forceRerecord ? "強制再録音" : "録音", `${completed}/${unitIds.length}完了`, "録音を続行しています。", completed / Math.max(1, unitIds.length));
         }
         return total;
       }
 
-      async function updateSelectedEstimate() {
-        const unitIds = Array.from(selectedUnitIds);
-        if (!unitIds.length) {
-          selectedEstimate = null;
-          $("selectedUnitCount").textContent = "0";
-          $("selectedChars").textContent = "0";
-          $("selectedCredits").textContent = formatCredits(0);
-          updateRecordButton();
-          return;
-        }
-        try {
-          selectedEstimate = await fetchEstimate(unitIds);
-          $("selectedUnitCount").textContent = String(unitIds.length);
-          $("selectedChars").textContent = String(selectedEstimate.totalChars || 0);
-          $("selectedCredits").textContent = formatCredits(selectedEstimate.estimatedCredits || 0);
-          updateRecordButton();
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        }
-      }
-
-      function updateRecordButton() {
-        const credits = selectedEstimate?.estimatedCredits || 0;
-        const selectedCount = selectedUnitIds.size;
-        const insufficient = credits > creditBalance;
-        $("recordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0 || insufficient;
-        $("forceRecordSelectedBtn").disabled = isRecordingBusy || selectedCount === 0;
-        $("resetSelectedRecordingBtn").disabled = isRecordingBusy || selectedCount === 0;
-        $("resetAllRecordingBtn").disabled = isRecordingBusy || !selectedPack;
-        $("qualityCheckBtn").disabled = isRecordingBusy || !selectedPack;
-        $("qualityFixBtn").disabled = isRecordingBusy || !selectedPack || !(lastQualityCheckResult?.issues || []).length;
-        $("qualityApplyFixBtn").disabled = isRecordingBusy || !(lastQualityFixResult?.pendingFixes || []).length;
-        $("qualitySaveFixBtn").disabled = isRecordingBusy || !lastQualityApplyResult;
-        $("loadPacksBtn").disabled = isRecordingBusy;
-        $("importPackBtn").disabled = isRecordingBusy;
-        $("recordingTextSource").disabled = isRecordingBusy;
-        $("recordingVoiceSelect").disabled = isRecordingBusy;
-        $("createTabBtn").disabled = isRecordingBusy;
-        $("recordingTabBtn").disabled = isRecordingBusy;
-        $("creditWarning").textContent = insufficient
-          ? "クレジットが不足しています。来月のチャージ後に録音できます。"
-          : selectedCount
-            ? "録音済みユニットは追加消費なしでスキップされます。"
-            : "";
-        $("creditWarning").classList.toggle("error", insufficient);
-      }
-
-      function renderQualityResult(data) {
-        const severityRank = { high: 0, medium: 1, low: 2 };
-        const issues = [...(data.issues || [])].sort((a, b) => {
-          const severityDiff = (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9);
-          if (severityDiff) return severityDiff;
-          return String(a.category || "").localeCompare(String(b.category || ""));
-        });
-        if (!issues.length) {
-          $("qualityResult").innerHTML = `
-            <p><strong>品質チェック:</strong> 明確な指摘はありませんでした。</p>
-            <p class="meta">file=${escapeHtml(data.fileName || "")} / model=${escapeHtml(data.model || "")}</p>
-          `;
-          return;
-        }
-        $("qualityResult").innerHTML = `
-          <p><strong>品質チェック:</strong> ${issues.length}件${data.truncated ? "（上限で省略あり）" : ""}</p>
-          <p class="meta">file=${escapeHtml(data.fileName || "")} / model=${escapeHtml(data.model || "")}</p>
-          <ul class="logs">
-            ${issues
-              .map((issue) => {
-                const location = issue.location || {};
-                const where = [location.unitId, location.field].filter(Boolean).join(" / ") || "-";
-                const confidence = Number(issue.confidence || 0).toFixed(2);
-                const factualNote = issue.category === "factual" ? " 要確認" : "";
-                return `
-                  <li>
-                    <span class="badge ${issue.severity === "high" ? "error" : ""}">${escapeHtml(issue.severity || "")}</span>
-                    <span class="badge source">${escapeHtml(issue.category || "")}${factualNote}</span>
-                    <strong>${escapeHtml(where)}</strong>
-                    <span class="meta"> confidence=${confidence}</span>
-                    <div class="excerpt">${escapeHtml(issue.excerpt || "")}</div>
-                    <div>${escapeHtml(issue.issue || "")}</div>
-                    <div class="meta">提案: ${escapeHtml(issue.suggestion || "")}</div>
-                  </li>
-                `;
-              })
-              .join("")}
-          </ul>
-        `;
-      }
-
-      async function runQualityCheck() {
-        if (!selectedPack || isRecordingBusy) return;
-        try {
-          isRecordingBusy = true;
-          updateRecordButton();
-          setRecordingStatus("品質チェックを実行しています...");
-          $("qualityResult").innerHTML = "";
-          const data = await requestJson("/quality/tts-check", {
-            target: recordingTarget(selectedPack)
-          });
-          lastQualityCheckResult = data;
-          lastQualityFixResult = null;
-          lastQualityApplyResult = null;
-          renderQualityResult(data);
-          setRecordingStatus(`TTS品質チェックが完了しました（${(data.issues || []).length}件）。`);
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        } finally {
-          isRecordingBusy = false;
-          updateRecordButton();
-          renderPacks(currentPacks);
-        }
-      }
-
-      function renderQualityFixResult(data) {
-        const pending = data.pendingFixes || [];
-        const applied = data.appliedFixes || [];
-        const unapplied = data.unappliedFixes || [];
-        $("qualityResult").innerHTML = `
-          <p><strong>修正案:</strong> 自動適用 ${applied.length}件 / 未適用 ${unapplied.length}件 / 承認待ち ${pending.length}件${data.truncated ? "（上限で省略あり）" : ""}</p>
-          <p class="meta">file=${escapeHtml(data.fileName || "")} / model=${escapeHtml(data.model || "")}</p>
-          ${
-            applied.length
-              ? `<h4>自動適用済み（ttsのみ）</h4>
-                 <ul class="logs">
-                   ${applied
-                     .map((fix) => `<li><span class="badge source">${escapeHtml(fix.category)}</span> <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong><div class="excerpt">${escapeHtml(fix.before)}</div><div>→ ${escapeHtml(fix.after)}</div></li>`)
-                     .join("")}
-                 </ul>`
-              : ""
-          }
-          ${
-            unapplied.length
-              ? `<h4>未適用（手動確認）</h4>
-                 <ul class="logs">
-                   ${unapplied
-                     .map((fix) => `
-                       <li>
-                         <span class="badge source">${escapeHtml(fix.category)}</span>
-                         <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong>
-                         <div class="excerpt">before: ${escapeHtml(fix.before || "")}</div>
-                         <div>suggestion: ${escapeHtml(fix.suggestion || "")}</div>
-                         <div class="meta">${escapeHtml(fix.reason || "")}</div>
-                       </li>
-                     `)
-                     .join("")}
-                 </ul>`
-              : ""
-          }
-          ${
-            pending.length
-              ? `<h4>承認待ち（本文変更）</h4>
-                 <ul class="logs">
-                   ${pending
-                     .map((fix) => `
-                       <li>
-                         <label>
-                           <input type="checkbox" value="${escapeHtml(fix.id)}" data-pending-fix />
-                           <span class="badge ${fix.category === "factual" ? "source" : ""}">${escapeHtml(fix.category)}${fix.category === "factual" ? " 要確認" : ""}</span>
-                           <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong>
-                         </label>
-                         <div class="excerpt">before: ${escapeHtml(fix.before)}</div>
-                         <div>after: ${escapeHtml(fix.suggestedAfter)}</div>
-                         <div class="meta">${escapeHtml(fix.reason)}</div>
-                       </li>
-                     `)
-                     .join("")}
-                 </ul>`
-              : "<p class=\"meta\">承認待ちの本文修正はありません。</p>"
-          }
-        `;
-      }
-
-      function approvedPendingFixIds() {
-        return [...document.querySelectorAll("[data-pending-fix]:checked")].map((input) => input.value);
-      }
-
-      async function runQualityFix() {
-        if (!selectedPack || !lastQualityCheckResult) return;
-        try {
-          isRecordingBusy = true;
-          updateRecordButton();
-          setRecordingStatus("修正案を生成しています...");
-          const data = await requestJson("/quality/tts-fix", {
-            target: recordingTarget(selectedPack),
-            issues: lastQualityCheckResult.issues || []
-          });
-          lastQualityFixResult = data;
-          lastQualityApplyResult = { finalJson: data.updatedJson, appliedApprovedIds: [], skippedIds: [] };
-          renderQualityFixResult(data);
-          setRecordingStatus(`修正案を生成しました（自動${(data.appliedFixes || []).length}件 / 未適用${(data.unappliedFixes || []).length}件 / 承認待ち${(data.pendingFixes || []).length}件）。`);
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        } finally {
-          isRecordingBusy = false;
-          updateRecordButton();
-          renderPacks(currentPacks);
-        }
-      }
-
-      async function applyQualityFixes() {
-        if (!lastQualityFixResult) return;
-        try {
-          isRecordingBusy = true;
-          updateRecordButton();
-          setRecordingStatus("承認分をfinalJsonへ反映しています...");
-          const data = await requestJson("/quality/text-fix/apply", {
-            updatedJson: lastQualityFixResult.updatedJson,
-            pendingFixes: lastQualityFixResult.pendingFixes || [],
-            approvedIds: approvedPendingFixIds()
-          });
-          lastQualityApplyResult = data;
-          $("qualityResult").insertAdjacentHTML(
-            "beforeend",
-            `<p><strong>承認反映:</strong> applied=${data.appliedApprovedIds.length}, skipped=${data.skippedIds.length}</p>
-             <details><summary>finalJson</summary><pre>${escapeHtml(JSON.stringify(data.finalJson, null, 2))}</pre></details>`
-          );
-          setRecordingStatus("承認分を反映しました。保存前にfinalJsonを確認してください。");
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        } finally {
-          isRecordingBusy = false;
-          updateRecordButton();
-          renderPacks(currentPacks);
-        }
-      }
-
-      async function saveQualityFixVersion() {
-        if (!selectedPack || !lastQualityApplyResult || !lastQualityFixResult) return;
-        const packBeforeSave = selectedPack;
-        try {
-          isRecordingBusy = true;
-          updateRecordButton();
-          setRecordingStatus("修正版を新バージョンとして保存しています...");
-          const data = await requestJson("/quality/save-version", {
-            target: recordingTarget(selectedPack),
-            files: [
-              {
-                name: selectedPack.packName,
-                kind: selectedPack.kind,
-                content: lastQualityApplyResult.finalJson
-              }
-            ],
-            appliedFixes: lastQualityFixResult.appliedFixes || []
-          });
-          $("qualityResult").insertAdjacentHTML(
-            "beforeend",
-            `<p><strong>保存:</strong> newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</p>`
-          );
-          const refreshedReference = {
-            ...packBeforeSave,
-            versionId: data.newVersionId || data.versionId || packBeforeSave.versionId,
-            assetBaseUrl: data.newAssetBaseUrl || data.assetBaseUrl || packBeforeSave.assetBaseUrl,
-            storagePrefix: data.storagePrefix || packBeforeSave.storagePrefix
-          };
-          await refreshSelectedPackToLatest(refreshedReference);
-          fullEstimate = await fetchEstimate();
-          selectedUnitIds = new Set();
-          selectedEstimate = null;
-          renderUnits();
-          await updateSelectedEstimate();
-          setRecordingStatus("修正版を新バージョンとして保存しました。必要に応じて再チェックしてください。");
-        } catch (error) {
-          setRecordingStatus(error.message, true);
-        } finally {
-          isRecordingBusy = false;
-          updateRecordButton();
-          renderPacks(currentPacks);
-        }
-      }
-
       async function recordSelectedUnits(forceRerecord = false) {
         if (!selectedPack || !selectedUnitIds.size) return;
-        const selectedPackBeforeRecord = selectedPack;
+        const packSnapshot = { ...selectedPack };
+        const targetSnapshot = recordingTarget(packSnapshot);
+        const textSourceSnapshot = $("recordingTextSource").value;
+        const voiceConfigSnapshot = selectedVoiceConfig();
+        const unitIds = Array.from(selectedUnitIds);
+        const beforeEstimate = selectedEstimate;
+        setBusy(true);
         try {
-          isRecordingBusy = true;
-          updateRecordButton();
-          setRecordingStatus(forceRerecord ? "強制再録音を実行しています..." : "録音を実行しています...");
-          const packSnapshot = { ...selectedPackBeforeRecord };
-          const targetSnapshot = recordingTarget(packSnapshot);
-          const textSourceSnapshot = $("recordingTextSource").value;
-          const voiceConfigSnapshot = selectedVoiceConfig();
-          const unitIds = Array.from(selectedUnitIds);
-          const beforeEstimate = selectedEstimate;
-          renderPacks(currentPacks);
-          const data = await sendRecordingChunks(
-            unitIds,
-            forceRerecord,
-            targetSnapshot,
-            packSnapshot,
-            textSourceSnapshot,
-            voiceConfigSnapshot
-          );
+          const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot, voiceConfigSnapshot);
           const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
           if (!forceRerecord) {
-            const recordedChars = (beforeEstimate?.units || [])
-              .filter((unit) => successfulIds.has(unit.itemId))
-              .reduce((total, unit) => total + unit.charCount, 0);
-            const rate = beforeEstimate && beforeEstimate.totalChars
-              ? (beforeEstimate.estimatedCredits || 0) / beforeEstimate.totalChars
-              : 0;
+            const recordedChars = (beforeEstimate?.units || []).filter((unit) => successfulIds.has(unit.itemId)).reduce((total, unit) => total + unit.charCount, 0);
+            const rate = beforeEstimate?.totalChars ? (beforeEstimate.estimatedCredits || 0) / beforeEstimate.totalChars : 0;
             saveCredits(creditBalance - recordedChars * rate);
           }
           renderRecordingResult(data);
-          const refreshedPack = await refreshSelectedPackToLatest(packSnapshot);
-          fullEstimate = await fetchEstimate(null, refreshedPack, textSourceSnapshot);
-          rememberAudioUrlsFromUnits(fullEstimate?.units, refreshedPack);
-          rememberAudioUrlsFromRecording(data, refreshedPack);
-          rememberUsedTextSourcesFromRecording(data, refreshedPack);
+          await loadPacks({ keepSelection: false });
+          const refreshed = latestMatchingPack(packSnapshot) || selectedPack;
+          if (refreshed) await selectPack(refreshed);
+          await refreshVersionInfoIfOpen();
+          await refreshImportQrIfOpen();
           selectedUnitIds = new Set();
-          selectedEstimate = null;
           renderUnits();
           await updateSelectedEstimate();
-          setRecordingStatus(forceRerecord ? "強制再録音が完了しました。" : "録音処理が完了しました。");
+          finishProgress(forceRerecord ? "強制再録音" : "録音", "録音処理が完了しました。");
         } catch (error) {
-          setRecordingStatus(error.message, true);
+          $("recordingResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
-          isRecordingBusy = false;
-          updateRecordButton();
-          renderPacks(currentPacks);
+          setBusy(false);
         }
       }
 
       async function resetRecordingState(unitIds = null) {
         if (!selectedPack) return;
-        const packBeforeReset = selectedPack;
+        const before = selectedPack;
+        setBusy(true);
+        stopPlayback();
+        setProgress("録音状態リセット", "処理中", "音声参照をクリアしています。");
         try {
-          isRecordingBusy = true;
-          updateRecordButton();
-          stopPlayback();
-          setRecordingStatus("録音状態をリセットしています...");
-          const payload = {
-            target: recordingTarget(selectedPack),
-            textSource: $("recordingTextSource").value
-          };
-          if (unitIds) {
-            payload.unitIds = unitIds;
-          }
+          const payload = { target: recordingTarget(selectedPack), textSource: $("recordingTextSource").value };
+          if (unitIds) payload.unitIds = unitIds;
           const data = await requestJson("/tts/recording-reset", payload);
-          (unitIds || (fullEstimate?.units || []).map((unit) => unit.itemId)).forEach((unitId) => {
-            knownAudioUrls.delete(packAudioKey(unitId));
-            knownUsedTextSources.delete(packUnitKey(unitId));
-          });
-          const refreshedPack = await refreshSelectedPackToLatest({
-            ...packBeforeReset,
-            ...(data.target || {}),
-            versionId: data.versionId || data.newVersionId || data.target?.versionId || packBeforeReset.versionId,
-            assetBaseUrl: data.assetBaseUrl || data.newAssetBaseUrl || packBeforeReset.assetBaseUrl
-          });
-          fullEstimate = await fetchEstimate(null, refreshedPack, $("recordingTextSource").value);
-          selectedUnitIds = new Set();
-          selectedEstimate = null;
-          renderUnits();
-          await updateSelectedEstimate();
-          $("recordingResult").innerHTML = `
-            <p><strong>録音状態リセット:</strong> cleared=${data.clearedCount || 0}, requested=${data.requestedUnitCount || 0}</p>
-          `;
-          setRecordingStatus("録音状態をリセットしました。");
+          (unitIds || (fullEstimate?.units || []).map((unit) => unit.itemId)).forEach((unitId) => knownAudioUrls.delete(packAudioKey(unitId)));
+          await loadPacks({ keepSelection: false });
+          const refreshed = latestMatchingPack(before) || selectedPack;
+          if (refreshed) await selectPack(refreshed);
+          await refreshVersionInfoIfOpen();
+          await refreshImportQrIfOpen();
+          $("recordingResult").innerHTML = `<strong>録音状態リセット</strong><span>cleared=${data.clearedCount || 0}, requested=${data.requestedUnitCount || 0}</span>`;
+          finishProgress("録音状態リセット", "録音状態をリセットしました。");
         } catch (error) {
-          setRecordingStatus(error.message, true);
+          $("recordingResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
-          isRecordingBusy = false;
-          updateRecordButton();
+          setBusy(false);
         }
       }
 
       function renderRecordingResult(data) {
         const summary = data.summary || {};
         $("recordingResult").innerHTML = `
-          <p><strong>結果:</strong> success=${summary.successCount || 0}, failure=${summary.failureCount || 0}, skipped=${summary.skippedUnits || 0}</p>
-          ${
-            (summary.failedUnitIds || []).length
-              ? `<p class="error"><strong>失敗:</strong> ${escapeHtml(summary.failedUnitIds.join(", "))}</p>`
-              : ""
-          }
-          <ul class="logs">
-            ${(data.audioUrls || [])
-              .map((item) => {
-                const sourceLabel = item.usedTextSource === "corrected" ? "補正で録音" : "生で録音";
-                const resultPack = data.assetBaseUrl
-                  ? { ...selectedPack, ...(data.target || {}), assetBaseUrl: data.assetBaseUrl }
-                  : selectedPack;
-                const audioUrl = item.audioUrl || audioUrlFromPath(item.audioPath, resultPack);
-                const link = audioUrl
-                  ? `<a href="${escapeHtml(audioUrl)}" target="_blank" rel="noreferrer">mp3</a>`
-                  : `<span class="meta">${escapeHtml(item.audioPath || "audio path updated")}</span>`;
-                return `<li>${escapeHtml(item.unitId)}: <span class="badge ${item.usedTextSource === "corrected" ? "source-corrected" : "source"}">${sourceLabel}</span> ${link}</li>`;
-              })
-              .join("")}
-          </ul>
-        `;
+          <strong>録音結果</strong>
+          <span>success=${summary.successCount || 0}, failure=${summary.failureCount || 0}, skipped=${summary.skippedUnits || 0}</span>
+          ${(summary.failedUnitIds || []).length ? `<span class="error">失敗: ${escapeHtml(summary.failedUnitIds.join(", "))}</span>` : ""}
+          <ul class="logs">${(data.audioUrls || []).map((item) => {
+            const url = item.audioUrl || audioUrlFromPath(item.audioPath, selectedPack);
+            return `<li>${escapeHtml(item.unitId)} ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">mp3</a>` : escapeHtml(item.audioPath || "")}</li>`;
+          }).join("")}</ul>`;
       }
 
-      planBtn.addEventListener("click", async () => {
+      function applyPlaybackRate() {
+        $("recordingAudio").playbackRate = Number($("playbackRateSelect").value || 1);
+      }
+
+      function speakText(text) {
+        if (!("speechSynthesis" in window)) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = Number($("playbackRateSelect").value || 1);
+        window.speechSynthesis.speak(utterance);
+      }
+
+      function playUnit(unit) {
+        if (!unit) return;
+        const url = unitAudioUrl(unit);
+        currentPlayingUnitId = unit.itemId;
+        $("nowPlaying").textContent = `${unit.itemId} / ${unit.kind}`;
+        if (url) {
+          const audio = $("recordingAudio");
+          if (audio.src !== url) audio.src = url;
+          applyPlaybackRate();
+          audio.play().catch(() => speakText(unit.text || ""));
+          isPlaybackPaused = false;
+        } else {
+          speakText(unit.text || "");
+          isPlaybackPaused = false;
+        }
+        renderUnits();
+      }
+
+      function playQueue(units) {
+        playQueueItems = (units || []).filter((unit) => unitAudioUrl(unit) || unit.text);
+        playIndex = 0;
+        playUnit(playQueueItems[playIndex]);
+      }
+
+      function playNextTrack() {
+        if (!playQueueItems.length) return;
+        playIndex = Math.min(playQueueItems.length - 1, playIndex + 1);
+        playUnit(playQueueItems[playIndex]);
+      }
+
+      function playPreviousTrack() {
+        if (!playQueueItems.length) return;
+        playIndex = Math.max(0, playIndex - 1);
+        playUnit(playQueueItems[playIndex]);
+      }
+
+      function togglePauseTrack() {
+        const audio = $("recordingAudio");
+        if (!currentPlayingUnitId) {
+          playQueue(fullEstimate?.units || []);
+          return;
+        }
+        if (audio.src) {
+          if (audio.paused) audio.play();
+          else audio.pause();
+          return;
+        }
+        if ("speechSynthesis" in window) {
+          if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+          else window.speechSynthesis.pause();
+        }
+      }
+
+      function stopPlayback() {
+        $("recordingAudio").pause();
+        $("recordingAudio").removeAttribute("src");
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        currentPlayingUnitId = null;
+        isPlaybackPaused = true;
+      }
+
+      async function loadTtsVoices(languageCode = "ja-JP") {
         try {
-          result.innerHTML = "";
-          setBusy(true, "Planning...");
+          const data = await requestGet(`/tts/voices?languageCode=${encodeURIComponent(languageCode)}`);
+          const voices = data.voices || [];
+          if (!voices.length) return;
+          $("recordingVoiceSelect").innerHTML = voices.map((voice) => {
+            const primaryLanguage = (voice.languageCodes || [languageCode])[0] || languageCode;
+            const label = voice.label || `${voice.name} / ${primaryLanguage}`;
+            return `<option value="${escapeHtml(voice.name)}" data-language-code="${escapeHtml(primaryLanguage)}">${escapeHtml(label)}</option>`;
+          }).join("");
+        } catch (error) {
+          setProgress("声種一覧", "失敗", `既定の声種を使います: ${error.message}`, 1);
+        }
+      }
+
+      function readJsonFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try { resolve({ name: file.name, content: JSON.parse(String(reader.result || "")) }); }
+            catch (error) { reject(error); }
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(file, "utf-8");
+        });
+      }
+
+      async function importSelectedJsonFiles() {
+        const files = Array.from($("importFiles").files || []);
+        if (!files.length) return;
+        setBusy(true);
+        setProgress("インポート", "読込中", `${files.length}件のJSONを読み込んでいます。`);
+        try {
+          const importedFiles = await Promise.all(files.map(readJsonFile));
+          const payload = {
+            files: importedFiles,
+            creatorId: $("packCreatorId").value.trim() || undefined,
+            title: $("importTitle").value.trim() || undefined,
+            contentId: $("importContentId").value.trim() || undefined,
+            slug: $("importSlug").value.trim() || undefined
+          };
+          const data = await requestJson("/packs/import", payload);
+          $("importStatus").textContent = `インポート完了: ${data.files?.length || 0}ファイル`;
+          await loadPacks({ keepSelection: false });
+          const first = currentPacks.find((pack) => pack.contentId === data.manifest?.contentId) || currentPacks[0];
+          if (first) await selectPack(first);
+          finishProgress("インポート", "対象パックに設定しました。");
+        } catch (error) {
+          $("importStatus").textContent = error.message;
+          $("importStatus").classList.add("error");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function deleteManifestGroup(prefix, title) {
+        if (!prefix || !window.confirm(`${title || prefix} を削除します。よろしいですか？`)) return;
+        setBusy(true);
+        setProgress("削除", "処理中", "パックを削除しています。");
+        try {
+          await requestJson("/packs/delete", { storagePrefix: prefix });
+          if (selectedPack?.storagePrefix === prefix) clearSelectedPack();
+          await loadPacks({ keepSelection: true });
+          finishProgress("削除", "パックを削除しました。");
+        } catch (error) {
+          setProgress("削除", "失敗", error.message, 1);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function renderGeneratedResult(generated) {
+        const manifestUrl = generated.files?.find((file) => file.kind === "manifest")?.url || generated.manifest?.manifestUrl || "";
+        const shareUrl = manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(manifestUrl)}` : "";
+        $("result").innerHTML = `
+          <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.status)}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${generated.validation?.valid ? "ok" : "ng"}</strong></div></div>
+          <div class="url"><code>${escapeHtml(manifestUrl || "not persisted")}</code>${manifestUrl ? `<a class="button secondary" href="${escapeHtml(manifestUrl)}" target="_blank" rel="noreferrer">manifest</a>` : ""}</div>
+          ${shareUrl ? `<div class="url"><code id="shareUrl">${escapeHtml(shareUrl)}</code><button class="secondary" id="copyShareUrlBtn" type="button">URLコピー</button></div><div id="qrcode"></div>` : ""}
+          <div class="actions"><a class="button" href="/jobs/${escapeHtml(generated.jobId)}" target="_blank" rel="noreferrer">job JSONを見る</a><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
+          <ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`;
+        if (shareUrl && window.QRCode) new QRCode($("qrcode"), { text: shareUrl, width: 132, height: 132 });
+        $("copyShareUrlBtn")?.addEventListener("click", async () => navigator.clipboard?.writeText(shareUrl));
+        $("goQualityBtn")?.addEventListener("click", () => setTab("quality"));
+        $("goRecordBtn")?.addEventListener("click", () => setTab("record"));
+      }
+
+      async function createPlan() {
+        setBusy(true, "Planning...");
+        setProgress("プレビュー作成", "Planning", "構成案を作成しています。");
+        try {
           const plan = await requestJson("/plan-pack", {
             theme: $("theme").value,
             targetUser: $("targetUser").value,
             difficulty: $("difficulty").value,
-            scale: radioValue("scale"),
+            scale: scaleValue(),
             language: $("language").value,
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
             ...ttsPayload(),
             ...sourcePayload()
           });
-          planJson.value = JSON.stringify(plan, null, 2);
-          setBusy(false, "構成案を作成しました。必要なら編集してから生成してください。");
+          $("planJson").value = JSON.stringify(plan, null, 2);
+          finishProgress("プレビュー作成", "構成案を作成しました。");
         } catch (error) {
-          setError(error.message);
+          $("status").textContent = error.message;
+          $("status").classList.add("error");
+        } finally {
+          setBusy(false);
         }
-      });
+      }
 
-      generateBtn.addEventListener("click", async () => {
+      async function generatePack() {
+        setBusy(true, "Generating...");
+        setProgress("生成", "Planning", "生成は完了後にログがまとめて返ります。");
         try {
-          setBusy(true, "Generating...");
-          const plan = JSON.parse(planJson.value);
+          const plan = JSON.parse($("planJson").value);
           const generated = await requestJson("/generate-pack", {
             plan,
             outputMode: "manifest",
@@ -2205,95 +1537,129 @@
             ...ttsPayload(),
             ...sourcePayload()
           });
-          const manifestUrl = generated.files.find((file) => file.kind === "manifest")?.url;
-          const shareUrl = manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(manifestUrl)}` : "";
-          result.innerHTML = `
-            <p><strong>Status:</strong> ${generated.status}</p>
-            <p><strong>Validation:</strong> ${generated.validation.valid ? "valid" : "invalid"}</p>
-            <p><strong>Files:</strong> ${generated.files.length}</p>
-            <p class="manifest-link"><strong>Manifest:</strong> ${
-              manifestUrl ? `<a href="${manifestUrl}" target="_blank" rel="noreferrer">${manifestUrl}</a>` : "not persisted"
-            }</p>
-            ${
-              shareUrl
-                ? `<p class="share-url"><strong>Sokqa取り込み用URL:</strong> ${shareUrl}</p>
-                   <div class="actions">
-                     <button id="copyShareUrlBtn" type="button" class="secondary">URLをコピー</button>
-                   </div>
-                   <div id="qrcode"></div>`
-                : ""
-            }
-            <div class="actions">
-              <a class="button" href="/jobs/${generated.jobId}/manifest" target="_blank" rel="noreferrer">manifestを見る</a>
-              <a class="button secondary" href="/jobs/${generated.jobId}" target="_blank" rel="noreferrer">job JSONを見る</a>
-            </div>
-            <h3>Logs</h3>
-            <ul class="logs">${generated.logs.map((log) => `<li>${log}</li>`).join("")}</ul>
-          `;
-          if (shareUrl) {
-            const qrCodeTarget = $("qrcode");
-            if (qrCodeTarget && window.QRCode) {
-              new QRCode(qrCodeTarget, { text: shareUrl, width: 180, height: 180 });
-            }
-            $("copyShareUrlBtn")?.addEventListener("click", async (event) => {
-              const button = event.currentTarget;
-              await navigator.clipboard.writeText(shareUrl);
-              const originalText = button.textContent;
-              button.textContent = "コピーしました";
-              setTimeout(() => {
-                button.textContent = originalText;
-              }, 1600);
-            });
-          }
           currentJobId = generated.jobId;
           $("reviseBtn").disabled = false;
-          setBusy(false, "生成が完了しました。");
-          loadPacks();
+          renderGeneratedResult(generated);
+          await loadPacks({ keepSelection: false });
+          const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId) || currentPacks[0];
+          if (first) await selectPack(first);
+          setBadge("genBadge", "生成済み", "success");
+          setBadge("qualityBadge", "未チェック", "warn");
+          finishProgress("生成", "生成済みパックを対象に設定しました。");
         } catch (error) {
-          setError(error.message);
+          $("status").textContent = error.message;
+          $("status").classList.add("error");
+        } finally {
+          setBusy(false);
         }
-      });
+      }
 
-      $("reviseBtn").addEventListener("click", async () => {
+      async function reviseTts() {
         if (!currentJobId) return;
+        setBusy(true, "Revising TTS...");
         try {
-          setBusy(true, "Revising TTS...");
-          const revised = await requestJson("/debug/revise-tts", {
-            jobId: currentJobId,
-            ttsRules: JSON.parse($("ttsRules").value),
-            persist: true
-          });
-          result.insertAdjacentHTML("beforeend", `
-            <p><strong>Revised version:</strong> ${revised.manifest.version}</p>
-            <p><strong>Revision validation:</strong> ${revised.validation.valid ? "valid" : "invalid"}</p>
-          `);
-          setBusy(false, "TTSだけ再最適化しました。");
-          $("reviseBtn").disabled = false;
+          const revised = await requestJson("/debug/revise-tts", { jobId: currentJobId, ttsRules: JSON.parse($("ttsRules").value), persist: true });
+          $("result").insertAdjacentHTML("beforeend", `<p><strong>TTS再最適化:</strong> ${escapeHtml(revised.validation?.valid ? "valid" : "invalid")}</p>`);
+          await loadPacks();
         } catch (error) {
-          setError(error.message);
+          $("status").textContent = error.message;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function syncInputState() {
+        $("sourceMode").disabled = !$("sourceText").value.trim();
+      }
+
+      document.addEventListener("click", async (event) => {
+        const packButton = event.target.closest("[data-pack-key]");
+        if (packButton) {
+          const pack = findPackFromButton(packButton);
+          if (pack) await selectPack(pack);
+          return;
+        }
+        const deleteButton = event.target.closest("[data-delete-prefix]");
+        if (deleteButton) {
+          await deleteManifestGroup(deleteButton.dataset.deletePrefix, deleteButton.dataset.deleteTitle);
+          return;
+        }
+        const playButton = event.target.closest("[data-play-unit]");
+        if (playButton) {
+          const unit = (fullEstimate?.units || []).find((candidate) => candidate.itemId === playButton.dataset.playUnit);
+          if (unit) {
+            playQueueItems = fullEstimate.units;
+            playIndex = playQueueItems.findIndex((candidate) => candidate.itemId === unit.itemId);
+            playUnit(unit);
+          }
         }
       });
 
-      planJson.addEventListener("input", () => {
-        generateBtn.disabled = !planJson.value.trim();
+      $$(".tab").forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.tab)));
+      $$("#scaleSegment button").forEach((button) => button.addEventListener("click", () => {
+        $$("#scaleSegment button").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+      }));
+      $("ttsSwitch").addEventListener("click", () => {
+        const next = $("ttsSwitch").getAttribute("aria-pressed") === "false";
+        $("ttsSwitch").setAttribute("aria-pressed", String(next));
+        $("ttsSwitch").classList.toggle("off", !next);
       });
-
-      $("createTabBtn").addEventListener("click", () => setStudioTab("create"));
-      $("recordingTabBtn").addEventListener("click", () => setStudioTab("recording"));
+      $("planBtn").addEventListener("click", createPlan);
+      $("generateBtn").addEventListener("click", generatePack);
+      $("planJson").addEventListener("input", updateActionAvailability);
       $("sourceText").addEventListener("input", syncInputState);
-      $("includeTts").addEventListener("change", syncInputState);
-      $("loadPacksBtn").addEventListener("click", loadPacks);
+      $("reviseBtn").addEventListener("click", reviseTts);
+      $("openPack").addEventListener("click", openPackModal);
+      $("openPackTop").addEventListener("click", openPackModal);
+      $("openPackFromRecord").addEventListener("click", openPackModal);
+      $("closePack").addEventListener("click", closePackModal);
+      $("packModal").addEventListener("click", (event) => { if (event.target.id === "packModal") closePackModal(); });
+      $("openVersionInfo").addEventListener("click", () => openVersionInfo({ force: true }));
+      $("closeVersionInfo").addEventListener("click", closeVersionModal);
+      $("versionModal").addEventListener("click", (event) => { if (event.target.id === "versionModal") closeVersionModal(); });
+      $("openImportQr").addEventListener("click", () => openImportQr({ refreshLatest: true }));
+      $("closeImportQr").addEventListener("click", closeImportQrModal);
+      $("importQrModal").addEventListener("click", (event) => { if (event.target.id === "importQrModal") closeImportQrModal(); });
+      $("clearPack").addEventListener("click", clearSelectedPack);
+      $("refreshPacksBtn").addEventListener("click", () => loadPacks());
+      $("loadPacksBtn").addEventListener("click", () => loadPacks());
       $("importPackBtn").addEventListener("click", importSelectedJsonFiles);
-      $("resetCreditsBtn").addEventListener("click", () => saveCredits(INITIAL_CREDITS));
+      $("textCheckBtn").addEventListener("click", runTextCheck);
+      $("textFixBtn").addEventListener("click", runTextFix);
+      $("applyTextFixBtn").addEventListener("click", applyTextFixes);
+      $("ttsCheckBtn").addEventListener("click", runTtsCheck);
+      $("ttsFixBtn").addEventListener("click", runTtsFix);
+      $("qualitySaveFixBtn").addEventListener("click", saveQualityFixVersion);
+      $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
+      $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
+      $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
+      $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
       $("selectUnrecordedBtn").addEventListener("click", () => {
         selectedUnitIds = new Set((fullEstimate?.units || []).filter((unit) => !unit.isRecorded).map((unit) => unit.itemId));
         renderUnits();
-        scheduleSelectedEstimate();
+        updateSelectedEstimate();
       });
       $("clearUnitSelectionBtn").addEventListener("click", () => {
         selectedUnitIds = new Set();
         renderUnits();
-        scheduleSelectedEstimate();
+        updateSelectedEstimate();
+      });
+      $("unitList").addEventListener("change", (event) => {
+        if (!event.target.matches("[data-unit-id]")) return;
+        if (event.target.checked) selectedUnitIds.add(event.target.dataset.unitId);
+        else selectedUnitIds.delete(event.target.dataset.unitId);
+        renderUnits();
+        updateSelectedEstimate();
+      });
+      $("recordingTextSource").addEventListener("change", async () => {
+        renderUnits();
+        if (selectedPack) {
+          fullEstimate = await fetchEstimate();
+          renderUnits();
+          await updateSelectedEstimate();
+          updateRecordingBadge();
+        }
       });
       $("playSelectedBtn").addEventListener("click", () => playQueue(selectedUnits()));
       $("playAllBtn").addEventListener("click", () => playQueue(fullEstimate?.units || []));
@@ -2301,34 +1667,17 @@
       $("pauseTrackBtn").addEventListener("click", togglePauseTrack);
       $("nextTrackBtn").addEventListener("click", playNextTrack);
       $("playbackRateSelect").addEventListener("change", applyPlaybackRate);
-      $("recordingAudio").addEventListener("play", () => {
-        applyPlaybackRate();
-        isPlaybackPaused = false;
-        renderUnits();
-      });
-      $("recordingAudio").addEventListener("pause", () => {
-        isPlaybackPaused = true;
-        renderUnits();
-      });
+      $("recordingAudio").addEventListener("play", () => { applyPlaybackRate(); isPlaybackPaused = false; renderUnits(); $("pauseTrackBtn").textContent = "一時停止"; });
+      $("recordingAudio").addEventListener("pause", () => { isPlaybackPaused = true; renderUnits(); $("pauseTrackBtn").textContent = "再生"; });
       $("recordingAudio").addEventListener("ended", playNextTrack);
-      $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
-      $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
-      $("qualityCheckBtn").addEventListener("click", runQualityCheck);
-      $("qualityFixBtn").addEventListener("click", runQualityFix);
-      $("qualityApplyFixBtn").addEventListener("click", applyQualityFixes);
-      $("qualitySaveFixBtn").addEventListener("click", saveQualityFixVersion);
-      $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
-      $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
-      $("recordingTextSource").addEventListener("change", async () => {
-        renderUnits();
-        if (selectedPack) {
-          await selectPack(selectedPack);
-        }
-      });
+      $("resetCreditsBtn").addEventListener("click", () => saveCredits(INITIAL_CREDITS));
+
       syncInputState();
       saveCredits(creditBalance);
+      updateGlobalStatus();
+      updateStatusBadges();
       loadTtsVoices();
-      loadPacks();
+      loadPacks().catch((error) => setProgress("パック一覧", "失敗", error.message, 1));
     </script>
   </body>
 </html>

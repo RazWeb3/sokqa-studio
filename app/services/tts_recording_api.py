@@ -389,8 +389,6 @@ def _load_current_manifest_v2(
     _, _, source_version_id = _identity_from_storage_prefix(loaded.storage_prefix)
     pack_root = pack_root_prefix(creator_id, content_id)
     manifest = PackManifestV2.model_validate(storage.read_manifest(pack_root, source_version_id))
-    if manifest.schemaVersion != 2:
-        raise ValueError("target manifest must be schemaVersion 2")
     return manifest
 
 

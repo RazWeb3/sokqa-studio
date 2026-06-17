@@ -156,6 +156,10 @@ TTS null rules:
 - Do not create low/info issues for missing audio or unrecorded units. recording-estimate handles recording state separately.
 
 TTS fix suggestion rules:
+- TTS suggestions are limited to pronunciation/readability changes: readings, kana/phonetic spelling, symbol readings, and language tags.
+- Never change the original word, vocabulary, meaning, answer, quantity, proper noun, or technical term.
+- Do not suggest paraphrases or semantic substitutions. For example, do not replace 有線LAN with LANケーブル.
+- If a term needs a better spoken form, replace only that exact term with its reading (for example, 有線LAN -> ゆうせんラン), not with another word.
 - For reading, double_utterance, notation, and tts_text_mismatch, excerpt must contain the exact source fragment to replace.
 - suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
 - For tts.choiceTexts[index] issues, suggestion must be the replacement text for the excerpt inside that one choice index only. Do not return the full choice text or the full choiceTexts array unless the excerpt itself is the full choice text.

@@ -698,6 +698,127 @@ def test_tts_fix_no_llm_replaces_excerpt_in_quiz_question_and_explanation(tmp_pa
     assert len(data["appliedFixes"]) == 2
 
 
+def test_tts_fix_no_llm_matches_normalized_excerpt_without_normalizing_output(tmp_path, monkeypatch) -> None:
+    target = _write_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    manifest_path = tmp_path / "generated" / prefix / "versions" / target["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    doc_item = next(item for item in manifest["items"] if item["name"] == "doc_01.json")
+    doc_path = tmp_path / "generated" / prefix / doc_item["url"].split(f"{prefix}/", 1)[1]
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["documents"][0]["text"] = "[en-US]VRIO　フレームワークは、４Ｐを確認します。"
+    doc["documents"][0]["tts"] = {}
+    doc_path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    issue = {
+        "category": "reading",
+        "severity": "medium",
+        "confidence": 0.8,
+        "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+        "excerpt": "VRIO フレームワークは 4P",
+        "issue": "VRIO と 4P の読み補正",
+        "suggestion": "ブイリオフレームワークはフォーピー",
+    }
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": [issue]})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unappliedFixes"] == []
+    assert data["updatedJson"]["documents"][0]["tts"]["text"] == "[en-US]ブイリオフレームワークはフォーピーを確認します。"
+
+
+def test_tts_fix_no_llm_rejects_clear_vocabulary_rewrite(tmp_path, monkeypatch) -> None:
+    target = _write_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    manifest_path = tmp_path / "generated" / prefix / "versions" / target["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    doc_item = next(item for item in manifest["items"] if item["name"] == "doc_01.json")
+    doc_path = tmp_path / "generated" / prefix / doc_item["url"].split(f"{prefix}/", 1)[1]
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["documents"][0]["text"] = "有線LANはケーブルを使って通信します。"
+    doc["documents"][0].pop("tts", None)
+    doc_path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    issue = {
+        "category": "reading",
+        "severity": "medium",
+        "confidence": 0.8,
+        "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+        "excerpt": "有線LAN",
+        "issue": "有線LAN の読み補正",
+        "suggestion": "LANケーブル",
+    }
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": [issue]})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["appliedFixes"] == []
+    assert len(data["unappliedFixes"]) == 1
+    assert "語彙変更" in data["unappliedFixes"][0]["reason"]
+    assert "text" not in (data["updatedJson"]["documents"][0].get("tts") or {})
+
+
+def test_tts_fix_no_llm_allows_pronunciation_for_mixed_japanese_term(tmp_path, monkeypatch) -> None:
+    target = _write_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    manifest_path = tmp_path / "generated" / prefix / "versions" / target["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    doc_item = next(item for item in manifest["items"] if item["name"] == "doc_01.json")
+    doc_path = tmp_path / "generated" / prefix / doc_item["url"].split(f"{prefix}/", 1)[1]
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["documents"][0]["text"] = "有線LANはケーブルを使って通信します。"
+    doc["documents"][0].pop("tts", None)
+    doc_path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    issue = {
+        "category": "reading",
+        "severity": "medium",
+        "confidence": 0.8,
+        "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+        "excerpt": "有線LAN",
+        "issue": "有線LAN の読み補正",
+        "suggestion": "ゆうせんラン",
+    }
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": [issue]})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unappliedFixes"] == []
+    assert data["updatedJson"]["documents"][0]["tts"]["text"] == "ゆうせんランはケーブルを使って通信します。"
+
+
+def test_tts_fix_no_llm_resolves_generic_choices_field_by_excerpt(tmp_path, monkeypatch) -> None:
+    target = _write_quiz_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    manifest_path = tmp_path / "generated" / prefix / "versions" / target["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    quiz_item = next(item for item in manifest["items"] if item["name"] == "quiz_01.json")
+    quiz_path = tmp_path / "generated" / prefix / quiz_item["url"].split(f"{prefix}/", 1)[1]
+    quiz = json.loads(quiz_path.read_text(encoding="utf-8"))
+    quiz["questions"][0]["choices"] = ["A", "SQL を使う選択肢", "JSON", "D"]
+    quiz_path.write_text(json.dumps(quiz, ensure_ascii=False), encoding="utf-8")
+    issue = {
+        "category": "reading",
+        "severity": "medium",
+        "confidence": 0.8,
+        "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "choices"},
+        "excerpt": "sqlを使う",
+        "issue": "choice reading without explicit index",
+        "suggestion": "エスキューエルを使う",
+    }
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": [issue]})
+
+    assert response.status_code == 200
+    data = response.json()
+    question = data["updatedJson"]["questions"][0]
+    assert question["choices"] == ["A", "SQL を使う選択肢", "JSON", "D"]
+    assert question["answerIndex"] == 0
+    assert question["tts"]["choiceTexts"] == ["A", "エスキューエルを使う選択肢", "JSON", "D"]
+    assert data["appliedFixes"][0]["location"]["field"] == "tts.choiceTexts[1]"
+    assert data["unappliedFixes"] == []
+
+
 def test_tts_fix_empty_llm_response_returns_friendly_error_after_retries(tmp_path, monkeypatch) -> None:
     target = _write_version(tmp_path, monkeypatch)
     settings = get_settings()

@@ -170,9 +170,22 @@
       #qrcode img { width: 120px; height: 120px; }
       .qr-box { display: grid; justify-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
       .qr-box img { width: 180px; height: 180px; }
-      .quality { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      .quality { display: grid; gap: 16px; }
+      .quality-board { display: grid; grid-template-columns: minmax(360px, .92fr) minmax(360px, 1.08fr); gap: 16px; align-items: start; }
+      .quality-controls { display: grid; gap: 14px; position: sticky; top: 234px; align-self: start; }
+      .quality-results { min-height: 520px; max-height: calc(100vh - 250px); overflow: auto; }
+      .quality-result-pane { display: none; gap: 12px; }
+      .quality-result-pane.active { display: grid; }
+      .quality-stepper { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .quality-phase { display: grid; gap: 14px; }
+      .quality-step { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
+      .quality-step.locked { background: var(--soft); opacity: .78; }
+      .quality-step-main { display: grid; gap: 8px; min-width: 0; }
+      .quality-step-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .quality-save { position: sticky; bottom: 14px; z-index: 10; }
       .issues { display: grid; gap: 10px; }
       .issue { border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: white; display: grid; gap: 8px; }
+      .issue.warning { border-color: color-mix(in oklch, var(--warn) 36%, var(--border)); background: color-mix(in oklch, var(--warn) 8%, white); }
       .issue-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
       .issue-title { font-weight: 680; font-size: 14px; }
       .excerpt { padding: 9px 10px; border-radius: 8px; background: var(--soft); color: var(--muted); font-size: 13px; border: 1px solid var(--border); overflow-wrap: anywhere; }
@@ -234,13 +247,15 @@
       .recording-result { overflow-wrap: anywhere; }
 
       @media (max-width: 1060px) {
-        .grid, .record { grid-template-columns: 1fr; }
+        .grid, .record, .quality-board { grid-template-columns: 1fr; }
+        .quality-controls { position: static; }
+        .quality-results { max-height: none; overflow: visible; }
         .tabs { top: 64px; }
         .pack-bar { top: 151px; }
       }
       @media (max-width: 760px) {
         .topbar, .tabs, .pack-bar { position: relative; top: auto; }
-        .topbar-inner, .tabs, .pack-inner, .url, .field-grid, .quality, .stats { grid-template-columns: 1fr; }
+        .topbar-inner, .tabs, .pack-inner, .url, .field-grid, .quality-stepper, .stats { grid-template-columns: 1fr; }
         .top-actions { justify-content: flex-start; }
         .tab { min-height: 56px; }
         .pack-main { display: grid; }
@@ -248,6 +263,8 @@
         .pack-option { grid-template-columns: 1fr; }
         .pack-option-title, .pack-option-detail { white-space: normal; }
         .version-grid { grid-template-columns: 1fr; }
+        .quality-step { grid-template-columns: 38px minmax(0, 1fr); }
+        .quality-step-actions { grid-column: 2; justify-content: flex-start; }
         .unit { grid-template-columns: auto minmax(0, 1fr); }
         .unit-actions { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; }
         button, a.button { width: 100%; }
@@ -353,30 +370,68 @@
         <section class="tab-panel" id="tab-quality" hidden>
           <div class="quality">
             <section class="panel">
-              <div class="panel-head"><div><h3>テキスト品質</h3><p class="hint">factual / style / leak は承認制。事実確認は「疑い」として明示します。</p></div><span class="badge warn">承認制</span></div>
-              <div class="panel-body stack">
-                <button id="textCheckBtn" type="button">テキスト品質チェック</button>
-                <button class="secondary" id="textFixBtn" type="button" disabled>テキスト修正候補を生成</button>
-                <button class="secondary" id="applyTextFixBtn" type="button" disabled>承認した本文修正を反映</button>
-                <div class="issues" id="textQualityResult"><p class="muted">テキスト品質チェックは未実行です。</p></div>
+              <div class="panel-head">
+                <div><h3>品質チェック・修正ワークフロー</h3><p class="hint">本文を確定して保存してから、最新リビジョンに対してTTSを補正します。片方の修正で上書きしない安全な順序です。</p></div>
               </div>
-            </section>
-            <section class="panel">
-              <div class="panel-head"><div><h3>TTS品質</h3><p class="hint">reading / double_utterance / notation / mismatch は自動・部分置換で処理します。</p></div><span class="badge info">自動適用</span></div>
-              <div class="panel-body stack">
-                <button id="ttsCheckBtn" type="button">TTS品質チェック</button>
-                <button class="secondary" id="ttsFixBtn" type="button" disabled>TTS修正を実行</button>
-                <div class="issues" id="ttsQualityResult"><p class="muted">TTS品質チェックは未実行です。</p></div>
+              <div class="panel-body">
+                <div class="quality-board">
+                  <div class="quality-controls">
+                    <div class="quality-stepper">
+                      <div class="applied"><strong>工程A テキスト</strong><span id="textWorkflowSummary">未実施</span></div>
+                      <div class="applied"><strong>工程B TTS</strong><span id="ttsWorkflowSummary">ロック中</span></div>
+                    </div>
+                    <div class="quality-step" id="textStepCheck">
+                      <div class="step-num">A1</div>
+                      <div class="quality-step-main"><strong>テキスト品質チェック</strong><p class="muted">factual / style / leak を検出します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="textCheckStatus">未実施</span><button id="textCheckBtn" type="button">実行</button></div>
+                    </div>
+                    <div class="quality-step" id="textStepFix">
+                      <div class="step-num">A2</div>
+                      <div class="quality-step-main"><strong>テキスト修正候補を生成</strong><p class="muted">A1でチェックした指摘のうち、選択中のものだけ候補化します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="textFixStatus">未実施</span><button class="secondary" id="textFixBtn" type="button" disabled>候補生成</button></div>
+                    </div>
+                    <div class="quality-step" id="textStepApply">
+                      <div class="step-num">A3</div>
+                      <div class="quality-step-main"><strong>承認した本文修正を反映</strong><p class="muted">承認チェックした候補だけをfinalJsonへ反映します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="textApplyStatus">未実施</span><button class="secondary" id="applyTextFixBtn" type="button" disabled>承認反映</button></div>
+                    </div>
+                    <div class="quality-step quality-save" id="textStepSave">
+                      <div class="step-num">A4</div>
+                      <div class="quality-step-main"><strong>テキスト修正版を保存</strong><p class="muted">本文修正済みJSONを新リビジョンとして保存し、最新を再選択します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="textSaveStatus">未実施</span><button id="saveTextFixBtn" type="button" disabled>テキスト修正版を保存</button></div>
+                    </div>
+                    <div class="actions"><button class="secondary" id="skipTextWorkflowBtn" type="button">テキスト工程をスキップしてTTSへ</button></div>
+                    <div class="quality-step" id="ttsStepCheck">
+                      <div class="step-num">B1</div>
+                      <div class="quality-step-main"><strong>TTS品質チェック</strong><p class="muted">reading / double_utterance / notation / mismatch を検出します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="ttsCheckStatus">未実施</span><button id="ttsCheckBtn" type="button" disabled>TTS品質チェック</button></div>
+                    </div>
+                    <div class="quality-step" id="ttsStepFix">
+                      <div class="step-num">B2</div>
+                      <div class="quality-step-main"><strong>TTS修正を実行</strong><p class="muted">指摘箇所を部分置換で自動適用します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="ttsFixStatus">未実施</span><button class="secondary" id="ttsFixBtn" type="button" disabled>TTS修正を実行</button></div>
+                    </div>
+                    <div class="quality-step quality-save" id="ttsStepSave">
+                      <div class="step-num">B3</div>
+                      <div class="quality-step-main"><strong>TTS修正版を保存</strong><p class="muted">TTS補正済みJSONを新リビジョンとして保存し、最新を再選択します。</p></div>
+                      <div class="quality-step-actions"><span class="badge" id="ttsSaveStatus">未実施</span><button id="saveTtsFixBtn" type="button" disabled>TTS修正版を保存</button></div>
+                    </div>
+                    <div id="qualitySaveSummary" class="applied"><strong>保存待ち</strong><span>工程ごとの保存ボタンで新リビジョン化します。</span></div>
+                  </div>
+                  <div class="quality-results">
+                    <section class="quality-result-pane active" id="textQualityPane">
+                      <div class="panel-head"><div><h3>工程Aの検出結果</h3><p class="hint">テキスト品質チェックの指摘と承認待ちの本文修正を表示します。</p></div></div>
+                      <div class="issues" id="textQualityResult"><p class="muted">テキスト品質チェックは未実行です。</p></div>
+                    </section>
+                    <section class="quality-result-pane" id="ttsQualityPane">
+                      <div class="panel-head"><div><h3>工程Bの検出結果</h3><p class="hint">TTS品質チェックの指摘、選択対象、未適用の警告を表示します。</p></div><span class="badge info">自動適用</span></div>
+                      <div class="issues" id="ttsQualityResult"><p class="muted">TTS品質チェックは未実行です。</p></div>
+                    </section>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
-          <section class="panel" style="margin-top:16px">
-            <div class="panel-head"><div><h3>修正版を保存</h3><p class="hint">text / tts の反映結果を共通の保存操作で新リビジョン化します。</p></div><span class="badge accent">共通</span></div>
-            <div class="panel-body stack">
-              <div id="qualitySaveSummary" class="applied"><strong>保存待ち</strong><span>チェックまたは修正後に保存できます。</span></div>
-              <div class="actions"><button id="qualitySaveFixBtn" type="button" disabled>修正版を保存</button></div>
-            </div>
-          </section>
         </section>
 
         <section class="tab-panel" id="tab-record" hidden>
@@ -473,8 +528,10 @@
       let lastTextApplyResult = null;
       let lastTtsCheckResult = null;
       let lastTtsFixResult = null;
-      let lastQualityFixResult = null;
-      let lastQualityApplyResult = null;
+      let textWorkflowSaved = false;
+      let textWorkflowSkipped = false;
+      let ttsWorkflowSaved = false;
+      let textSavedVersionId = "";
       let knownAudioUrls = new Map();
       let knownUsedTextSources = new Map();
       let playQueueItems = [];
@@ -562,9 +619,78 @@
       function updateStatusBadges() {
         setBadge("genBadge", selectedPack ? "生成済み" : "未生成", selectedPack ? "success" : "");
         const hasQuality = Boolean(lastTextCheckResult || lastTtsCheckResult);
-        const hasFix = Boolean(lastQualityFixResult || lastQualityApplyResult);
+        const hasFix = Boolean(textWorkflowSaved || ttsWorkflowSaved || lastTextApplyResult || lastTtsFixResult);
         setBadge("qualityBadge", hasFix ? "修正済み" : hasQuality ? "チェック済み" : "未チェック", hasFix ? "success" : hasQuality ? "info" : "warn");
         updateRecordingBadge();
+      }
+
+      function statusLabel(done, active = false) {
+        return done ? ["完了", "success"] : active ? ["実施中", "info"] : ["未実施", ""];
+      }
+
+      function setStepStatus(id, done, active = false) {
+        const [text, tone] = statusLabel(done, active);
+        setBadge(id, text, tone);
+      }
+
+      function isTextSavedVersionConfirmed() {
+        return Boolean(textWorkflowSaved && textSavedVersionId && selectedPack?.versionId === textSavedVersionId);
+      }
+
+      function ttsWorkflowLockReason() {
+        if (!selectedPack) return "対象パックを選択してください。";
+        if (textWorkflowSkipped) return "";
+        if (!textWorkflowSaved) return "先にテキスト工程を保存するか、スキップしてください。";
+        if (!isTextSavedVersionConfirmed()) return "最新リビジョンを取得できません。再読み込みしてください。";
+        return "";
+      }
+
+      function isTtsWorkflowUnlocked() {
+        return Boolean(selectedPack && (textWorkflowSkipped || isTextSavedVersionConfirmed()));
+      }
+
+      function assertTtsWorkflowUnlocked() {
+        const reason = ttsWorkflowLockReason();
+        if (reason) throw new Error(reason);
+      }
+
+      function textIssuesForFix() {
+        const issues = lastTextCheckResult?.issues || [];
+        const selected = $$("[data-issue-approve]:checked").map((input) => issues[Number(input.value)]).filter(Boolean);
+        return selected;
+      }
+
+      function ttsIssuesForFix() {
+        const issues = lastTtsCheckResult?.issues || [];
+        const selected = $$("[data-tts-issue-approve]:checked").map((input) => issues[Number(input.value)]).filter(Boolean);
+        return selected;
+      }
+
+      function setQualityResultPane(mode) {
+        $("textQualityPane")?.classList.toggle("active", mode !== "tts");
+        $("ttsQualityPane")?.classList.toggle("active", mode === "tts");
+      }
+
+      function updateQualityWorkflowUI() {
+        const textChecked = Boolean(lastTextCheckResult);
+        const textFixGenerated = Boolean(lastTextFixResult);
+        const textApplied = Boolean(lastTextApplyResult);
+        const ttsUnlocked = isTtsWorkflowUnlocked();
+        const ttsChecked = Boolean(lastTtsCheckResult);
+        const ttsFixed = Boolean(lastTtsFixResult);
+        const showTtsPane = ttsUnlocked && (ttsChecked || ttsFixed || textWorkflowSaved || textWorkflowSkipped);
+        setStepStatus("textCheckStatus", textChecked);
+        setStepStatus("textFixStatus", textFixGenerated, textChecked && !textFixGenerated);
+        setStepStatus("textApplyStatus", textApplied, textFixGenerated && !textApplied);
+        setStepStatus("textSaveStatus", textWorkflowSaved, textApplied && !textWorkflowSaved);
+        setStepStatus("ttsCheckStatus", ttsChecked, ttsUnlocked && !ttsChecked);
+        setStepStatus("ttsFixStatus", ttsFixed, ttsChecked && !ttsFixed);
+        setStepStatus("ttsSaveStatus", ttsWorkflowSaved, ttsFixed && !ttsWorkflowSaved);
+        $("textWorkflowSummary").textContent = textWorkflowSaved ? "保存済み" : textWorkflowSkipped ? "スキップ" : textApplied ? "保存待ち" : textFixGenerated ? "承認待ち" : textChecked ? "チェック済み" : "未実施";
+        $("ttsWorkflowSummary").textContent = ttsWorkflowSaved ? "保存済み" : ttsFixed ? "保存待ち" : ttsChecked ? "チェック済み" : ttsUnlocked ? "実行可能" : ttsWorkflowLockReason() || "ロック中";
+        ["ttsStepCheck", "ttsStepFix", "ttsStepSave"].forEach((id) => $(id).classList.toggle("locked", !ttsUnlocked));
+        setQualityResultPane(showTtsPane ? "tts" : "text");
+        updateActionAvailability();
       }
 
       function updateRecordingBadge() {
@@ -585,18 +711,23 @@
         $("status").textContent = message;
         [
           "planBtn", "generateBtn", "reviseBtn", "textCheckBtn", "textFixBtn", "applyTextFixBtn",
-          "ttsCheckBtn", "ttsFixBtn", "qualitySaveFixBtn", "recordSelectedBtn", "forceRecordSelectedBtn",
-          "resetSelectedRecordingBtn", "resetAllRecordingBtn", "loadPacksBtn", "importPackBtn", "openImportQr"
+          "saveTextFixBtn", "skipTextWorkflowBtn", "ttsCheckBtn", "ttsFixBtn", "saveTtsFixBtn",
+          "recordSelectedBtn", "forceRecordSelectedBtn", "resetSelectedRecordingBtn", "resetAllRecordingBtn",
+          "loadPacksBtn", "importPackBtn", "openImportQr"
         ].forEach((id) => { const el = $(id); if (el) el.disabled = flag || el.dataset.forceDisabled === "true"; });
         updateActionAvailability();
       }
 
       function updateActionAvailability() {
+        const appliedTtsFixCount = lastTtsFixResult?.appliedFixes?.length || 0;
         $("generateBtn").disabled = isBusy || !$("planJson").value.trim();
         $("textFixBtn").disabled = isBusy || !lastTextCheckResult;
         $("applyTextFixBtn").disabled = isBusy || !(lastTextFixResult?.pendingFixes || []).length;
-        $("ttsFixBtn").disabled = isBusy || !lastTtsCheckResult;
-        $("qualitySaveFixBtn").disabled = isBusy || !selectedPack || !lastQualityApplyResult || !lastQualityFixResult;
+        $("saveTextFixBtn").disabled = isBusy || !selectedPack || !lastTextApplyResult || !lastTextFixResult || textWorkflowSaved;
+        $("skipTextWorkflowBtn").disabled = isBusy || !selectedPack || Boolean(lastTextApplyResult && !textWorkflowSaved);
+        $("ttsCheckBtn").disabled = isBusy || !isTtsWorkflowUnlocked();
+        $("ttsFixBtn").disabled = isBusy || !lastTtsCheckResult || !isTtsWorkflowUnlocked();
+        $("saveTtsFixBtn").disabled = isBusy || !selectedPack || !lastTtsFixResult || appliedTtsFixCount === 0 || !isTtsWorkflowUnlocked();
         const selectedCount = selectedUnitIds.size;
         const credits = selectedEstimate?.estimatedCredits || 0;
         const insufficient = credits > creditBalance;
@@ -868,7 +999,12 @@
         const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
         const data = await requestGet(`/packs${query}`);
         currentPacks = data.items || [];
-        if (keepSelection && previous) selectedPack = latestMatchingPack(previous) || exactMatchingPack(previous);
+        if (keepSelection && previous) {
+          selectedPack = exactMatchingPack(previous)
+            || (textSavedVersionId && previous.versionId === textSavedVersionId
+              ? packAtVersion(latestMatchingPack(previous) || previous, textSavedVersionId)
+              : latestMatchingPack(previous) || previous);
+        }
         renderPackList();
         updateGlobalStatus();
         updateStatusBadges();
@@ -895,6 +1031,26 @@
         return currentPacks.find((pack) => packIdentityMatches(pack, reference, true)) || null;
       }
 
+      function manifestUrlForVersion(pack, versionId) {
+        if (!pack?.manifestUrl || !versionId) return pack?.manifestUrl || "";
+        return pack.manifestUrl.replace(/\/versions\/[^/]+\/manifest\.json$/, `/versions/${versionId}/manifest.json`);
+      }
+
+      function packAtVersion(pack, versionId) {
+        if (!pack || !versionId) return pack;
+        return {
+          ...pack,
+          versionId,
+          manifestUrl: manifestUrlForVersion(pack, versionId)
+        };
+      }
+
+      function packForSavedVersion(reference, versionId) {
+        if (!versionId) return latestMatchingPack(reference) || reference;
+        return exactMatchingPack({ ...reference, versionId })
+          || packAtVersion(latestMatchingPack(reference) || reference, versionId);
+      }
+
       async function selectPack(pack, { switchTab = null } = {}) {
         if (!pack) return;
         stopPlayback();
@@ -906,11 +1062,13 @@
         lastTextApplyResult = null;
         lastTtsCheckResult = null;
         lastTtsFixResult = null;
-        lastQualityFixResult = null;
-        lastQualityApplyResult = null;
+        textWorkflowSaved = false;
+        textWorkflowSkipped = false;
+        ttsWorkflowSaved = false;
+        textSavedVersionId = "";
         $("textQualityResult").innerHTML = `<p class="muted">テキスト品質チェックは未実行です。</p>`;
         $("ttsQualityResult").innerHTML = `<p class="muted">TTS品質チェックは未実行です。</p>`;
-        $("qualitySaveSummary").innerHTML = `<strong>保存待ち</strong><span>チェックまたは修正後に保存できます。</span>`;
+        $("qualitySaveSummary").innerHTML = `<strong>保存待ち</strong><span>工程ごとの保存ボタンで新リビジョン化します。</span>`;
         updateGlobalStatus();
         setProgress("録音状態", "確認中", "recording-estimate で録音状態を判定しています。");
         fullEstimate = await fetchEstimate(null, pack, $("recordingTextSource").value);
@@ -918,6 +1076,7 @@
         renderUnits();
         await updateSelectedEstimate();
         updateStatusBadges();
+        updateQualityWorkflowUI();
         if (switchTab) setTab(switchTab);
         closePackModal();
         finishProgress("対象パック", `${pack.title || pack.packName} を対象にしました。`);
@@ -928,9 +1087,19 @@
         fullEstimate = null;
         selectedEstimate = null;
         selectedUnitIds = new Set();
+        lastTextCheckResult = null;
+        lastTextFixResult = null;
+        lastTextApplyResult = null;
+        lastTtsCheckResult = null;
+        lastTtsFixResult = null;
+        textWorkflowSaved = false;
+        textWorkflowSkipped = false;
+        ttsWorkflowSaved = false;
+        textSavedVersionId = "";
         renderUnits();
         updateGlobalStatus();
         updateStatusBadges();
+        updateQualityWorkflowUI();
         updateSelectedEstimate();
         if ($("versionModal").classList.contains("open")) {
           $("versionInfoBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
@@ -1065,13 +1234,14 @@
           $(targetId).innerHTML = `<p class="muted">明確な指摘はありません。</p>`;
           return;
         }
-        $(targetId).innerHTML = issues.map((issue) => `
+        $(targetId).innerHTML = issues.map((issue, index) => `
           <article class="issue">
             <div class="issue-top"><span class="issue-title">${escapeHtml(issue.location?.unitId || "-")} / ${escapeHtml(issue.category)}</span><span class="badge ${issue.severity === "high" ? "danger" : issue.severity === "medium" ? "warn" : "info"}">${escapeHtml(issue.severity)}</span></div>
             <div class="excerpt">${escapeHtml(issue.excerpt || "")}</div>
             <p class="muted">${escapeHtml(issue.issue || "")}</p>
             <p>${escapeHtml(issue.suggestion || "")}</p>
-            ${mode === "text" ? `<label class="checkline"><input type="checkbox" checked data-issue-approve />修正候補生成時に対象にする</label>` : ""}
+            ${mode === "text" ? `<label class="checkline"><input type="checkbox" value="${index}" checked data-issue-approve />修正候補生成時に対象にする</label>` : ""}
+            ${mode === "tts" ? `<label class="checkline"><input type="checkbox" value="${index}" checked data-tts-issue-approve />TTS修正の対象にする</label>` : ""}
           </article>
         `).join("");
       }
@@ -1080,10 +1250,12 @@
         const pending = data.pendingFixes || [];
         const applied = data.appliedFixes || [];
         const unapplied = data.unappliedFixes || [];
+        const hasOnlyUnapplied = unapplied.length > 0 && applied.length === 0 && pending.length === 0;
         $(targetId).innerHTML = `
-          <div class="applied"><strong>修正案</strong><span>自動適用 ${applied.length}件 / 未適用 ${unapplied.length}件 / 承認待ち ${pending.length}件</span></div>
+          <div class="applied ${unapplied.length ? "warn" : ""}"><strong>修正案</strong><span>自動適用 ${applied.length}件 / 未適用 ${unapplied.length}件 / 承認待ち ${pending.length}件</span></div>
+          ${hasOnlyUnapplied ? `<p class="error">適用された修正がありません。未適用の指摘（excerptが見つからない等）を確認してください。</p>` : ""}
           ${applied.map((fix) => `<article class="issue"><div class="issue-top"><span class="issue-title">${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.category)}</span><span class="badge success">適用</span></div><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>→ ${escapeHtml(fix.after || "")}</p></article>`).join("")}
-          ${unapplied.map((fix) => `<article class="issue"><div class="issue-top"><span class="issue-title">${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.category)}</span><span class="badge warn">未適用</span></div><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>${escapeHtml(fix.suggestion || "")}</p><p class="muted">${escapeHtml(fix.reason || "")}</p></article>`).join("")}
+          ${unapplied.map((fix) => `<article class="issue warning"><div class="issue-top"><span class="issue-title">${escapeHtml(fix.location?.fileName || "-")} / ${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field || fix.location?.field || "-")}</span><span class="badge warn">未適用</span></div><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>候補: ${escapeHtml(fix.suggestion || "")}</p><p class="error">${escapeHtml(fix.reason || "")}</p></article>`).join("")}
           ${pending.map((fix) => `<article class="issue"><label class="checkline"><input type="checkbox" value="${escapeHtml(fix.id)}" checked data-pending-fix /><span><span class="badge ${fix.category === "factual" ? "danger" : "warn"}">${escapeHtml(fix.category)}${fix.category === "factual" ? " 要確認" : ""}</span> <strong>${escapeHtml(fix.location?.unitId || "-")} / ${escapeHtml(fix.field)}</strong></span></label><div class="excerpt">${escapeHtml(fix.before || "")}</div><p>→ ${escapeHtml(fix.suggestedAfter || "")}</p><p class="muted">${escapeHtml(fix.reason || "")}</p></article>`).join("")}
         `;
       }
@@ -1092,26 +1264,19 @@
         return $$("[data-pending-fix]:checked").map((input) => input.value);
       }
 
-      function mergeFixResults(primary, secondary) {
-        const base = secondary || primary;
-        if (!base) return null;
-        return {
-          fileName: base.fileName,
-          model: base.model,
-          updatedJson: (secondary || primary).updatedJson,
-          appliedFixes: [...(primary?.appliedFixes || []), ...(secondary?.appliedFixes || [])],
-          pendingFixes: [...(primary?.pendingFixes || []), ...(secondary?.pendingFixes || [])],
-          unappliedFixes: [...(primary?.unappliedFixes || []), ...(secondary?.unappliedFixes || [])],
-          reRecordNeededUnits: [...(primary?.reRecordNeededUnits || []), ...(secondary?.reRecordNeededUnits || [])]
-        };
-      }
-
       async function runTextCheck() {
         if (!selectedPack) return;
+        setQualityResultPane("text");
         setBusy(true);
         setProgress("テキスト品質チェック", "実行中", "factual / style / leak を確認しています。");
         try {
           lastTextCheckResult = await requestJson("/quality/text-check", { target: recordingTarget(selectedPack) });
+          lastTextFixResult = null;
+          lastTextApplyResult = null;
+          textWorkflowSaved = false;
+          textWorkflowSkipped = false;
+          ttsWorkflowSaved = false;
+          textSavedVersionId = "";
           renderQualityIssues("textQualityResult", lastTextCheckResult, "text");
           setBadge("qualityBadge", "チェック済み", "info");
           finishProgress("テキスト品質チェック", `${lastTextCheckResult.issues.length}件の指摘を取得しました。`);
@@ -1119,29 +1284,37 @@
           $("textQualityResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
           setBusy(false);
+          updateQualityWorkflowUI();
         }
       }
 
       async function runTextFix() {
         if (!selectedPack || !lastTextCheckResult) return;
+        setQualityResultPane("text");
         setBusy(true);
         setProgress("テキスト修正", "生成中", "承認制の本文修正候補を生成しています。");
         try {
-          lastTextFixResult = await requestJson("/quality/text-fix", { target: recordingTarget(selectedPack), issues: lastTextCheckResult.issues || [] });
+          const issues = textIssuesForFix();
+          if (!issues.length) throw new Error("修正候補に送る指摘を1件以上選択してください。");
+          lastTextFixResult = await requestJson("/quality/text-fix", { target: recordingTarget(selectedPack), issues });
+          lastTtsCheckResult = null;
+          lastTtsFixResult = null;
+          ttsWorkflowSaved = false;
+          textSavedVersionId = "";
           renderQualityFixResult(lastTextFixResult, "textQualityResult");
-          lastQualityFixResult = mergeFixResults(lastTtsFixResult, lastTextFixResult);
-          lastQualityApplyResult = null;
           $("qualitySaveSummary").innerHTML = `<strong>承認待ち</strong><span>本文修正は承認反映後に保存できます。</span>`;
           finishProgress("テキスト修正", `${lastTextFixResult.pendingFixes.length}件の承認候補を生成しました。`);
         } catch (error) {
           $("textQualityResult").insertAdjacentHTML("beforeend", `<p class="error">${escapeHtml(error.message)}</p>`);
         } finally {
           setBusy(false);
+          updateQualityWorkflowUI();
         }
       }
 
       async function applyTextFixes() {
         if (!lastTextFixResult) return;
+        setQualityResultPane("text");
         setBusy(true);
         setProgress("承認反映", "実行中", "選択した本文修正をfinalJsonへ反映しています。");
         try {
@@ -1150,23 +1323,36 @@
             pendingFixes: lastTextFixResult.pendingFixes || [],
             approvedIds: approvedPendingFixIds()
           });
-          lastQualityApplyResult = lastTextApplyResult;
-          lastQualityFixResult = mergeFixResults(lastTtsFixResult, lastTextFixResult);
+          lastTtsCheckResult = null;
+          lastTtsFixResult = null;
+          ttsWorkflowSaved = false;
+          textSavedVersionId = "";
           $("qualitySaveSummary").innerHTML = `<strong>承認反映済み</strong><span>applied=${lastTextApplyResult.appliedApprovedIds.length}, skipped=${lastTextApplyResult.skippedIds.length}</span>`;
           finishProgress("承認反映", "保存前に内容を確認してください。");
         } catch (error) {
           $("qualitySaveSummary").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
           setBusy(false);
+          updateQualityWorkflowUI();
         }
       }
 
       async function runTtsCheck() {
         if (!selectedPack) return;
+        setQualityResultPane("tts");
+        try {
+          assertTtsWorkflowUnlocked();
+        } catch (error) {
+          $("ttsQualityResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+          updateQualityWorkflowUI();
+          return;
+        }
         setBusy(true);
         setProgress("TTS品質チェック", "実行中", "reading / double_utterance / notation / mismatch を確認しています。");
         try {
           lastTtsCheckResult = await requestJson("/quality/tts-check", { target: recordingTarget(selectedPack) });
+          lastTtsFixResult = null;
+          ttsWorkflowSaved = false;
           renderQualityIssues("ttsQualityResult", lastTtsCheckResult, "tts");
           setBadge("qualityBadge", "チェック済み", "info");
           finishProgress("TTS品質チェック", `${lastTtsCheckResult.issues.length}件の指摘を取得しました。`);
@@ -1174,51 +1360,137 @@
           $("ttsQualityResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
           setBusy(false);
+          updateQualityWorkflowUI();
         }
       }
 
       async function runTtsFix() {
         if (!selectedPack || !lastTtsCheckResult) return;
+        setQualityResultPane("tts");
+        try {
+          assertTtsWorkflowUnlocked();
+        } catch (error) {
+          $("ttsQualityResult").insertAdjacentHTML("beforeend", `<p class="error">${escapeHtml(error.message)}</p>`);
+          updateQualityWorkflowUI();
+          return;
+        }
         setBusy(true);
         setProgress("TTS修正", "実行中", "指摘箇所を部分置換で自動適用しています。");
         try {
-          lastTtsFixResult = await requestJson("/quality/tts-fix", { target: recordingTarget(selectedPack), issues: lastTtsCheckResult.issues || [] });
+          const issues = ttsIssuesForFix();
+          if (!issues.length) throw new Error("TTS修正に送る指摘を1件以上選択してください。");
+          lastTtsFixResult = await requestJson("/quality/tts-fix", { target: recordingTarget(selectedPack), issues });
+          ttsWorkflowSaved = false;
           renderQualityFixResult(lastTtsFixResult, "ttsQualityResult");
-          lastQualityFixResult = mergeFixResults(lastTtsFixResult, lastTextFixResult);
-          if (!lastQualityApplyResult) lastQualityApplyResult = { finalJson: lastTtsFixResult.updatedJson, appliedApprovedIds: [], skippedIds: [] };
-          $("qualitySaveSummary").innerHTML = `<strong>TTS修正済み</strong><span>自動${lastTtsFixResult.appliedFixes.length}件 / 未適用${lastTtsFixResult.unappliedFixes.length}件。保存できます。</span>`;
+          const appliedCount = lastTtsFixResult.appliedFixes?.length || 0;
+          const unappliedCount = lastTtsFixResult.unappliedFixes?.length || 0;
+          $("qualitySaveSummary").innerHTML = appliedCount
+            ? `<strong>TTS修正済み</strong><span>自動${appliedCount}件 / 未適用${unappliedCount}件。保存できます。</span>`
+            : `<p class="error">適用された修正がありません。未適用の指摘（excerptが見つからない等）を確認してください。</p>`;
           finishProgress("TTS修正", "修正案を適用しました。");
         } catch (error) {
           $("ttsQualityResult").insertAdjacentHTML("beforeend", `<p class="error">${escapeHtml(error.message)}</p>`);
         } finally {
           setBusy(false);
+          updateQualityWorkflowUI();
         }
       }
 
-      async function saveQualityFixVersion() {
-        if (!selectedPack || !lastQualityApplyResult || !lastQualityFixResult) return;
+      async function saveTextFixVersion() {
+        if (!selectedPack || !lastTextApplyResult || !lastTextFixResult) return;
         const before = selectedPack;
         setBusy(true);
-        setProgress("修正版保存", "保存中", "修正済みJSONを新リビジョンとして保存しています。");
+        setProgress("テキスト修正版保存", "保存中", "本文修正済みJSONを新リビジョンとして保存しています。");
         try {
           const data = await requestJson("/quality/save-version", {
             target: recordingTarget(selectedPack),
-            files: [{ name: selectedPack.packName, kind: selectedPack.kind, content: lastQualityApplyResult.finalJson }],
-            appliedFixes: lastQualityFixResult.appliedFixes || []
+            files: [{ name: selectedPack.packName, kind: selectedPack.kind, content: lastTextApplyResult.finalJson }],
+            appliedFixes: []
           });
+          const newVersionId = data.newVersionId || before.versionId;
           await loadPacks({ keepSelection: false });
-          const refreshed = latestMatchingPack({ ...before, versionId: data.newVersionId || before.versionId }) || latestMatchingPack(before);
+          const refreshed = packForSavedVersion(before, newVersionId);
           if (refreshed) await selectPack(refreshed);
+          if (newVersionId && selectedPack?.versionId !== newVersionId) {
+            throw new Error("最新リビジョンを取得できません。再読み込みしてください。");
+          }
+          textWorkflowSaved = true;
+          ttsWorkflowSaved = false;
+          textWorkflowSkipped = false;
+          textSavedVersionId = selectedPack?.versionId || newVersionId;
           await refreshVersionInfoIfOpen();
           await refreshImportQrIfOpen();
           setBadge("qualityBadge", "修正済み", "success");
-          $("qualitySaveSummary").innerHTML = `<strong>保存完了</strong><span>newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</span>`;
-          finishProgress("修正版保存", "新リビジョンへ切り替えました。");
+          $("qualitySaveSummary").innerHTML = `<strong>テキスト保存完了</strong><span>newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件。次にTTS工程へ進めます。</span>`;
+          finishProgress("テキスト修正版保存", "最新リビジョンへ切り替えました。");
         } catch (error) {
           $("qualitySaveSummary").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
           setBusy(false);
+          updateQualityWorkflowUI();
         }
+      }
+
+      async function saveTtsFixVersion() {
+        if (!selectedPack || !lastTtsFixResult) return;
+        if ((lastTtsFixResult.appliedFixes?.length || 0) === 0) {
+          $("qualitySaveSummary").innerHTML = `<p class="error">適用された修正がありません。未適用の指摘（excerptが見つからない等）を確認してください。</p>`;
+          updateQualityWorkflowUI();
+          return;
+        }
+        try {
+          assertTtsWorkflowUnlocked();
+        } catch (error) {
+          $("qualitySaveSummary").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+          updateQualityWorkflowUI();
+          return;
+        }
+        const before = selectedPack;
+        const wasTextWorkflowSaved = textWorkflowSaved;
+        const wasTextWorkflowSkipped = textWorkflowSkipped;
+        setBusy(true);
+        setProgress("TTS修正版保存", "保存中", "TTS補正済みJSONを新リビジョンとして保存しています。");
+        try {
+          const data = await requestJson("/quality/save-version", {
+            target: recordingTarget(selectedPack),
+            files: [{ name: selectedPack.packName, kind: selectedPack.kind, content: lastTtsFixResult.updatedJson }],
+            appliedFixes: lastTtsFixResult.appliedFixes || []
+          });
+          const newVersionId = data.newVersionId || before.versionId;
+          await loadPacks({ keepSelection: false });
+          const refreshed = packForSavedVersion(before, newVersionId);
+          if (refreshed) await selectPack(refreshed);
+          if (newVersionId && selectedPack?.versionId !== newVersionId) {
+            throw new Error("最新リビジョンを取得できません。再読み込みしてください。");
+          }
+          textWorkflowSaved = wasTextWorkflowSaved;
+          textWorkflowSkipped = wasTextWorkflowSkipped;
+          ttsWorkflowSaved = true;
+          textSavedVersionId = wasTextWorkflowSaved ? (selectedPack?.versionId || newVersionId) : "";
+          await refreshVersionInfoIfOpen();
+          await refreshImportQrIfOpen();
+          setBadge("qualityBadge", "修正済み", "success");
+          $("qualitySaveSummary").innerHTML = `<strong>TTS保存完了</strong><span>newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</span>`;
+          finishProgress("TTS修正版保存", "最新リビジョンへ切り替えました。");
+        } catch (error) {
+          $("qualitySaveSummary").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+        } finally {
+          setBusy(false);
+          updateQualityWorkflowUI();
+        }
+      }
+
+      function skipTextWorkflow() {
+        if (!selectedPack || isBusy || (lastTextApplyResult && !textWorkflowSaved)) return;
+        textWorkflowSkipped = true;
+        textWorkflowSaved = false;
+        ttsWorkflowSaved = false;
+        textSavedVersionId = "";
+        lastTextFixResult = null;
+        lastTextApplyResult = null;
+        $("qualitySaveSummary").innerHTML = `<strong>テキスト工程スキップ</strong><span>現在選択中の保存済みパックに対してTTS工程を実行できます。</span>`;
+        finishProgress("品質ワークフロー", "TTS工程を解放しました。");
+        updateQualityWorkflowUI();
       }
 
       function chunkUnitIds(unitIds) {
@@ -1628,9 +1900,11 @@
       $("textCheckBtn").addEventListener("click", runTextCheck);
       $("textFixBtn").addEventListener("click", runTextFix);
       $("applyTextFixBtn").addEventListener("click", applyTextFixes);
+      $("saveTextFixBtn").addEventListener("click", saveTextFixVersion);
+      $("skipTextWorkflowBtn").addEventListener("click", skipTextWorkflow);
       $("ttsCheckBtn").addEventListener("click", runTtsCheck);
       $("ttsFixBtn").addEventListener("click", runTtsFix);
-      $("qualitySaveFixBtn").addEventListener("click", saveQualityFixVersion);
+      $("saveTtsFixBtn").addEventListener("click", saveTtsFixVersion);
       $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
       $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
       $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
@@ -1676,6 +1950,7 @@
       saveCredits(creditBalance);
       updateGlobalStatus();
       updateStatusBadges();
+      updateQualityWorkflowUI();
       loadTtsVoices();
       loadPacks().catch((error) => setProgress("パック一覧", "失敗", error.message, 1));
     </script>

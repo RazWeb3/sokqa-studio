@@ -3,7 +3,9 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import time
+import unicodedata
 from typing import Any
 
 from pydantic import ValidationError
@@ -49,6 +51,21 @@ AUTO_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch
 PENDING_CATEGORIES = {"factual", "style", "leak"}
 MAX_FIX_INPUT_CHARS = 30000
 logger = logging.getLogger(__name__)
+_TTS_TAG_RE = re.compile(r"\[(?:[a-z]{2,3}(?:-[A-Za-z0-9]+)*)\]|<[^>]+>")
+_SEMANTIC_REWRITE_LOANWORDS = {
+    "アプリ",
+    "ケーブル",
+    "クラウド",
+    "サービス",
+    "サーバ",
+    "サーバー",
+    "システム",
+    "ソフト",
+    "ソフトウェア",
+    "ツール",
+    "データ",
+    "ネットワーク",
+}
 
 
 class QualityFixError(RuntimeError):
@@ -153,6 +170,7 @@ def _generate_tts_fix_without_llm(
             logger.info("tts fix skipped issue: unresolved location %s", location.model_dump())
             continue
 
+        location = _resolve_tts_location_for_issue(updated_json, location, issue.excerpt)
         before = _get_tts_field(updated_json, location) or _get_raw_field(updated_json, location)
         replacement = _fix_after_text(issue.suggestion, location)
         if replacement is None or not _is_applicable_tts_suggestion(issue.suggestion, replacement):
@@ -165,7 +183,6 @@ def _generate_tts_fix_without_llm(
                 )
             )
             continue
-
         after = _apply_partial_tts_replacement(before, issue.excerpt, replacement)
         if after is None:
             unapplied.append(
@@ -173,7 +190,17 @@ def _generate_tts_fix_without_llm(
                     issue,
                     updated_json,
                     index,
-                    reason="excerpt が対象テキスト内に見つからないため、破壊的な全体上書きを避けて未適用にしました。",
+                    reason="正規化後も excerpt が対象テキスト内に見つからないため、破壊的な全体上書きを避けて未適用にしました。",
+                )
+            )
+            continue
+        if _is_clear_vocabulary_rewrite(issue.excerpt, replacement):
+            unapplied.append(
+                _unapplied_fix(
+                    issue,
+                    updated_json,
+                    index,
+                    reason="読み補正ではなく語彙変更の可能性があるため未適用にしました。",
                 )
             )
             continue
@@ -643,8 +670,126 @@ def _apply_partial_tts_replacement(base: str | None, excerpt: str | None, replac
     if base_text is None or excerpt_text is None:
         return None
     if excerpt_text not in base_text:
-        return None
+        span = _find_normalized_tts_excerpt_span(base_text, excerpt_text)
+        if span is None:
+            return None
+        start, end = span
+        return f"{base_text[:start]}{replacement}{base_text[end:]}"
     return base_text.replace(excerpt_text, replacement, 1)
+
+
+def _resolve_tts_location_for_issue(content: dict[str, Any], location: QualityLocation, excerpt: str | None) -> QualityLocation:
+    if content.get("type") != "quiz" or not _is_choice_field(location.field) or _choice_field_has_explicit_index(location.field):
+        return location
+    unit = _find_unit(content, location.unitId)
+    if not unit:
+        return location
+    choices = unit.get("choices") or []
+    limit = max(4, len(choices))
+    matches: list[QualityLocation] = []
+    for index in range(limit):
+        candidate = QualityLocation(
+            fileName=location.fileName,
+            unitId=location.unitId,
+            field=f"tts.choiceTexts[{index}]",
+        )
+        before = _get_tts_field(content, candidate) or _get_raw_field(content, candidate)
+        if _find_tts_excerpt_span(before, excerpt) is not None:
+            matches.append(candidate)
+    if len(matches) > 1:
+        logger.info("tts fix generic choice field matched multiple choices; using first %s", location.model_dump())
+    return matches[0] if matches else location
+
+
+def _find_tts_excerpt_span(base: str | None, excerpt: str | None) -> tuple[int, int] | None:
+    base_text = _non_empty_text(base)
+    excerpt_text = _non_empty_text(excerpt)
+    if base_text is None or excerpt_text is None:
+        return None
+    exact_index = base_text.find(excerpt_text)
+    if exact_index >= 0:
+        return exact_index, exact_index + len(excerpt_text)
+    return _find_normalized_tts_excerpt_span(base_text, excerpt_text)
+
+
+def _find_normalized_tts_excerpt_span(base_text: str, excerpt_text: str) -> tuple[int, int] | None:
+    normalized_base, spans = _normalize_tts_search_text(base_text, keep_spans=True)
+    normalized_excerpt, _ = _normalize_tts_search_text(excerpt_text, keep_spans=False)
+    if not normalized_base or not normalized_excerpt:
+        return None
+    normalized_index = normalized_base.find(normalized_excerpt)
+    if normalized_index < 0:
+        return None
+    start = spans[normalized_index][0]
+    end = spans[normalized_index + len(normalized_excerpt) - 1][1]
+    return start, end
+
+
+def _normalize_tts_search_text(value: str, *, keep_spans: bool) -> tuple[str, list[tuple[int, int]]]:
+    chars: list[str] = []
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(value):
+        tag_match = _TTS_TAG_RE.match(value, index)
+        if tag_match:
+            index = tag_match.end()
+            continue
+        char = value[index]
+        category = unicodedata.category(char)
+        if char.isspace() or char == "\u3000" or category.startswith("P"):
+            index += 1
+            continue
+        normalized = unicodedata.normalize("NFKC", char).casefold()
+        for normalized_char in normalized:
+            if normalized_char.isspace() or unicodedata.category(normalized_char).startswith("P"):
+                continue
+            chars.append(normalized_char)
+            if keep_spans:
+                spans.append((index, index + 1))
+        index += 1
+    return "".join(chars), spans
+
+
+def _is_clear_vocabulary_rewrite(excerpt: str | None, replacement: str | None) -> bool:
+    excerpt_text = _non_empty_text(excerpt)
+    replacement_text = _non_empty_text(replacement)
+    if excerpt_text is None or replacement_text is None:
+        return False
+    normalized_excerpt, _ = _normalize_tts_search_text(excerpt_text, keep_spans=False)
+    normalized_replacement, _ = _normalize_tts_search_text(replacement_text, keep_spans=False)
+    if not normalized_excerpt or not normalized_replacement or normalized_excerpt == normalized_replacement:
+        return False
+    if _adds_new_ideographs(excerpt_text, replacement_text):
+        return True
+    return _adds_semantic_loanword_to_mixed_term(excerpt_text, replacement_text)
+
+
+def _adds_new_ideographs(excerpt: str, replacement: str) -> bool:
+    source = {char for char in excerpt if _is_cjk_ideograph(char)}
+    added = {char for char in replacement if _is_cjk_ideograph(char) and char not in source}
+    return bool(added)
+
+
+def _adds_semantic_loanword_to_mixed_term(excerpt: str, replacement: str) -> bool:
+    if not any(_is_cjk_ideograph(char) for char in excerpt):
+        return False
+    excerpt_normalized = unicodedata.normalize("NFKC", excerpt).casefold()
+    replacement_normalized = unicodedata.normalize("NFKC", replacement).casefold()
+    added_terms = [
+        term
+        for term in _SEMANTIC_REWRITE_LOANWORDS
+        if term in replacement_normalized and term not in excerpt_normalized
+    ]
+    if not added_terms:
+        return False
+    source_ascii_tokens = re.findall(r"[A-Za-z0-9]+", excerpt)
+    if source_ascii_tokens and any(token.casefold() in replacement_normalized for token in source_ascii_tokens):
+        return True
+    return not any(char in replacement for char in ("ひ", "が", "の", "を", "に", "へ", "と", "で", "な", "い", "う", "ん"))
+
+
+def _is_cjk_ideograph(char: str) -> bool:
+    return "\u3400" <= char <= "\u9fff"
 
 
 def _is_applicable_tts_suggestion(raw_value: Any, after: str) -> bool:
@@ -687,6 +832,10 @@ def _parse_string_list(value: str | None) -> list[Any] | None:
 
 def _is_choice_field(field: str | None) -> bool:
     return bool(field and (field.startswith("choices") or field.startswith("tts.choiceTexts")))
+
+
+def _choice_field_has_explicit_index(field: str | None) -> bool:
+    return bool(field and re.search(r"\d+", field))
 
 
 def _fix_prompt(file_name: str, content: dict[str, Any], issues: list[QualityIssue], max_fixes: int, *, mode: str) -> tuple[str, bool]:

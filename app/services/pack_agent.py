@@ -1,3 +1,5 @@
+import logging
+
 from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
 from app.schemas.sokqa import GeneratePackResponse, GeneratedFile
@@ -20,6 +22,8 @@ from app.services.tts_optimizer import optimize_generated_files, optimize_genera
 from app.services.validator import validate_files
 from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
+
+logger = logging.getLogger(__name__)
 
 
 def _logical_id_for_file(file: GeneratedFile) -> str:
@@ -195,11 +199,12 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     validation = validate_files(files)
     append_validation_logs(logs, validation)
 
-    if not validation.valid:
+    if _needs_generation_repair(validation):
         logs.append("Repairing")
         files = repair_files(files)
         validation = validate_files(files)
         append_validation_logs(logs, validation)
+        _log_remaining_repair_warnings(validation)
 
     if plan.enableTtsOptimize:
         tts_mode = request.ttsReadingMode or plan.ttsReadingMode
@@ -284,3 +289,22 @@ def append_validation_logs(logs: list[str], validation) -> None:
         return
     for error in validation.errors:
         logs.append(f"validation error: {error.file} {error.path}: {error.message}")
+
+
+def _needs_generation_repair(validation) -> bool:
+    return (not validation.valid) or any(_is_repairable_generation_warning(error) for error in validation.errors)
+
+
+def _is_repairable_generation_warning(error) -> bool:
+    return error.severity == "warning" and "citation-style wording" in error.message
+
+
+def _log_remaining_repair_warnings(validation) -> None:
+    for error in validation.errors:
+        if _is_repairable_generation_warning(error):
+            logger.warning(
+                "generation repair warning remains after repair file=%s path=%s message=%s",
+                error.file,
+                error.path,
+                error.message,
+            )

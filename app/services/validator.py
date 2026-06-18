@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import urlparse
 
 from pydantic import ValidationError
@@ -10,6 +11,21 @@ from app.schemas.sokqa import (
     SokqaQuizPack,
     ValidationErrorItem,
     ValidationResult,
+)
+
+logger = logging.getLogger(__name__)
+
+QUIZ_CITATION_STYLE_PHRASES = (
+    "ドキュメントでは",
+    "ドキュメントによると",
+    "資料によると",
+    "と記載されています",
+    "記載されています",
+    "と述べられています",
+    "述べられています",
+    "と書かれています",
+    "書かれています",
+    "推奨されています",
 )
 
 
@@ -37,7 +53,7 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None =
     if manifest:
         errors.extend(validate_manifest(manifest).errors)
 
-    return ValidationResult(valid=not errors, errors=errors)
+    return ValidationResult(valid=not any(error.severity == "error" for error in errors), errors=errors)
 
 
 def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list[ValidationErrorItem]:
@@ -116,7 +132,42 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
                     message="choices must be a 4-item string array",
                 )
             )
+    errors.extend(quiz_citation_style_warnings(file_name, pack))
     return errors
+
+
+def quiz_citation_style_warnings(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:
+    warnings: list[ValidationErrorItem] = []
+    for index, question in enumerate(pack.questions):
+        warning = _citation_style_warning(file_name, f"questions.{index}.question", question.question)
+        if warning:
+            warnings.append(warning)
+        for choice_index, choice in enumerate(question.choices):
+            warning = _citation_style_warning(file_name, f"questions.{index}.choices.{choice_index}", choice)
+            if warning:
+                warnings.append(warning)
+        warning = _citation_style_warning(file_name, f"questions.{index}.explanation", question.explanation)
+        if warning:
+            warnings.append(warning)
+    return warnings
+
+
+def _citation_style_warning(file_name: str, path: str, text: str) -> ValidationErrorItem | None:
+    for phrase in QUIZ_CITATION_STYLE_PHRASES:
+        if phrase in text:
+            logger.warning(
+                "quiz citation-style wording detected file=%s path=%s phrase=%s",
+                file_name,
+                path,
+                phrase,
+            )
+            return ValidationErrorItem(
+                file=file_name,
+                path=path,
+                message=f"citation-style wording should be rewritten for direct learner-facing style: {phrase}",
+                severity="warning",
+            )
+    return None
 
 
 def validate_manifest(manifest: PackManifestV2) -> ValidationResult:

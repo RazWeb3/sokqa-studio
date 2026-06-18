@@ -99,11 +99,7 @@ def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizP
         while len(fixed["choices"]) < 4:
             fixed["choices"].append(f"補足選択肢{len(fixed['choices']) + 1}")
         fixed["choices"] = fixed["choices"][:4]
-        try:
-            answer_index = int(fixed.get("answerIndex", 0))
-        except (TypeError, ValueError):
-            answer_index = 0
-        fixed["answerIndex"] = min(3, max(0, answer_index))
+        fixed["answerIndex"] = normalize_answer_index(fixed.get("answerIndex", 0))
         fixed["explanation"] = fixed.get("explanation") or "生成済みドキュメント本文に基づく解説です。"
         fixed.pop("tts", None)
         fixed.pop("tags", None)
@@ -120,3 +116,10 @@ def normalize_choice(choice) -> str:
         return str(choice.get("text") or choice.get("label") or choice.get("choice") or choice.get("value") or "")
     return str(choice)
 
+
+def normalize_answer_index(value) -> int:
+    try:
+        answer_index = int(value)
+    except (TypeError, ValueError):
+        answer_index = 0
+    return min(3, max(0, answer_index))

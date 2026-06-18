@@ -83,12 +83,17 @@ Rules:
 - Root title must be "{quiz_pack.title}".
 - questions must have exactly 4 choices.
 - answerIndex must be an integer from 0 to 3.
+- Output answerIndex as a JSON number, never as a string. Use 2, not "2".
 - Distribute answerIndex across questions. Do not use the same answerIndex for every question.
 - Each question must be a meaningful question sentence based on the source documents. Do not use serial labels such as "{quiz_pack.title} 1".
 - Each choices array must contain 4 meaningful strings, not objects.
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
+- The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
+- Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
 - Do not output tts in the first quiz generation step.
 - Every question must be grounded in the source documents.
+- Ground content in the source, but do not mention the source or documents in learner-facing text.
+- Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
 - Do not copy existing exam questions verbatim.
 {integration_rules}
 

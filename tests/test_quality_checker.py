@@ -241,6 +241,160 @@ def test_tts_quality_response_does_not_filter_non_reading_categories() -> None:
     assert [issue.category for issue in response.issues] == ["tts_text_mismatch"]
 
 
+def test_tts_quality_response_filters_already_corrected_choice_reading_issue() -> None:
+    content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-14",
+                "question": "IT部門の役割はどれですか?",
+                "choices": ["IT部門", "営業部門", "経理部門", "総務部門"],
+                "answerIndex": 0,
+                "explanation": "IT部門は情報システムを支えます。",
+                "tts": {"choiceTexts": ["アイティー部門", "営業部門", "経理部門", "総務部門"]},
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-14", "field": "choices[0]"},
+                    "excerpt": "IT",
+                    "issue": "IT はアイティーと読む必要があります。",
+                    "suggestion": "アイティー",
+                },
+            ]
+        },
+        file_name="quiz_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert response.issues == []
+
+
+def test_tts_quality_response_keeps_uncorrected_choice_reading_issue() -> None:
+    content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-14",
+                "question": "IT部門の役割はどれですか?",
+                "choices": ["IT部門", "OS管理", "営業部門", "総務部門"],
+                "answerIndex": 0,
+                "explanation": "IT部門は情報システムを支えます。",
+                "tts": {"choiceTexts": ["アイティー部門", "OS管理", "営業部門", "総務部門"]},
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-14", "field": "choices[0]"},
+                    "excerpt": "IT",
+                    "issue": "IT はアイティーと読む必要があります。",
+                    "suggestion": "アイティー",
+                },
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-14", "field": "choices[1]"},
+                    "excerpt": "OS",
+                    "issue": "OS はオーエスと読む必要があります。",
+                    "suggestion": "オーエス",
+                },
+            ]
+        },
+        file_name="quiz_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert [issue.excerpt for issue in response.issues] == ["OS"]
+
+
+def test_tts_quality_response_does_not_filter_reading_by_other_choice_index() -> None:
+    content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-14",
+                "question": "IT部門の役割はどれですか?",
+                "choices": ["IT部門", "OS管理", "営業部門", "総務部門"],
+                "answerIndex": 0,
+                "explanation": "IT部門は情報システムを支えます。",
+                "tts": {"choiceTexts": ["アイティー部門", "オーエス管理", "営業部門", "総務部門"]},
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-14", "field": "choices[0]"},
+                    "excerpt": "IT",
+                    "issue": "IT はオーエスと読む必要があります。",
+                    "suggestion": "オーエス",
+                },
+            ]
+        },
+        file_name="quiz_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert [issue.excerpt for issue in response.issues] == ["IT"]
+
+
+def test_tts_quality_response_does_not_filter_non_reading_already_corrected_issue() -> None:
+    content = {
+        "type": "document",
+        "documents": [
+            {"id": "doc-1", "text": "ITを説明します。", "tts": {"text": "アイティーを説明します。"}}
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "tts.text"},
+                    "excerpt": "IT",
+                    "issue": "意味のずれを確認してください。",
+                    "suggestion": "アイティー",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert [issue.category for issue in response.issues] == ["tts_text_mismatch"]
+
+
 def test_quality_check_invalid_llm_response_is_error(tmp_path, monkeypatch) -> None:
     target = _write_document_pack(tmp_path, monkeypatch)
     settings = get_settings()

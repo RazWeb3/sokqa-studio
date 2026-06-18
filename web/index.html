@@ -172,7 +172,7 @@
       .qr-box img { width: 180px; height: 180px; }
       .quality { display: grid; gap: 16px; }
       .quality-board { display: grid; grid-template-columns: minmax(360px, .92fr) minmax(360px, 1.08fr); gap: 16px; align-items: start; }
-      .quality-controls { display: grid; gap: 14px; position: sticky; top: 234px; align-self: start; }
+      .quality-controls { display: grid; gap: 12px; max-height: calc(100vh - 250px); overflow: auto; align-self: start; padding-right: 2px; }
       .quality-results { min-height: 520px; max-height: calc(100vh - 250px); overflow: auto; }
       .quality-result-pane { display: none; gap: 12px; }
       .quality-result-pane.active { display: grid; }
@@ -182,7 +182,7 @@
       .quality-step.locked { background: var(--soft); opacity: .78; }
       .quality-step-main { display: grid; gap: 8px; min-width: 0; }
       .quality-step-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-      .quality-save { position: sticky; bottom: 14px; z-index: 10; }
+      .quality-save { position: static; }
       .issues { display: grid; gap: 10px; }
       .issue { border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: white; display: grid; gap: 8px; }
       .issue.warning { border-color: color-mix(in oklch, var(--warn) 36%, var(--border)); background: color-mix(in oklch, var(--warn) 8%, white); }
@@ -248,7 +248,7 @@
 
       @media (max-width: 1060px) {
         .grid, .record, .quality-board { grid-template-columns: 1fr; }
-        .quality-controls { position: static; }
+        .quality-controls { max-height: none; overflow: visible; padding-right: 0; }
         .quality-results { max-height: none; overflow: visible; }
         .tabs { top: 64px; }
         .pack-bar { top: 151px; }

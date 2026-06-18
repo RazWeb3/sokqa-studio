@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
+import unicodedata
 from collections.abc import Callable
 from typing import Any
 
@@ -72,6 +74,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
             allowed_categories=TEXT_QUALITY_CATEGORIES if mode == "text" else TTS_QUALITY_CATEGORIES,
             suppress_tts_null_issues=mode == "tts",
             input_truncated=input_truncated,
+            source_content=loaded.file.content if mode == "tts" else None,
         )
     except (TypeError, ValidationError, ValueError) as exc:
         raise QualityCheckError(f"quality check response validation failed: {exc}") from exc
@@ -105,6 +108,7 @@ def _quality_response_from_data(
     allowed_categories: set[str] | None = None,
     suppress_tts_null_issues: bool = False,
     input_truncated: bool = False,
+    source_content: dict[str, Any] | None = None,
 ) -> QualityCheckResponse:
     raw_issues = data.get("issues")
     if not isinstance(raw_issues, list):
@@ -121,6 +125,12 @@ def _quality_response_from_data(
         filtered_count = before_count - len(issues)
         if filtered_count:
             _logger.info("quality_check.filtered_unspoken_symbol_reading_issues count=%s file=%s", filtered_count, file_name)
+        if source_content is not None:
+            before_count = len(issues)
+            issues = [issue for issue in issues if not _is_already_corrected_reading_issue(issue, source_content)]
+            filtered_count = before_count - len(issues)
+            if filtered_count:
+                _logger.info("quality_check.filtered_already_corrected_reading_issues count=%s file=%s", filtered_count, file_name)
     truncated = bool(data.get("truncated")) or input_truncated or len(issues) > max_issues
     return QualityCheckResponse(
         fileName=str(data.get("fileName") or file_name),
@@ -177,6 +187,81 @@ def _is_unspoken_symbol_only(text: str) -> bool:
     return bool(text.strip()) and all(char in _UNSPOKEN_READING_SYMBOLS for char in text)
 
 
+def _is_already_corrected_reading_issue(issue: QualityIssue, content: dict[str, Any]) -> bool:
+    if issue.category != "reading" or not issue.suggestion.strip():
+        return False
+    tts_text = _tts_text_for_issue_location(content, issue)
+    if not tts_text:
+        return False
+    normalized_tts = _normalize_reading_match_text(tts_text)
+    normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
+    return bool(normalized_suggestion and normalized_suggestion in normalized_tts)
+
+
+def _tts_text_for_issue_location(content: dict[str, Any], issue: QualityIssue) -> str:
+    unit = _find_quality_unit(content, issue.location.unitId)
+    if not unit:
+        return ""
+    tts = unit.get("tts") or {}
+    if not isinstance(tts, dict) or tts.get("ttsNeedsRefresh"):
+        return ""
+    if content.get("type") == "document":
+        return str(tts.get("text") or "")
+
+    field = issue.location.field or "question"
+    if _is_quality_choice_field(field):
+        index = _quality_choice_index(field)
+        if index is None:
+            index = _infer_choice_index_from_excerpt(unit, issue.excerpt)
+        choices = tts.get("choiceTexts") or []
+        if index is not None and 0 <= index < len(choices):
+            return str(choices[index] or "")
+        return ""
+    if "explanation" in field:
+        return str(tts.get("explanationText") or "")
+    return str(tts.get("questionText") or "")
+
+
+def _find_quality_unit(content: dict[str, Any], unit_id: str | None) -> dict[str, Any] | None:
+    collection = content.get("documents") if content.get("type") == "document" else content.get("questions")
+    if not isinstance(collection, list):
+        return None
+    if unit_id is None:
+        return collection[0] if collection and isinstance(collection[0], dict) else None
+    for unit in collection:
+        if isinstance(unit, dict) and unit.get("id") == unit_id:
+            return unit
+    return None
+
+
+def _is_quality_choice_field(field: str | None) -> bool:
+    return bool(field and ("choice" in field.lower() or field.startswith("choices")))
+
+
+def _quality_choice_index(field: str | None) -> int | None:
+    if not field:
+        return None
+    match = re.search(r"\d+", field)
+    if not match:
+        return None
+    return int(match.group(0))
+
+
+def _infer_choice_index_from_excerpt(unit: dict[str, Any], excerpt: str) -> int | None:
+    normalized_excerpt = _normalize_reading_match_text(excerpt)
+    if not normalized_excerpt:
+        return None
+    for index, choice in enumerate(unit.get("choices") or []):
+        if normalized_excerpt in _normalize_reading_match_text(str(choice)):
+            return index
+    return None
+
+
+def _normalize_reading_match_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(char for char in normalized if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】")
+
+
 def _quality_prompt(file_name: str, content: dict[str, Any], max_issues: int, *, mode: str) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     truncated = len(source_json) > MAX_QUALITY_INPUT_CHARS
@@ -202,6 +287,7 @@ TTS fix suggestion rules:
 - Do not suggest paraphrases or semantic substitutions. For example, do not replace 有線LAN with LANケーブル.
 - If a term needs a better spoken form, replace only that exact term with its reading (for example, 有線LAN -> ゆうせんラン), not with another word.
 - Do not report reading issues for punctuation or decorative marks that TTS does not speak, such as 「」, 『』, (), （）, ・, commas, periods, or spacing. Report only the words inside those marks when the word itself has a real reading problem.
+- Do not report a reading issue when the matching tts field already contains the suggested reading. For choices, check only the same choice index.
 - For reading, double_utterance, notation, and tts_text_mismatch, excerpt must contain the exact source fragment to replace.
 - suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
 - For tts.choiceTexts[index] issues, suggestion must be the replacement text for the excerpt inside that one choice index only. Do not return the full choice text or the full choiceTexts array unless the excerpt itself is the full choice text.
@@ -237,6 +323,7 @@ Severity:
 
 Rules:
 - factual issues must use conservative confidence and wording such as "確認が必要".
+- Write the issue and suggestion fields in Japanese. Keep category, severity, confidence, and location field names in the specified JSON schema.
 - Fill location.fileName with "{file_name}".
 - Fill location.unitId with the document item id or quiz question id when available.
 - Fill location.field with "text", "question", "choices", "explanation", or another concrete field.

@@ -245,7 +245,6 @@ def test_clear_audio_keeps_document_tts_text_without_setting_refresh_flag() -> N
     assert document.documents[0].tts.text == "エーアイ の説明です。"
     assert document.documents[0].tts.audioPath is None
     assert document.documents[0].tts.audioUrl is None
-    assert document.documents[0].tts.ttsNeedsRefresh is None
     assert document.model_dump(exclude_none=True)["documents"][0]["tts"] == {"text": "エーアイ の説明です。"}
 
 

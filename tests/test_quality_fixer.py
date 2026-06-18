@@ -197,7 +197,7 @@ def test_quality_fix_apply_uses_only_approved_pending_fixes_without_llm(tmp_path
     assert response.status_code == 200
     data = response.json()
     assert data["finalJson"]["documents"][0]["text"] == "SQLとJSONを説明します。重要です。"
-    assert data["finalJson"]["documents"][0]["tts"] == {"ttsNeedsRefresh": True}
+    assert "tts" not in data["finalJson"]["documents"][0]
     assert data["appliedApprovedIds"] == [first["pendingFixes"][0]["id"]]
 
 
@@ -253,7 +253,7 @@ def test_quality_fix_save_text_fix_commits_changed_file_only(tmp_path, monkeypat
     saved_doc = json.loads(saved_doc_path.read_text(encoding="utf-8"))
     assert saved_doc["assetBaseUrl"].endswith(f"/{new_prefix}")
     assert saved_doc["documents"][0]["text"] == "SQLとJSONを説明します。重要です。"
-    assert saved_doc["documents"][0]["tts"] == {"ttsNeedsRefresh": True}
+    assert "tts" not in saved_doc["documents"][0]
     old_dir = tmp_path / "generated" / pack_root_prefix(target["creatorId"], target["contentId"])
     assert (old_dir / "versions" / target["versionId"] / "manifest.json").exists()
     assert (old_dir / "objects" / "audio" / "av_doc_01__doc-1.mp3").exists()

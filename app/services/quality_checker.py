@@ -203,7 +203,7 @@ def _tts_text_for_issue_location(content: dict[str, Any], issue: QualityIssue) -
     if not unit:
         return ""
     tts = unit.get("tts") or {}
-    if not isinstance(tts, dict) or tts.get("ttsNeedsRefresh"):
+    if not isinstance(tts, dict):
         return ""
     if content.get("type") == "document":
         return str(tts.get("text") or "")

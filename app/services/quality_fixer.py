@@ -1024,31 +1024,7 @@ def _reset_unit_tts(content: dict[str, Any], location: QualityLocation) -> None:
     unit = _find_unit(content, location.unitId)
     if not unit:
         return
-    if content.get("type") == "document":
-        current = dict(unit.get("tts") or {})
-        current.pop("text", None)
-        current.pop("audioUrl", None)
-        current.pop("audioPath", None)
-        current["ttsNeedsRefresh"] = True
-        unit["tts"] = DocumentTts.model_validate(current).model_dump(exclude_none=True)
-        return
-
-    current = dict(unit.get("tts") or {})
-    for key in (
-        "questionText",
-        "choiceTexts",
-        "answerText",
-        "explanationText",
-        "questionAudioUrl",
-        "choiceAudioUrls",
-        "explanationAudioUrl",
-        "questionAudioPath",
-        "choiceAudioPaths",
-        "explanationAudioPath",
-    ):
-        current.pop(key, None)
-    current["ttsNeedsRefresh"] = True
-    unit["tts"] = QuizTts.model_validate(current).model_dump(exclude_none=True)
+    unit.pop("tts", None)
 
 
 def _get_tts_field(content: dict[str, Any], location: QualityLocation) -> str:

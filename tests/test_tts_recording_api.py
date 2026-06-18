@@ -336,7 +336,6 @@ def test_recording_reset_clears_audio_urls_and_persists_pack(tmp_path, monkeypat
     updated_pack = __import__("json").loads((tmp_path / "generated" / data["storagePrefix"] / object_path).read_text(encoding="utf-8"))
     assert "questionAudioUrl" not in updated_pack["questions"][0]["tts"]
     assert updated_pack["questions"][0]["tts"]["questionText"] == "エーアイ の説明はどれですか?"
-    assert "ttsNeedsRefresh" not in updated_pack["questions"][0]["tts"]
     assert (tmp_path / "generated" / old_prefix / "versions" / "v20260607_120000" / "manifest.json").exists()
 
     estimate = client.post("/tts/recording-estimate", json={"target": data["target"]}).json()

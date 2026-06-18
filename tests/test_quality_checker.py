@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.pack_paths import pack_root_prefix
-from app.services.quality_checker import _generate_json_with_retry
+from app.services.quality_checker import TTS_QUALITY_CATEGORIES, _generate_json_with_retry, _quality_response_from_data
 from main import app
 
 
@@ -149,6 +149,96 @@ def test_tts_quality_check_filters_null_audio_issues(tmp_path, monkeypatch) -> N
     assert response.status_code == 200
     data = response.json()
     assert [issue["excerpt"] for issue in data["issues"]] == ["SQL"]
+
+
+def test_tts_quality_response_filters_unspoken_symbol_only_reading_issues() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "low",
+                    "confidence": 0.7,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "question"},
+                    "excerpt": "「」",
+                    "issue": "かぎ括弧の読み方に関する指摘です。",
+                    "suggestion": "読まない",
+                },
+                {
+                    "category": "reading",
+                    "severity": "low",
+                    "confidence": 0.7,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "choices"},
+                    "excerpt": "・",
+                    "issue": "中黒の読み方に関する指摘です。",
+                    "suggestion": "読まない",
+                },
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "question"},
+                    "excerpt": "SQL",
+                    "issue": "括弧内の専門語が誤読される可能性があります。",
+                    "suggestion": "エスキューエル",
+                },
+            ]
+        },
+        file_name="quiz_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+    )
+
+    assert [issue.excerpt for issue in response.issues] == ["SQL"]
+
+
+def test_tts_quality_response_keeps_words_inside_brackets() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "『API』",
+                    "issue": "括弧内のAPIが誤読される可能性があります。",
+                    "suggestion": "『エーピーアイ』",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+    )
+
+    assert [issue.excerpt for issue in response.issues] == ["『API』"]
+
+
+def test_tts_quality_response_does_not_filter_non_reading_categories() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "tts.text"},
+                    "excerpt": "・",
+                    "issue": "tts.text が元テキストと意味的にずれている可能性があります。",
+                    "suggestion": "意味を一致させる",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+    )
+
+    assert [issue.category for issue in response.issues] == ["tts_text_mismatch"]
 
 
 def test_quality_check_invalid_llm_response_is_error(tmp_path, monkeypatch) -> None:

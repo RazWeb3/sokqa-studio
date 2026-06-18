@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -17,6 +18,19 @@ from app.services.tts_recording_api import load_target_pack
 MAX_QUALITY_INPUT_CHARS = 30000
 TEXT_QUALITY_CATEGORIES = {"factual", "style", "leak"}
 TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch"}
+_logger = logging.getLogger(__name__)
+
+_UNSPOKEN_READING_SYMBOLS = set("「」『』（）()・、。，．,. 　\t\r\n")
+_UNSPOKEN_SYMBOL_NAMES = {
+    "かぎ括弧",
+    "鍵括弧",
+    "カギ括弧",
+    "丸括弧",
+    "括弧",
+    "中黒",
+    "句読点",
+    "全角スペース",
+}
 
 
 class QualityCheckError(RuntimeError):
@@ -101,6 +115,12 @@ def _quality_response_from_data(
         issues = [issue for issue in issues if issue.category in allowed_categories]
     if suppress_tts_null_issues:
         issues = [issue for issue in issues if not _is_tts_null_issue(issue)]
+    if allowed_categories == TTS_QUALITY_CATEGORIES:
+        before_count = len(issues)
+        issues = [issue for issue in issues if not _is_unspoken_symbol_reading_issue(issue)]
+        filtered_count = before_count - len(issues)
+        if filtered_count:
+            _logger.info("quality_check.filtered_unspoken_symbol_reading_issues count=%s file=%s", filtered_count, file_name)
     truncated = bool(data.get("truncated")) or input_truncated or len(issues) > max_issues
     return QualityCheckResponse(
         fileName=str(data.get("fileName") or file_name),
@@ -136,6 +156,27 @@ def _is_tts_null_issue(issue: QualityIssue) -> bool:
     return any(marker in text for marker in audio_markers) and any(marker in text for marker in null_markers)
 
 
+def _is_unspoken_symbol_reading_issue(issue: QualityIssue) -> bool:
+    if issue.category != "reading":
+        return False
+
+    excerpt = issue.excerpt.strip()
+    if not excerpt:
+        return False
+    if _is_unspoken_symbol_only(excerpt):
+        return True
+
+    compact_excerpt = "".join(excerpt.split())
+    if compact_excerpt in _UNSPOKEN_SYMBOL_NAMES:
+        return True
+
+    return False
+
+
+def _is_unspoken_symbol_only(text: str) -> bool:
+    return bool(text.strip()) and all(char in _UNSPOKEN_READING_SYMBOLS for char in text)
+
+
 def _quality_prompt(file_name: str, content: dict[str, Any], max_issues: int, *, mode: str) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     truncated = len(source_json) > MAX_QUALITY_INPUT_CHARS
@@ -160,6 +201,7 @@ TTS fix suggestion rules:
 - Never change the original word, vocabulary, meaning, answer, quantity, proper noun, or technical term.
 - Do not suggest paraphrases or semantic substitutions. For example, do not replace 有線LAN with LANケーブル.
 - If a term needs a better spoken form, replace only that exact term with its reading (for example, 有線LAN -> ゆうせんラン), not with another word.
+- Do not report reading issues for punctuation or decorative marks that TTS does not speak, such as 「」, 『』, (), （）, ・, commas, periods, or spacing. Report only the words inside those marks when the word itself has a real reading problem.
 - For reading, double_utterance, notation, and tts_text_mismatch, excerpt must contain the exact source fragment to replace.
 - suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
 - For tts.choiceTexts[index] issues, suggestion must be the replacement text for the excerpt inside that one choice index only. Do not return the full choice text or the full choiceTexts array unless the excerpt itself is the full choice text.

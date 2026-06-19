@@ -139,6 +139,11 @@
       main { display: block; }
       .tab-panel[hidden] { display: none; }
       .grid { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+      .generate-grid { align-items: start; }
+      .generate-left, .generate-right { max-height: calc(100vh - 250px); overflow: auto; align-self: start; }
+      .generate-left { position: sticky; top: 250px; }
+      .generate-left .actions { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: linear-gradient(180deg, rgba(255,255,255,0), var(--surface) 34%); }
+      .generate-right { padding-right: 2px; }
       .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 0 rgba(15,23,42,.02); }
       .panel-head { padding: 16px 18px 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
       .panel h3 { margin: 0; font-family: var(--display); font-size: 18px; line-height: 1.22; letter-spacing: -0.01em; }
@@ -269,6 +274,8 @@
 
       @media (max-width: 1060px) {
         .grid, .record, .quality-board { grid-template-columns: 1fr; }
+        .generate-left, .generate-right { position: static; max-height: none; overflow: visible; padding-right: 0; }
+        .generate-left .actions { position: static; padding-top: 0; background: transparent; }
         .quality-controls { max-height: none; overflow: visible; padding-right: 0; }
         .quality-results { max-height: none; overflow: visible; }
         .tabs { top: 64px; }
@@ -336,8 +343,8 @@
 
       <main>
         <section class="tab-panel" id="tab-generate">
-          <div class="grid">
-            <section class="panel">
+          <div class="grid generate-grid">
+            <section class="panel generate-left">
               <div class="panel-head"><div><h3>テーマから構成を作成</h3><p class="hint">生成だけで完結するライト層でも使えるよう、最初の入力は最小限にしています。</p></div></div>
               <div class="panel-body stack">
                 <label>テーマ<input id="theme" value="ITパスポート試験対策" maxlength="160" /></label>
@@ -366,7 +373,7 @@
               </div>
             </section>
 
-            <div class="stack">
+            <div class="stack generate-right">
               <section class="panel">
                 <div class="panel-head"><div><h3>構成プレビュー</h3><p class="hint">章立てとクイズ構成を確認し、必要な読みパターンだけ選んで生成します。</p></div><span class="badge info">preview</span></div>
                 <div class="panel-body stack">

@@ -41,6 +41,7 @@ class CoursePlan(BaseModel):
     creatorDisplayName: str | None = None
     contentId: str | None = None
     slug: str | None = None
+    shortTitle: str | None = None
     title: str
     description: str
     language: str = "ja"

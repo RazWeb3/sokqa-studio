@@ -12,6 +12,7 @@ def test_gemini_planned_title_and_description_are_used(monkeypatch) -> None:
         return (
             "Git実践入門: リポジトリ操作と履歴管理",
             "Gitの初期化、ステージング、コミット、ブランチ操作を段階的に学ぶパックです。",
+            "Git入門",
             [
                 PlanDocument(
                     id="doc_01",
@@ -44,8 +45,9 @@ def test_gemini_planned_title_and_description_are_used(monkeypatch) -> None:
     )
 
     assert plan.title == "Git実践入門: リポジトリ操作と履歴管理"
+    assert plan.shortTitle == "Git入門"
     assert plan.description == "Gitの初期化、ステージング、コミット、ブランチ操作を段階的に学ぶパックです。"
-    assert plan.documents[0].title == "Gitの導入とローカルリポジトリの基本操作"
+    assert plan.documents[0].title == "Git入門 1. Gitの導入とローカルリポジトリの基本操作"
     assert plan.documents[0].goal == "git initでローカルリポジトリを作り、作業ツリーの状態を理解する"
     assert plan.documents[0].keyPoints == ["git init", "作業ツリー", "ローカルリポジトリ"]
     assert plan.proposedReadingPatterns[0].id == "git_dot_files"
@@ -66,6 +68,28 @@ def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch)
     assert plan.proposedReadingPatterns
     assert plan.selectedReadingPatternIds == []
     assert all(pattern.id for pattern in plan.proposedReadingPatterns)
+
+
+def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="Git入門",
+            targetUser="初学者",
+            scale="quick",
+            documentCount=4,
+        )
+    )
+
+    assert plan.shortTitle == "Git入門"
+    assert [document.title for document in plan.documents] == [
+        "Git入門 1. Git入門の重要領域 1",
+        "Git入門 2. Git入門の重要領域 2",
+        "Git入門 3. Git入門の重要領域 3",
+        "Git入門 4. Git入門の重要領域 4",
+    ]
+    assert plan.quizPacks[0].title.startswith("Git入門 理解チェック1（1〜2章:")
+    assert plan.quizPacks[1].title.startswith("Git入門 理解チェック2（3〜4章:")
+    assert plan.quizPacks[-1].title == "Git入門 総合確認（1〜4章: 全範囲）"
 
 
 def test_planner_prompt_names_common_reading_pattern_categories() -> None:

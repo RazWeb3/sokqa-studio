@@ -139,6 +139,16 @@ def _requested_section_count(request: PlanPackRequest) -> str:
     )
 
 
+def _fallback_short_title(request: PlanPackRequest) -> str:
+    text = re.sub(r"\s+", "", request.theme).strip()
+    text = re.sub(r"(学習パック|講座|コース)$", "", text)
+    if not text:
+        return "Sokqa"
+    if len(text) > 16:
+        return text[:16]
+    return text
+
+
 def _planner_prompt(request: PlanPackRequest) -> str:
     source_block = source_prompt_block(request.sourceText, request.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
@@ -160,6 +170,7 @@ Input:
 
 Rules:
 - The documents array is the most important output.
+- Also return shortTitle: a short pack identifier used as a title prefix, such as "Git入門". Keep it concise.
 - Chapter titles must describe the actual topic content. Do not return generic titles such as "第1章" or "{request.theme} 第1章".
 - The document order must be a natural learning path from basics to application/review.
 - Each document must have a unique, theme-specific title.
@@ -187,6 +198,7 @@ Rules:
 Return this JSON shape:
 {{
   "title": "pack title",
+  "shortTitle": "short pack identifier",
   "description": "short description, including why this chapter count fits if documentCount was not specified",
   "proposedReadingPatterns": [
     {{
@@ -323,6 +335,83 @@ def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequ
     return documents
 
 
+def _short_title_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> str:
+    short_title = str(data.get("shortTitle") or "").strip()
+    if not short_title:
+        return _fallback_short_title(request)
+    short_title = re.sub(r"\s+", "", short_title)
+    return short_title[:16] or _fallback_short_title(request)
+
+
+def _strip_document_title_prefix(title: str, short_title: str) -> str:
+    pattern = rf"^{re.escape(short_title)}\s+\d+\.\s*"
+    return re.sub(pattern, "", title).strip()
+
+
+def _prefix_document_titles(documents: list[PlanDocument], short_title: str) -> list[PlanDocument]:
+    titled_documents: list[PlanDocument] = []
+    for index, document in enumerate(documents, start=1):
+        base_title = _strip_document_title_prefix(document.title, short_title)
+        titled_documents.append(document.model_copy(update={"title": f"{short_title} {index}. {base_title}"}))
+    return titled_documents
+
+
+def _document_index(document_id: str, document_ids: list[str]) -> int | None:
+    try:
+        return document_ids.index(document_id) + 1
+    except ValueError:
+        match = re.search(r"(\d+)$", document_id)
+        return int(match.group(1)) if match else None
+
+
+def _chapter_range_label(indexes: list[int], total_count: int) -> str:
+    if not indexes:
+        return f"1〜{total_count}章" if total_count > 1 else "1章"
+    start, end = min(indexes), max(indexes)
+    return f"{start}章" if start == end else f"{start}〜{end}章"
+
+
+def _topic_words_for_documents(documents: list[PlanDocument], indexes: list[int], *, max_words: int = 2) -> str:
+    words: list[str] = []
+    for index in indexes:
+        if index < 1 or index > len(documents):
+            continue
+        document = documents[index - 1]
+        source = re.sub(r"^.+?\s+\d+\.\s*", "", document.title).strip()
+        parts = re.split(r"[、,・／/と&＆:：\s]+", source)
+        for part in parts:
+            word = part.strip("（）()「」『』")
+            if word and word not in words:
+                words.append(word)
+            if len(words) >= max_words:
+                return "・".join(words)
+    return ""
+
+
+def _title_quiz_packs(quiz_packs: list[PlanQuizPack], documents: list[PlanDocument], short_title: str) -> list[PlanQuizPack]:
+    document_ids = [document.id for document in documents]
+    total_count = len(documents)
+    titled_quizzes: list[PlanQuizPack] = []
+    range_index = 1
+    for quiz_pack in quiz_packs:
+        indexes = [
+            index
+            for document_id in quiz_pack.sourceDocumentIds
+            if (index := _document_index(document_id, document_ids)) is not None
+        ]
+        if quiz_pack.purpose == "integrated_review" or set(quiz_pack.sourceDocumentIds) == set(document_ids):
+            chapter_range = _chapter_range_label(list(range(1, total_count + 1)), total_count)
+            title = f"{short_title} 総合確認（{chapter_range}: 全範囲）"
+        else:
+            chapter_range = _chapter_range_label(indexes, total_count)
+            topic = _topic_words_for_documents(documents, indexes)
+            suffix = f": {topic}" if topic else ""
+            title = f"{short_title} 理解チェック{range_index}（{chapter_range}{suffix}）"
+            range_index += 1
+        titled_quizzes.append(quiz_pack.model_copy(update={"title": title}))
+    return titled_quizzes
+
+
 def _fallback_reading_patterns(request: PlanPackRequest) -> list[ReadingPattern]:
     patterns = [pattern.model_copy(deep=True) for pattern in FALLBACK_READING_PATTERNS]
     theme_text = f"{request.theme} {request.sourceText or ''}".lower()
@@ -438,16 +527,17 @@ def _validate_planned_documents(documents: list[PlanDocument], request: PlanPack
 
 def _gemini_plan_parts(
     request: PlanPackRequest, model: str | None
-) -> tuple[str | None, str | None, list[PlanDocument], list[ReadingPattern]]:
+) -> tuple[str | None, str | None, str, list[PlanDocument], list[ReadingPattern]]:
     data = GeminiClient().generate_json(_planner_prompt(request), model=model)
     title = str(data.get("title") or "").strip() or None
+    short_title = _short_title_from_planner_response(data, request)
     description = str(data.get("description") or "").strip() or None
     documents = _documents_from_planner_response(data, request)
     reading_patterns = _reading_patterns_from_planner_response(data, request)
     errors = _validate_planned_documents(documents, request)
     if errors:
         raise ValueError("; ".join(errors))
-    return title, description, documents, reading_patterns
+    return title, description, short_title, documents, reading_patterns
 
 
 def create_course_plan(request: PlanPackRequest, model: str | None = None) -> CoursePlan:
@@ -457,10 +547,11 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     title = f"{request.theme} 学習パック"
     description = f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。"
     source_text, source_mode = normalize_source(request.sourceText, request.sourceMode)
+    short_title = _fallback_short_title(request)
 
     if settings.gemini_provider == "gemini":
         try:
-            planned_title, planned_description, documents, reading_patterns = _gemini_plan_parts(request, model)
+            planned_title, planned_description, short_title, documents, reading_patterns = _gemini_plan_parts(request, model)
             title = planned_title or title
             description = planned_description or description
         except Exception:
@@ -475,6 +566,8 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         raise ValueError("; ".join(validation_errors))
 
     tts_rules = request.userTtsRules if request.includeTts else []
+    documents = _prefix_document_titles(documents, short_title)
+    quiz_packs = _title_quiz_packs(_build_quiz_packs(request, [document.id for document in documents]), documents, short_title)
 
     return CoursePlan(
         id=pack_id,
@@ -482,6 +575,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         creatorDisplayName=request.creatorDisplayName,
         contentId=path_token(request.contentId or new_opaque_id("cnt"), "cnt_default"),
         slug=slug,
+        shortTitle=short_title,
         title=title,
         description=description,
         language=request.language,
@@ -498,7 +592,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         sourceText=source_text,
         sourceMode=source_mode,
         documents=documents,
-        quizPacks=_build_quiz_packs(request, [document.id for document in documents]),
+        quizPacks=quiz_packs,
         ttsRules=tts_rules,
         proposedReadingPatterns=reading_patterns,
     )

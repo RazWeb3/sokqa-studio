@@ -24,7 +24,7 @@ def _assert_partitioned_quiz_packs(plan: dict, expected_count: int, expected_que
 
     assert len(quiz_packs) == expected_count
     assert [pack["questionCount"] for pack in quiz_packs] == [expected_questions] * expected_count
-    assert integrated_pack["title"] == "総合・応用クイズ"
+    assert "総合確認" in integrated_pack["title"]
     assert integrated_pack["purpose"] == "integrated_review"
     assert integrated_pack["sourceDocumentIds"] == document_ids
 
@@ -291,7 +291,10 @@ def test_auto_quiz_pack_count_for_six_or_fewer_documents() -> None:
     assert response.status_code == 200
     plan = response.json()
     _assert_partitioned_quiz_packs(plan, expected_count=3, expected_questions=30)
-    assert [pack["title"] for pack in plan["quizPacks"]] == ["前半の理解チェック", "後半の理解チェック", "総合・応用クイズ"]
+    titles = [pack["title"] for pack in plan["quizPacks"]]
+    assert titles[0].startswith("ITパスポート試験対策 理解チェック1（1〜3章")
+    assert titles[1].startswith("ITパスポート試験対策 理解チェック2（4〜6章")
+    assert titles[2] == "ITパスポート試験対策 総合確認（1〜6章: 全範囲）"
 
 
 def test_auto_quiz_pack_count_for_seven_to_ten_documents() -> None:
@@ -307,7 +310,11 @@ def test_auto_quiz_pack_count_for_seven_to_ten_documents() -> None:
     assert response.status_code == 200
     plan = response.json()
     _assert_partitioned_quiz_packs(plan, expected_count=4, expected_questions=30)
-    assert [pack["title"] for pack in plan["quizPacks"]] == ["前半の理解チェック", "中盤の理解チェック", "後半の理解チェック", "総合・応用クイズ"]
+    titles = [pack["title"] for pack in plan["quizPacks"]]
+    assert titles[0].startswith("ITパスポート試験対策 理解チェック1（1〜3章")
+    assert titles[1].startswith("ITパスポート試験対策 理解チェック2（4〜5章")
+    assert titles[2].startswith("ITパスポート試験対策 理解チェック3（6〜7章")
+    assert titles[3] == "ITパスポート試験対策 総合確認（1〜7章: 全範囲）"
 
 
 def test_auto_quiz_pack_count_for_eleven_or_more_documents() -> None:
@@ -323,10 +330,9 @@ def test_auto_quiz_pack_count_for_eleven_or_more_documents() -> None:
     assert response.status_code == 200
     plan = response.json()
     _assert_partitioned_quiz_packs(plan, expected_count=5, expected_questions=30)
-    assert [pack["title"] for pack in plan["quizPacks"]] == [
-        "序盤の理解チェック",
-        "前半の理解チェック",
-        "後半の理解チェック",
-        "終盤の理解チェック",
-        "総合・応用クイズ",
-    ]
+    titles = [pack["title"] for pack in plan["quizPacks"]]
+    assert titles[0].startswith("ITパスポート試験対策 理解チェック1（1〜3章")
+    assert titles[1].startswith("ITパスポート試験対策 理解チェック2（4〜6章")
+    assert titles[2].startswith("ITパスポート試験対策 理解チェック3（7〜9章")
+    assert titles[3].startswith("ITパスポート試験対策 理解チェック4（10〜11章")
+    assert titles[4] == "ITパスポート試験対策 総合確認（1〜11章: 全範囲）"

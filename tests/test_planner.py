@@ -66,3 +66,86 @@ def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch)
     assert plan.proposedReadingPatterns
     assert plan.selectedReadingPatternIds == []
     assert all(pattern.id for pattern in plan.proposedReadingPatterns)
+
+
+def test_planner_prompt_names_common_reading_pattern_categories() -> None:
+    prompt = planner._planner_prompt(
+        PlanPackRequest(
+            theme="Git基礎",
+            targetUser="初学者",
+            scale="quick",
+        )
+    )
+
+    assert ".git -> ドットギット" in prompt
+    assert ".env -> ドットイーエヌブイ" in prompt
+    assert ".gitignore -> ドットギットイグノア" in prompt
+    assert "OS -> オーエス" in prompt
+    assert "API -> エーピーアイ" in prompt
+    assert "git checkout -> ギット チェックアウト" in prompt
+    assert "localStorage -> ローカルストレージ" in prompt
+
+
+def test_fallback_reading_patterns_include_dot_notation_for_git_theme() -> None:
+    patterns = planner._fallback_reading_patterns(
+        PlanPackRequest(
+            theme="Gitと環境変数",
+            targetUser="初学者",
+            scale="quick",
+        )
+    )
+
+    dot_pattern = next(pattern for pattern in patterns if pattern.id == "dot_notation")
+    assert dot_pattern.recommended is True
+    assert ".git -> ドット ギット" in dot_pattern.examples
+    assert ".env -> ドット イーエヌブイ" in dot_pattern.examples
+    assert ".gitignore -> ドット ギットイグノア" in dot_pattern.examples
+
+
+def test_gemini_patterns_are_merged_with_dot_notation_fallback_when_missing() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "api_reading",
+                    "title": "APIをアルファベット読みする",
+                    "description": "APIやURLをアルファベット読みで扱います。",
+                    "examples": ["API -> エーピーアイ"],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(
+            theme="Git入門",
+            targetUser="初学者",
+            scale="quick",
+        ),
+    )
+
+    assert any(pattern.id == "dot_notation" for pattern in patterns)
+    assert any(".gitignore -> ドット ギットイグノア" in pattern.examples for pattern in patterns)
+
+
+def test_gemini_dot_pattern_does_not_duplicate_dot_fallback() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "git_dot_files",
+                    "title": "Gitのドットファイルを読み下す",
+                    "description": ".gitignore などのドットファイルを読みます。",
+                    "examples": [".gitignore -> ドット ギットイグノア"],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(
+            theme="Git入門",
+            targetUser="初学者",
+            scale="quick",
+        ),
+    )
+
+    dot_patterns = [pattern for pattern in patterns if planner._reading_pattern_signature(pattern) == "dot_notation"]
+    assert len(dot_patterns) == 1
+    assert len(patterns) <= planner.MAX_READING_PATTERN_COUNT

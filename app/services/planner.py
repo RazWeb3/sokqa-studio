@@ -23,6 +23,7 @@ RANGE_TITLES = {
 }
 
 RANGE_PURPOSES = ["key_concepts", "application", "application", "application"]
+MAX_READING_PATTERN_COUNT = 8
 
 
 FALLBACK_READING_PATTERNS = [
@@ -36,9 +37,23 @@ FALLBACK_READING_PATTERNS = [
     ReadingPattern(
         id="dot_notation",
         title="ドット記法やファイル名を読み下す",
-        description=".gitignore や app.config のようなドットを含む表記は、読み上げで自然に聞こえるように扱う方針です。",
-        examples=[".gitignore -> ドット ギットイグノア", "app.config -> アップ ドット コンフィグ"],
+        description=".git、.env、.gitignore、app.config のようなドットや記号を含む表記を、読み上げで自然に聞こえるように扱う方針です。",
+        examples=[".git -> ドット ギット", ".env -> ドット イーエヌブイ", ".gitignore -> ドット ギットイグノア"],
         recommended=True,
+    ),
+    ReadingPattern(
+        id="technical_commands",
+        title="コマンドや技術用語を読み下す",
+        description="git checkout や npm install のようなコマンド・技術用語を、聞き取りやすい読みとして扱う方針です。",
+        examples=["git checkout -> ギット チェックアウト", "npm install -> エヌピーエム インストール"],
+        recommended=False,
+    ),
+    ReadingPattern(
+        id="camel_case_terms",
+        title="キャメルケースや区切り語を読みやすくする",
+        description="localStorage や accessToken のような区切りのある技術語を、自然なまとまりで読めるように扱う方針です。",
+        examples=["localStorage -> ローカルストレージ", "accessToken -> アクセストークン"],
+        recommended=False,
     ),
     ReadingPattern(
         id="symbols_and_versions",
@@ -161,6 +176,13 @@ Rules:
 - Also propose optional reading-pattern policies that may help TTS generation for this theme.
 - proposedReadingPatterns are selectable policies, not fixed word dictionaries. Do not mix them with ttsRules.
 - Each reading pattern should describe a general reading strategy, include 1 to 3 examples, and use a stable snake_case id.
+- Consider these common categories and propose the ones that are relevant to the theme:
+  - dot notation and symbol-heavy file/config names, e.g. ".git -> ドットギット", ".env -> ドットイーエヌブイ", ".gitignore -> ドットギットイグノア".
+  - alphabet reading for abbreviations, e.g. "OS -> オーエス", "API -> エーピーアイ", "URL -> ユーアールエル".
+  - commands and technical phrases, e.g. "git checkout -> ギット チェックアウト".
+  - camelCase or delimiter-separated terms, e.g. "localStorage -> ローカルストレージ".
+- Prioritize categories that match the theme/source text. Do not force unrelated patterns just to fill the list.
+- Examples must use the concrete "source -> reading" format so users can judge the pattern quickly.
 
 Return this JSON shape:
 {{
@@ -309,10 +331,48 @@ def _fallback_reading_patterns(request: PlanPackRequest) -> list[ReadingPattern]
     return patterns
 
 
+def _reading_pattern_signature(pattern: ReadingPattern) -> str:
+    text = " ".join([pattern.id, pattern.title, pattern.description, *pattern.examples]).lower()
+    if any(token in text for token in [".git", ".env", ".gitignore", "dot notation", "ドット記法", "ドットファイル"]):
+        return "dot_notation"
+    if any(token in text for token in ["api", "url", "os", "英略語", "アルファベット"]):
+        return "alphabet_abbreviations"
+    if any(token in text for token in ["checkout", "install", "command", "コマンド"]):
+        return "technical_commands"
+    if any(token in text for token in ["camel", "localstorage", "キャメル"]):
+        return "camel_case_terms"
+    if any(token in text for token in ["version", "slash", "バージョン", "スラッシュ"]):
+        return "symbols_and_versions"
+    return re.sub(r"\s+", "", pattern.title).lower() or pattern.id
+
+
+def _merge_reading_patterns(
+    proposed: list[ReadingPattern],
+    fallback: list[ReadingPattern],
+    *,
+    max_count: int = MAX_READING_PATTERN_COUNT,
+) -> list[ReadingPattern]:
+    merged: list[ReadingPattern] = []
+    seen_ids: set[str] = set()
+    seen_titles: set[str] = set()
+    seen_signatures: set[str] = set()
+    for pattern in [*fallback, *proposed]:
+        title_key = re.sub(r"\s+", "", pattern.title).lower()
+        signature = _reading_pattern_signature(pattern)
+        if pattern.id in seen_ids or title_key in seen_titles or signature in seen_signatures:
+            continue
+        merged.append(pattern)
+        seen_ids.add(pattern.id)
+        seen_titles.add(title_key)
+        seen_signatures.add(signature)
+    return merged[:max_count]
+
+
 def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[ReadingPattern]:
     raw_patterns = data.get("proposedReadingPatterns")
+    fallback_patterns = _fallback_reading_patterns(request)
     if not isinstance(raw_patterns, list):
-        return _fallback_reading_patterns(request)
+        return fallback_patterns[:MAX_READING_PATTERN_COUNT]
 
     patterns: list[ReadingPattern] = []
     seen_ids: set[str] = set()
@@ -337,7 +397,7 @@ def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanP
                 recommended=bool(raw.get("recommended", False)),
             )
         )
-    return patterns or _fallback_reading_patterns(request)
+    return _merge_reading_patterns(patterns, fallback_patterns)
 
 
 def _key_points_signature(document: PlanDocument) -> tuple[str, ...]:

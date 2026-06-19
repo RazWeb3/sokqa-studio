@@ -129,3 +129,20 @@ def test_json_casing_rules_are_separate() -> None:
     rules = load_configured_tts_rules()
     text = _speech_text("JSON と config.json と json を確認します", rules)
     assert text == "ジェイソン と configドット ジェイソン と json を確認します"
+
+
+def test_parenthetical_source_after_existing_reading_is_not_replaced_twice() -> None:
+    rules = [TtsRule(source="ROE", reading="アールオーイー")]
+
+    text = _speech_text("アールオーイー（ROE）は収益性の指標です。", rules)
+
+    assert text == "アールオーイー（ROE）は収益性の指標です。"
+    assert "アールオーイー（アールオーイー）" not in text
+
+
+def test_canonical_term_with_meaning_parenthetical_is_replaced_once() -> None:
+    rules = [TtsRule(source="ROE", reading="アールオーイー")]
+
+    text = _speech_text("ROE（自己資本利益率）は収益性の指標です。", rules)
+
+    assert text == "アールオーイー（自己資本利益率）は収益性の指標です。"

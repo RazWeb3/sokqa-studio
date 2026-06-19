@@ -14,9 +14,10 @@ def _selected_reading_patterns_block(plan: CoursePlan) -> str:
     if not selected_patterns:
         return ""
     lines = [
-        "Reading policy selected by the user:",
-        "- These are general reading/style policies for generation, not fixed replacement dictionaries.",
-        "- Align generated learner-facing text with these policies where relevant.",
+        "TTS reading hints selected by the user:",
+        "- These hints are for the later TTS optimization step only, not for rewriting learner-facing text.",
+        "- Preserve canonical written notation in generated text/question/choices/explanation; do not convert terms to kana in body text.",
+        "- Do not add pronunciation notes such as ROE（アールオーイー） or アールオーイー（ROE） to body text.",
         "- Do not output tts fields here; final TTS optimization remains a separate step.",
     ]
     for pattern in selected_patterns:
@@ -44,6 +45,8 @@ Rules:
 - Each documents[] item must have text only.
 - Do not output tts in the first document generation step.
 - Do not output tags in document items.
+- Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
+- Do not add pronunciation-only parentheticals in body text; parentheses may be used only for meaning explanations, not readings.
 - Each text must be real explanatory learning content, not just a title or label.
 - Each text should be 2 to 4 Japanese sentences for listening study.
 - Do not copy existing learning materials verbatim.
@@ -118,6 +121,8 @@ Rules:
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
 - Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
 - Do not output tts in the first quiz generation step.
+- Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
+- Do not add pronunciation-only parentheticals in question, choices, or explanation; parentheses may be used only for meaning explanations, not readings.
 - Every question must be grounded in the source documents.
 - Ground content in the source, but do not mention the source or documents in learner-facing text.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".

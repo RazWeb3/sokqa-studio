@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     local_storage_dir: str = "generated"
     tts_rules_path: str = "tts_rules.json"
     tts_user_rules_path: str = ""
-    tts_reading_mode: Literal["rule", "llm", "auto"] = "rule"
+    tts_reading_mode: Literal["rule", "llm", "auto"] = "llm"
     gcs_bucket: str = ""
     gcs_prefix: str = "sokqa"
     # Hackathon deployments may use readable values such as creator_demo.

@@ -75,12 +75,29 @@ def test_selected_reading_patterns_are_injected_into_generation_prompts() -> Non
     document_prompt = document_generation_prompt(plan, plan.documents[0])
     quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
-    assert "Reading policy selected by the user" in document_prompt
-    assert "Reading policy selected by the user" in quiz_prompt
+    assert "TTS reading hints selected by the user" in document_prompt
+    assert "TTS reading hints selected by the user" in quiz_prompt
     assert "ドット記法を読み下す" in document_prompt
     assert ".config -> ドット コンフィグ" in quiz_prompt
     assert "未選択" not in document_prompt
+    assert "for the later TTS optimization step only" in document_prompt
+    assert "Preserve canonical written notation" in quiz_prompt
+    assert "Align generated learner-facing text with these policies" not in document_prompt
     assert "Do not output tts fields here" in quiz_prompt
+
+
+def test_generation_prompts_preserve_canonical_body_notation() -> None:
+    plan = _plan()
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "Preserve canonical written notation in body text" in document_prompt
+    assert "IT, ROE, .git, .env, GitHub" in document_prompt
+    assert "Do not convert them to kana readings in text" in document_prompt
+    assert "Do not add pronunciation-only parentheticals in body text" in document_prompt
+    assert "Preserve canonical written notation in question, choices, and explanation" in quiz_prompt
+    assert "Do not add pronunciation-only parentheticals in question, choices, or explanation" in quiz_prompt
 
 
 def test_reading_policy_block_is_omitted_when_no_pattern_is_selected() -> None:
@@ -96,7 +113,7 @@ def test_reading_policy_block_is_omitted_when_no_pattern_is_selected() -> None:
 
     prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
-    assert "Reading policy selected by the user" not in prompt
+    assert "TTS reading hints selected by the user" not in prompt
     assert "ドット記法を読み下す" not in prompt
 
 

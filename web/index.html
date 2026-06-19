@@ -193,7 +193,8 @@
       .log.done { border-color: color-mix(in oklch, var(--success) 26%, var(--border)); color: var(--fg); }
       .url { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px; border: 1px dashed color-mix(in oklch, var(--accent) 28%, var(--border)); border-radius: 9px; background: color-mix(in oklch, var(--accent) 5%, white); }
       .url code { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
-      #qrcode img { width: 120px; height: 120px; }
+      #qrcode { display: grid; justify-items: center; }
+      #qrcode img, #qrcode canvas { width: min(260px, 100%); height: auto; max-width: 100%; }
       .qr-box { display: grid; justify-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
       .qr-box img { width: 180px; height: 180px; }
       .quality { display: grid; gap: 16px; }
@@ -365,7 +366,7 @@
                   <div><strong>TTS最適化</strong><div class="muted">読み上げ用テキストを同時に整えます</div></div>
                   <button class="switch" id="ttsSwitch" aria-label="TTS最適化" type="button" aria-pressed="true"></button>
                 </div>
-                <label>TTS読みモード<select id="ttsReadingMode"><option value="rule">rule</option><option value="llm">llm</option><option value="auto">auto</option></select></label>
+                <label>TTS読みモード<select id="ttsReadingMode"><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（AI補正）</option></select></label>
                 <label>元資料テキスト<textarea id="sourceText" placeholder="社内資料や教材メモを貼り付けると、生成時に参照します。"></textarea></label>
                 <label>資料の扱い<select id="sourceMode" disabled><option value="document_reference">資料を参考に</option><option value="document_only">資料のみ</option></select></label>
                 <div class="actions"><button id="planBtn" type="button">プレビュー作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
@@ -599,6 +600,7 @@
       }
 
       function selectedReadingPatternIdsFromControls() {
+        if (!isLlmReadingMode()) return new Set();
         return new Set($$("[data-reading-pattern]:checked").map((input) => input.value));
       }
 
@@ -612,6 +614,11 @@
       }
 
       function initializeReadingPatternSelection(plan) {
+        if (!isLlmReadingMode()) {
+          selectedReadingPatternIds = new Set();
+          plan.selectedReadingPatternIds = [];
+          return plan;
+        }
         const explicit = Array.isArray(plan.selectedReadingPatternIds) && plan.selectedReadingPatternIds.length;
         const selected = explicit
           ? plan.selectedReadingPatternIds
@@ -623,6 +630,7 @@
 
       function renderPlanPreview(plan) {
         const patterns = Array.isArray(plan.proposedReadingPatterns) ? plan.proposedReadingPatterns : [];
+        const showReadingPatterns = isLlmReadingMode() && patterns.length;
         const documents = Array.isArray(plan.documents) ? plan.documents : [];
         const quizPacks = Array.isArray(plan.quizPacks) ? plan.quizPacks : [];
         $("planPreview").innerHTML = `
@@ -659,10 +667,10 @@
               `).join("") || `<li><p class="muted">クイズはまだありません。</p></li>`}
             </ul>
           </section>
-          ${patterns.length ? `
+          ${showReadingPatterns ? `
             <section class="plan-card">
               <h4>読みパターン</h4>
-              <p>生成プロンプトに反映する読み上げ方針を選びます。確定単語ルールとは別系統です。</p>
+              <p>AI補正で使う読み上げ方針を選びます。辞書ルールのみのモードでは使用しません。</p>
               <div class="reading-patterns">
                 ${patterns.map((pattern) => `
                   <label class="pattern-option">
@@ -693,11 +701,38 @@
         }
         try {
           const plan = JSON.parse(text);
-          selectedReadingPatternIds = new Set(Array.isArray(plan.selectedReadingPatternIds) ? plan.selectedReadingPatternIds : []);
+          selectedReadingPatternIds = isLlmReadingMode() ? new Set(Array.isArray(plan.selectedReadingPatternIds) ? plan.selectedReadingPatternIds : []) : new Set();
+          if (!isLlmReadingMode()) plan.selectedReadingPatternIds = [];
           renderPlanPreview(plan);
         } catch (error) {
           $("planPreview").innerHTML = `<p class="error">JSONを読み取れません: ${escapeHtml(error.message)}</p>`;
         }
+      }
+
+      function isLlmReadingMode() {
+        return isTtsEnabled() && $("ttsReadingMode").value === "llm";
+      }
+
+      function syncReadingPatternMode() {
+        let plan;
+        try {
+          plan = readPlanJson();
+        } catch (_error) {
+          return;
+        }
+        if (!plan) return;
+        if (isLlmReadingMode()) {
+          const selected = selectedReadingPatternIds.size
+            ? Array.from(selectedReadingPatternIds)
+            : (plan.proposedReadingPatterns || []).filter((pattern) => pattern?.recommended).map((pattern) => pattern.id);
+          selectedReadingPatternIds = new Set(selected);
+          plan.selectedReadingPatternIds = selected;
+        } else {
+          selectedReadingPatternIds = new Set();
+          plan.selectedReadingPatternIds = [];
+        }
+        setPlanJson(plan);
+        renderPlanPreview(plan);
       }
 
       function setProgress(title, value, text, ratio = null) {
@@ -1923,7 +1958,7 @@
           ${shareUrl ? `<div class="url"><code id="shareUrl">${escapeHtml(shareUrl)}</code><button class="secondary" id="copyShareUrlBtn" type="button">URLコピー</button></div><div id="qrcode"></div>` : ""}
           <div class="actions"><a class="button" href="/jobs/${escapeHtml(generated.jobId)}" target="_blank" rel="noreferrer">job JSONを見る</a><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
           <ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`;
-        if (shareUrl && window.QRCode) new QRCode($("qrcode"), { text: shareUrl, width: 132, height: 132 });
+        if (shareUrl && window.QRCode) new QRCode($("qrcode"), { text: shareUrl, width: 260, height: 260 });
         $("copyShareUrlBtn")?.addEventListener("click", async () => navigator.clipboard?.writeText(shareUrl));
         $("goQualityBtn")?.addEventListener("click", () => setTab("quality"));
         $("goRecordBtn")?.addEventListener("click", () => setTab("record"));
@@ -2036,7 +2071,9 @@
         const next = $("ttsSwitch").getAttribute("aria-pressed") === "false";
         $("ttsSwitch").setAttribute("aria-pressed", String(next));
         $("ttsSwitch").classList.toggle("off", !next);
+        syncReadingPatternMode();
       });
+      $("ttsReadingMode").addEventListener("change", syncReadingPatternMode);
       $("planBtn").addEventListener("click", createPlan);
       $("generateBtn").addEventListener("click", generatePack);
       $("planJson").addEventListener("input", () => {

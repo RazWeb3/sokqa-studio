@@ -1,3 +1,4 @@
+import logging
 import re
 
 from app.config import get_settings
@@ -17,18 +18,161 @@ from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, m
 
 
 MAX_TTS_BATCH_CHARS = 12000
+logger = logging.getLogger("sokqa_course_pack_agent")
+
+
+def _is_source_inside_existing_reading_parentheses(text: str, start: int, rule: TtsRule) -> bool:
+    prefix = text[:start]
+    paren_index = max(prefix.rfind("（"), prefix.rfind("("))
+    if paren_index < 0:
+        return False
+    close_index = max(prefix.rfind("）"), prefix.rfind(")"))
+    if close_index > paren_index:
+        return False
+    before_paren = prefix[:paren_index].rstrip()
+    return before_paren.endswith(rule.reading)
+
+
+def _replace_rule_source(value: str, rule: TtsRule) -> str:
+    if not rule.source:
+        return value
+    chunks: list[str] = []
+    cursor = 0
+    source_len = len(rule.source)
+    while True:
+        index = value.find(rule.source, cursor)
+        if index < 0:
+            chunks.append(value[cursor:])
+            break
+        chunks.append(value[cursor:index])
+        if _is_source_inside_existing_reading_parentheses(value, index, rule):
+            chunks.append(rule.source)
+        else:
+            chunks.append(rule.reading)
+        cursor = index + source_len
+    return "".join(chunks)
 
 
 def _apply_rule_replacements(value: str, rules: list[TtsRule]) -> str:
     result = value
     for rule in sorted(rules, key=lambda item: len(item.source), reverse=True):
-        result = result.replace(rule.source, rule.reading)
+        result = _replace_rule_source(result, rule)
     return result
 
 
 def _speech_text(value: str, rules: list[TtsRule]) -> str:
     result = _apply_rule_replacements(value, rules)
     return normalize_tts_text(result)
+
+
+def _is_allowed_tts_char(char: str) -> bool:
+    code = ord(char)
+    return (
+        char in "\t\n\r"
+        or 0x0020 <= code <= 0x007E  # basic Latin, digits, and common ASCII symbols
+        or 0x3000 <= code <= 0x303F  # Japanese punctuation and ideographic space
+        or 0x3040 <= code <= 0x309F  # hiragana
+        or 0x30A0 <= code <= 0x30FF  # katakana
+        or 0x31F0 <= code <= 0x31FF  # katakana phonetic extensions
+        or 0x3400 <= code <= 0x4DBF  # CJK extension A
+        or 0x4E00 <= code <= 0x9FFF  # CJK unified ideographs
+        or 0xF900 <= code <= 0xFAFF  # CJK compatibility ideographs
+        or 0xFF00 <= code <= 0xFFEF  # fullwidth forms and halfwidth katakana
+    )
+
+
+def _unexpected_script_snippet(value: str) -> str | None:
+    for index, char in enumerate(value):
+        if not _is_allowed_tts_char(char):
+            return value[max(0, index - 16) : index + 17]
+    return None
+
+
+def _guard_llm_text(
+    value: str | None,
+    fallback: str | None,
+    *,
+    file_name: str,
+    item_id: str,
+    field: str,
+    warnings: list[TtsReportItem],
+) -> str | None:
+    if not value:
+        return value
+    snippet = _unexpected_script_snippet(value)
+    if not snippet:
+        return value
+    logger.warning(
+        "tts_optimizer.unexpected_script_fallback file=%s item=%s field=%s snippet=%s",
+        file_name,
+        item_id,
+        field,
+        snippet,
+    )
+    warnings.append(
+        TtsReportItem(
+            file=file_name,
+            itemId=item_id,
+            field=field,
+            issueType="unexpected_script",
+            snippet=snippet,
+            recommendation="LLMのTTS補正に想定外の文字体系が混入したため、このフィールドは辞書ベースの読みへフォールバックしました。",
+            suggestedRuleSource=None,
+        )
+    )
+    return fallback
+
+
+def _guard_llm_quiz_tts(
+    question,
+    tts: QuizTts | None,
+    rules: list[TtsRule],
+    *,
+    file_name: str,
+    warnings: list[TtsReportItem],
+) -> QuizTts | None:
+    if not tts:
+        return tts
+    fallback = _rule_quiz_question_tts(question, rules)
+    fallback_choice_texts = fallback.choiceTexts if fallback and fallback.choiceTexts else None
+    question_text = _guard_llm_text(
+        tts.questionText,
+        fallback.questionText if fallback else None,
+        file_name=file_name,
+        item_id=question.id,
+        field="questionText",
+        warnings=warnings,
+    )
+    explanation_text = _guard_llm_text(
+        tts.explanationText,
+        fallback.explanationText if fallback else None,
+        file_name=file_name,
+        item_id=question.id,
+        field="explanationText",
+        warnings=warnings,
+    )
+    choice_texts = list(tts.choiceTexts) if tts.choiceTexts else None
+    if choice_texts:
+        for index, value in enumerate(choice_texts):
+            fallback_value = fallback_choice_texts[index] if fallback_choice_texts and index < len(fallback_choice_texts) else ""
+            choice_texts[index] = _guard_llm_text(
+                value,
+                fallback_value,
+                file_name=file_name,
+                item_id=question.id,
+                field=f"choiceTexts.{index}",
+                warnings=warnings,
+            ) or ""
+        if not any(choice_texts):
+            choice_texts = None
+    if not question_text and not explanation_text and not choice_texts:
+        return None
+    return QuizTts(
+        questionText=question_text,
+        choiceTexts=choice_texts,
+        answerText=None,
+        explanationText=explanation_text,
+    )
 
 
 def _combined_rules(rules: list[TtsRule]) -> list[TtsRule]:
@@ -586,10 +730,14 @@ def optimize_document_pack(
     rules: list[TtsRule],
     mode: TtsReadingMode | None = None,
     llm_ids: list[str] | None = None,
+    file_name: str = "",
+    warnings: list[TtsReportItem] | None = None,
 ) -> SokqaDocumentPack:
     rules = _combined_rules(rules)
     active_mode = _mode_or_default(mode)
     llm_ids = llm_ids if llm_ids is not None else []
+    warnings = warnings if warnings is not None else []
+    file_name = file_name or f"{pack.id}.json"
     entries = [(item.id, item.text) for item in pack.documents]
     selected_ids = (
         {entry_id for entry_id, _ in entries}
@@ -604,12 +752,26 @@ def optimize_document_pack(
     llm_readings: dict[str, str] = {}
     if active_mode == "llm":
         selected_entries = [(item.id, item.text) for item in pack.documents if item.id in selected_ids]
-        llm_readings = _gemini_document_speech_map(selected_entries, rules)
-        llm_ids.extend(entry_id for entry_id, _ in selected_entries)
+        try:
+            llm_readings = _gemini_document_speech_map(selected_entries, rules)
+            llm_ids.extend(entry_id for entry_id, _ in selected_entries)
+        except Exception as exc:
+            logger.warning("tts_optimizer.llm_document_fallback file=%s error=%s", file_name, exc)
     for item in pack.documents:
         item.tags = None
         if item.id in selected_ids:
-            speech = llm_readings.get(item.id, _speech_text(item.text, rules)) if active_mode == "llm" else _speech_text(item.text, rules)
+            rule_speech = _speech_text(item.text, rules)
+            if active_mode == "llm" and item.id in llm_readings:
+                speech = _guard_llm_text(
+                    llm_readings[item.id],
+                    rule_speech,
+                    file_name=file_name,
+                    item_id=item.id,
+                    field="text",
+                    warnings=warnings,
+                )
+            else:
+                speech = rule_speech
             item.tts = _document_tts_from_reading(item.text, speech, rules)
         else:
             item.tts = None
@@ -621,10 +783,14 @@ def optimize_quiz_pack(
     rules: list[TtsRule],
     mode: TtsReadingMode | None = None,
     llm_ids: list[str] | None = None,
+    file_name: str = "",
+    warnings: list[TtsReportItem] | None = None,
 ) -> SokqaQuizPack:
     rules = _combined_rules(rules)
     active_mode = _mode_or_default(mode)
     llm_ids = llm_ids if llm_ids is not None else []
+    warnings = warnings if warnings is not None else []
+    file_name = file_name or f"{pack.id}.json"
     entries = [
         (
             question.id,
@@ -640,13 +806,22 @@ def optimize_quiz_pack(
     llm_readings: dict[str, QuizTts] = {}
     if active_mode == "llm":
         selected_questions = [question for question in pack.questions if question.id in selected_ids]
-        llm_readings = _gemini_quiz_tts_map(selected_questions, rules, pack.language)
-        llm_ids.extend(question.id for question in selected_questions)
+        try:
+            llm_readings = _gemini_quiz_tts_map(selected_questions, rules, pack.language)
+            llm_ids.extend(question.id for question in selected_questions)
+        except Exception as exc:
+            logger.warning("tts_optimizer.llm_quiz_fallback file=%s error=%s", file_name, exc)
     for question in pack.questions:
         question.tags = None
         if question.id in selected_ids:
             if active_mode == "llm":
-                question.tts = llm_readings.get(question.id, _rule_quiz_question_tts(question, rules))
+                question.tts = _guard_llm_quiz_tts(
+                    question,
+                    llm_readings.get(question.id, _rule_quiz_question_tts(question, rules)),
+                    rules,
+                    file_name=file_name,
+                    warnings=warnings,
+                )
             else:
                 question.tts = _rule_quiz_question_tts(question, rules)
         else:
@@ -654,18 +829,36 @@ def optimize_quiz_pack(
     return pack
 
 
-def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: list[TtsRule], llm_ids: list[str]) -> None:
+def _rerun_items_with_llm(
+    file: GeneratedFile,
+    issue_item_ids: set[str],
+    rules: list[TtsRule],
+    llm_ids: list[str],
+    warnings: list[TtsReportItem],
+) -> None:
     if not issue_item_ids:
         return
     if file.kind == "document":
         pack = SokqaDocumentPack.model_validate(file.content)
         combined = _combined_rules(rules)
         entries = [(item.id, item.text) for item in pack.documents if item.id in issue_item_ids and item.tts]
-        readings = _gemini_document_speech_map(entries, combined)
-        llm_ids.extend(entry_id for entry_id, _ in entries)
+        try:
+            readings = _gemini_document_speech_map(entries, combined)
+            llm_ids.extend(entry_id for entry_id, _ in entries)
+        except Exception as exc:
+            logger.warning("tts_optimizer.auto_llm_document_fallback file=%s error=%s", file.name, exc)
+            readings = {}
         for item in pack.documents:
             if item.id in issue_item_ids and item.tts:
-                reading = readings.get(item.id, _speech_text(item.text, combined))
+                rule_speech = _speech_text(item.text, combined)
+                reading = _guard_llm_text(
+                    readings.get(item.id, rule_speech),
+                    rule_speech,
+                    file_name=file.name,
+                    item_id=item.id,
+                    field="text",
+                    warnings=warnings,
+                )
                 item.tts = _document_tts_from_reading(item.text, reading, combined)
         file.content = pack.model_dump(exclude_none=True)
     elif file.kind == "quiz":
@@ -676,12 +869,22 @@ def _rerun_items_with_llm(file: GeneratedFile, issue_item_ids: set[str], rules: 
             for question in pack.questions
             if question.id in issue_item_ids and question.tts
         ]
-        readings = _gemini_quiz_tts_map(selected_questions, combined, pack.language)
-        llm_ids.extend(question.id for question in selected_questions)
+        try:
+            readings = _gemini_quiz_tts_map(selected_questions, combined, pack.language)
+            llm_ids.extend(question.id for question in selected_questions)
+        except Exception as exc:
+            logger.warning("tts_optimizer.auto_llm_quiz_fallback file=%s error=%s", file.name, exc)
+            readings = {}
         for question in pack.questions:
             if question.id not in issue_item_ids or not question.tts:
                 continue
-            question.tts = readings.get(question.id, _rule_quiz_question_tts(question, combined))
+            question.tts = _guard_llm_quiz_tts(
+                question,
+                readings.get(question.id, _rule_quiz_question_tts(question, combined)),
+                combined,
+                file_name=file.name,
+                warnings=warnings,
+            )
         file.content = pack.model_dump(exclude_none=True)
 
 
@@ -693,24 +896,27 @@ def optimize_generated_files_with_report(
     active_mode = _mode_or_default(mode)
     optimized = []
     llm_ids: list[str] = []
+    warnings: list[TtsReportItem] = []
     first_pass_mode: TtsReadingMode = "rule" if active_mode == "auto" else active_mode
     for file in files:
         if file.kind == "document":
-            pack = optimize_document_pack(SokqaDocumentPack.model_validate(file.content), rules, first_pass_mode, llm_ids)
+            pack = optimize_document_pack(SokqaDocumentPack.model_validate(file.content), rules, first_pass_mode, llm_ids, file.name, warnings)
             file.content = pack.model_dump(exclude_none=True)
         elif file.kind == "quiz":
-            pack = optimize_quiz_pack(SokqaQuizPack.model_validate(file.content), rules, first_pass_mode, llm_ids)
+            pack = optimize_quiz_pack(SokqaQuizPack.model_validate(file.content), rules, first_pass_mode, llm_ids, file.name, warnings)
             file.content = pack.model_dump(exclude_none=True)
         optimized.append(file)
     report = validate_tts_files(optimized, active_mode, llm_ids)
+    report.issues.extend(warnings)
     if active_mode == "auto" and report.issues:
         issue_ids_by_file: dict[str, set[str]] = {}
         for issue in report.issues:
             if issue.issueType in {"ascii_after_dot_reading", "raw_period"}:
                 issue_ids_by_file.setdefault(issue.file, set()).add(issue.itemId)
         for file in optimized:
-            _rerun_items_with_llm(file, issue_ids_by_file.get(file.name, set()), rules, llm_ids)
+            _rerun_items_with_llm(file, issue_ids_by_file.get(file.name, set()), rules, llm_ids, warnings)
         report = validate_tts_files(optimized, active_mode, llm_ids)
+        report.issues.extend(warnings)
     return optimized, report
 
 

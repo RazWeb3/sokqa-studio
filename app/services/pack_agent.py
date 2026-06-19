@@ -132,6 +132,14 @@ def _document_packs_for_quiz(plan, quiz_pack, document_packs):
     return selected or document_packs
 
 
+def _resolve_selected_reading_patterns(plan):
+    available_ids = {pattern.id for pattern in plan.proposedReadingPatterns}
+    selected_ids = [pattern_id for pattern_id in plan.selectedReadingPatternIds if pattern_id in available_ids]
+    if selected_ids == plan.selectedReadingPatternIds:
+        return plan
+    return plan.model_copy(update={"selectedReadingPatternIds": selected_ids})
+
+
 def plan_pack(request: PlanPackRequest):
     models = resolve_task_models(request=request)
     plan = create_course_plan(request, model=models.planner)
@@ -172,6 +180,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     )
     plan.sourceText = source_text
     plan.sourceMode = source_mode
+    plan = _resolve_selected_reading_patterns(plan)
     models = resolve_task_models(plan, request)
     logs.append(f"Model planner: {models.planner}")
     logs.append(f"Model document: {models.document}")

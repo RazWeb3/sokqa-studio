@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.schemas.common import Difficulty, QuizPurpose, Scale, SourceMode, TtsReadingMode, TtsRule
+from app.schemas.common import Difficulty, QuizPurpose, ReadingPattern, Scale, SourceMode, TtsReadingMode, TtsRule
 from app.schemas.pack_v2 import PackManifestV2
 
 
@@ -60,6 +60,8 @@ class CoursePlan(BaseModel):
     documents: list[PlanDocument]
     quizPacks: list[PlanQuizPack]
     ttsRules: list[TtsRule] = Field(default_factory=list)
+    proposedReadingPatterns: list[ReadingPattern] = Field(default_factory=list)
+    selectedReadingPatternIds: list[str] = Field(default_factory=list)
 
 
 class DocumentTts(BaseModel):

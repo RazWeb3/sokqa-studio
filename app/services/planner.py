@@ -2,6 +2,7 @@ import re
 from typing import Any
 
 from app.config import get_settings
+from app.schemas.common import ReadingPattern
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
@@ -22,6 +23,31 @@ RANGE_TITLES = {
 }
 
 RANGE_PURPOSES = ["key_concepts", "application", "application", "application"]
+
+
+FALLBACK_READING_PATTERNS = [
+    ReadingPattern(
+        id="alphabet_abbreviations",
+        title="英略語はアルファベット読みで扱う",
+        description="IT、AI、API、OS などの英略語は、必要に応じてカタカナのアルファベット読みとして扱う方針です。",
+        examples=["IT -> アイティー", "API -> エーピーアイ", "OS -> オーエス"],
+        recommended=True,
+    ),
+    ReadingPattern(
+        id="dot_notation",
+        title="ドット記法やファイル名を読み下す",
+        description=".gitignore や app.config のようなドットを含む表記は、読み上げで自然に聞こえるように扱う方針です。",
+        examples=[".gitignore -> ドット ギットイグノア", "app.config -> アップ ドット コンフィグ"],
+        recommended=True,
+    ),
+    ReadingPattern(
+        id="symbols_and_versions",
+        title="記号・バージョン番号を聞き取りやすくする",
+        description="スラッシュ、ハイフン、バージョン番号などを、聞き取りやすい読みとして扱う方針です。",
+        examples=["v1.2 -> バージョン いち てん に", "A/B -> エー スラッシュ ビー"],
+        recommended=False,
+    ),
+]
 
 
 def _document_count(request: PlanPackRequest) -> int:
@@ -132,11 +158,23 @@ Rules:
 - keyPoints should contain 3 to 6 concise items.
 - If sectionsPerDocument was not specified, targetSectionCount must be an integer from 30 to 50 for every document.
 - targetSectionCount must be an integer from 1 to 120.
+- Also propose optional reading-pattern policies that may help TTS generation for this theme.
+- proposedReadingPatterns are selectable policies, not fixed word dictionaries. Do not mix them with ttsRules.
+- Each reading pattern should describe a general reading strategy, include 1 to 3 examples, and use a stable snake_case id.
 
 Return this JSON shape:
 {{
   "title": "pack title",
   "description": "short description, including why this chapter count fits if documentCount was not specified",
+  "proposedReadingPatterns": [
+    {{
+      "id": "alphabet_abbreviations",
+      "title": "short pattern title",
+      "description": "what to do when generating learner text",
+      "examples": ["IT -> アイティー"],
+      "recommended": true
+    }}
+  ],
   "documents": [
     {{
       "title": "specific chapter title",
@@ -263,6 +301,45 @@ def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequ
     return documents
 
 
+def _fallback_reading_patterns(request: PlanPackRequest) -> list[ReadingPattern]:
+    patterns = [pattern.model_copy(deep=True) for pattern in FALLBACK_READING_PATTERNS]
+    theme_text = f"{request.theme} {request.sourceText or ''}".lower()
+    if not any(token in theme_text for token in ["git", "api", "it", "ai", "os", "."]):
+        return patterns[:1]
+    return patterns
+
+
+def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[ReadingPattern]:
+    raw_patterns = data.get("proposedReadingPatterns")
+    if not isinstance(raw_patterns, list):
+        return _fallback_reading_patterns(request)
+
+    patterns: list[ReadingPattern] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(raw_patterns, start=1):
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or "").strip()
+        description = str(raw.get("description") or "").strip()
+        if not title or not description:
+            continue
+        pattern_id = slugify(str(raw.get("id") or title), f"reading_pattern_{index}")
+        if pattern_id in seen_ids:
+            pattern_id = f"{pattern_id}_{index}"
+        seen_ids.add(pattern_id)
+        examples = raw.get("examples") if isinstance(raw.get("examples"), list) else []
+        patterns.append(
+            ReadingPattern(
+                id=pattern_id,
+                title=title,
+                description=description,
+                examples=[str(example).strip() for example in examples if str(example).strip()][:3],
+                recommended=bool(raw.get("recommended", False)),
+            )
+        )
+    return patterns or _fallback_reading_patterns(request)
+
+
 def _key_points_signature(document: PlanDocument) -> tuple[str, ...]:
     return tuple(point.strip().lower() for point in document.keyPoints)
 
@@ -299,15 +376,18 @@ def _validate_planned_documents(documents: list[PlanDocument], request: PlanPack
     return errors
 
 
-def _gemini_documents(request: PlanPackRequest, model: str | None) -> tuple[str | None, str | None, list[PlanDocument]]:
+def _gemini_plan_parts(
+    request: PlanPackRequest, model: str | None
+) -> tuple[str | None, str | None, list[PlanDocument], list[ReadingPattern]]:
     data = GeminiClient().generate_json(_planner_prompt(request), model=model)
     title = str(data.get("title") or "").strip() or None
     description = str(data.get("description") or "").strip() or None
     documents = _documents_from_planner_response(data, request)
+    reading_patterns = _reading_patterns_from_planner_response(data, request)
     errors = _validate_planned_documents(documents, request)
     if errors:
         raise ValueError("; ".join(errors))
-    return title, description, documents
+    return title, description, documents, reading_patterns
 
 
 def create_course_plan(request: PlanPackRequest, model: str | None = None) -> CoursePlan:
@@ -320,13 +400,15 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
 
     if settings.gemini_provider == "gemini":
         try:
-            planned_title, planned_description, documents = _gemini_documents(request, model)
+            planned_title, planned_description, documents, reading_patterns = _gemini_plan_parts(request, model)
             title = planned_title or title
             description = planned_description or description
         except Exception:
             documents = _fallback_documents(request)
+            reading_patterns = _fallback_reading_patterns(request)
     else:
         documents = _fallback_documents(request)
+        reading_patterns = _fallback_reading_patterns(request)
 
     validation_errors = _validate_planned_documents(documents, request)
     if validation_errors:
@@ -358,4 +440,5 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         documents=documents,
         quizPacks=_build_quiz_packs(request, [document.id for document in documents]),
         ttsRules=tts_rules,
+        proposedReadingPatterns=reading_patterns,
     )

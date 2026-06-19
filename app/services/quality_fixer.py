@@ -852,7 +852,7 @@ Policy:
 - Apply only reading, double_utterance, notation, and tts_text_mismatch fixes.
 - Auto-apply only to tts text fields. Never change display text/question/choices/explanation.
 - Null/missing tts fields are normal and must not be fixed unless the source issue points to a concrete existing tts field.
-- For quiz choiceTexts, preserve index mapping. If one choice text changes, return a full 4-item choiceTexts array in updatedJson.
+- For quiz choiceTexts, preserve index mapping. Return a choices-length array with corrected texts only at changed indexes and "" for unchanged indexes.
 """.strip()
     else:
         policy = """
@@ -1059,14 +1059,16 @@ def _set_tts_field(content: dict[str, Any], location: QualityLocation, value: st
     tts = dict(unit.get("tts") or {})
     field = location.field or "question"
     if _is_choice_field(field):
-        choices = list(tts.get("choiceTexts") or unit.get("choices") or [])
+        choice_count = max(4, len(unit.get("choices") or []))
+        existing_choice_texts = tts.get("choiceTexts")
+        choices = list(existing_choice_texts) if isinstance(existing_choice_texts, list) else [""] * choice_count
         index = _choice_index(field)
-        if index >= max(4, len(unit.get("choices") or [])):
+        if index >= choice_count:
             return False
-        while len(choices) < 4:
+        while len(choices) < choice_count:
             choices.append("")
         choices[index] = value
-        tts["choiceTexts"] = choices[:4]
+        tts["choiceTexts"] = choices[:choice_count]
     elif field == "explanation":
         tts["explanationText"] = value
     else:

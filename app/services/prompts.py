@@ -2,9 +2,34 @@ from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack, SokqaDocum
 from app.services.source_material import source_prompt_block
 
 
+def _selected_reading_patterns_block(plan: CoursePlan) -> str:
+    selected_ids = set(plan.selectedReadingPatternIds or [])
+    if not selected_ids:
+        return ""
+    selected_patterns = [
+        pattern
+        for pattern in plan.proposedReadingPatterns
+        if pattern.id in selected_ids
+    ]
+    if not selected_patterns:
+        return ""
+    lines = [
+        "Reading policy selected by the user:",
+        "- These are general reading/style policies for generation, not fixed replacement dictionaries.",
+        "- Align generated learner-facing text with these policies where relevant.",
+        "- Do not output tts fields here; final TTS optimization remains a separate step.",
+    ]
+    for pattern in selected_patterns:
+        lines.append(f"- {pattern.title}: {pattern.description}")
+        if pattern.examples:
+            lines.append(f"  examples: {', '.join(pattern.examples)}")
+    return "\n\n" + "\n".join(lines)
+
+
 def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     source_block = source_prompt_block(plan.sourceText, plan.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
+    reading_policy_section = _selected_reading_patterns_block(plan)
     return f"""Create one Sokqa document JSON.
 
 Rules:
@@ -27,6 +52,7 @@ Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
 - difficulty: {plan.difficulty}
+{reading_policy_section}
 {source_section}
 
 Document:
@@ -65,6 +91,7 @@ def quiz_generation_prompt(
         f"- {doc.title}: " + " ".join(item.text for item in doc.documents[:5])
         for doc in source_documents
     )
+    reading_policy_section = _selected_reading_patterns_block(plan)
     integration_rules = ""
     if quiz_pack.purpose == "integrated_review":
         integration_rules = """
@@ -100,6 +127,7 @@ Rules:
 Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
+{reading_policy_section}
 
 Quiz pack:
 - id: {quiz_pack.id}

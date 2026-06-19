@@ -237,12 +237,14 @@ def _quiz_question_char_count(question) -> int:
     return len(question.id) + len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
 
 
-def _choice_texts_match_source(question, choice_texts: list[str]) -> bool:
-    source_texts = [
-        normalize_tts_text(strip_choice_separator(choice))
-        for choice in question.choices
-    ]
-    return choice_texts == source_texts
+def _sparse_choice_texts(question, choice_readings: list[str]) -> list[str] | None:
+    choice_texts: list[str] = []
+    for index, choice in enumerate(question.choices):
+        reading = choice_readings[index] if index < len(choice_readings) else choice
+        speech = normalize_tts_text(strip_choice_separator(reading))
+        source = normalize_tts_text(strip_choice_separator(choice))
+        choice_texts.append("" if speech == source else speech)
+    return choice_texts if any(choice_texts) else None
 
 
 def _optional_speech_text(source_text: str, reading_text: str, rules: list[TtsRule]) -> str | None:
@@ -263,12 +265,8 @@ def _quiz_tts_from_readings(
     explanation_text: str,
     rules: list[TtsRule],
 ) -> QuizTts | None:
-    choice_texts = [
-        normalize_tts_text(strip_choice_separator(reading))
-        for reading in choice_readings
-    ]
     question_text_output = _optional_speech_text(question.question, question_text, rules)
-    choice_texts_output = None if _choice_texts_match_source(question, choice_texts) else choice_texts
+    choice_texts_output = _sparse_choice_texts(question, choice_readings)
     explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules)
     if not question_text_output and not choice_texts_output and not explanation_text_output:
         return None

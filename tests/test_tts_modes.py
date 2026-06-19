@@ -678,10 +678,41 @@ def test_rule_mode_outputs_choice_texts_when_choice_rule_changes_reading(monkeyp
         "エーアイの提案を業務要件と照合する",
         "エーアイの出力を無条件に採用する",
         "記録を残さずエーアイだけで判断する",
-        "担当者に確認する",
+        "",
     ]
     assert "choicesText" not in tts
     assert tts.get("answerText") is None
+
+
+def test_rule_mode_keeps_sparse_choice_text_index_mapping(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    rules = [TtsRule(source="記録", reading="きろく")]
+    file = GeneratedFile(
+        name="sparse_quiz.json",
+        kind="quiz",
+        content={
+            "id": "sparse_quiz",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "疎配列確認",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-sparse",
+                    "question": "次の説明として正しいものはどれですか?",
+                    "choices": ["保存します", "確認します", "記録を残します", "開始します"],
+                    "answerIndex": 2,
+                    "explanation": "記録を残すことが重要です。",
+                }
+            ],
+        },
+    )
+
+    files, _ = optimize_generated_files_with_report([file], rules, mode="rule")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts["choiceTexts"] == ["", "", "きろくを残します", ""]
 
 
 def test_llm_batch_outputs_choice_texts_when_choice_reading_differs_from_source(monkeypatch) -> None:
@@ -716,7 +747,7 @@ def test_llm_batch_outputs_choice_texts_when_choice_reading_differs_from_source(
         "エーアイの提案を業務要件と照合する",
         "エーアイの出力を無条件に採用する",
         "記録を残さずエーアイだけで判断する",
-        "担当者に確認する",
+        "",
     ]
     assert "choicesText" not in tts
     assert tts.get("answerText") is None

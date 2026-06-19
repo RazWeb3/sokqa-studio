@@ -429,7 +429,7 @@ def test_tts_fix_choice_texts_array_after_preserves_index_mapping(tmp_path, monk
     question = data["updatedJson"]["questions"][0]
     assert question["choices"] == ["A", "B", "C", "D"]
     assert question["answerIndex"] == 0
-    assert question["tts"]["choiceTexts"] == ["エスキューエル", "B", "C", "D"]
+    assert question["tts"]["choiceTexts"] == ["エスキューエル", "", "", ""]
     assert all(isinstance(item, str) for item in question["tts"]["choiceTexts"])
     assert not any(isinstance(item, list) for item in question["tts"]["choiceTexts"])
     assert data["appliedFixes"][0]["after"] == "エスキューエル"
@@ -461,7 +461,7 @@ def test_tts_fix_no_llm_choice_texts_suggestion_preserves_index_mapping(tmp_path
     question = data["updatedJson"]["questions"][0]
     assert question["choices"] == ["A", "B", "C", "D"]
     assert question["answerIndex"] == 0
-    assert question["tts"]["choiceTexts"] == ["エスキューエル", "B", "C", "D"]
+    assert question["tts"]["choiceTexts"] == ["エスキューエル", "", "", ""]
     assert all(isinstance(item, str) for item in question["tts"]["choiceTexts"])
     assert not any(isinstance(item, list) for item in question["tts"]["choiceTexts"])
     assert data["appliedFixes"][0]["after"] == "エスキューエル"
@@ -618,7 +618,7 @@ def test_tts_fix_no_llm_replaces_excerpt_inside_long_choice_text(tmp_path, monke
     question = data["updatedJson"]["questions"][0]
     assert question["choices"] == ["SQLを使ってデータを検索する選択肢です。", "B", "C", "D"]
     assert question["answerIndex"] == 0
-    assert question["tts"]["choiceTexts"] == ["エスキューエルを使ってデータを検索する選択肢です。", "B", "C", "D"]
+    assert question["tts"]["choiceTexts"] == ["エスキューエルを使ってデータを検索する選択肢です。", "", "", ""]
     assert data["appliedFixes"][0]["after"] == "エスキューエルを使ってデータを検索する選択肢です。"
 
 
@@ -660,7 +660,7 @@ def test_tts_fix_no_llm_accumulates_multiple_replacements_on_same_choice_index(t
     question = data["updatedJson"]["questions"][0]
     assert question["choices"] == ["SQLとJSONを使う選択肢です。", "B", "C", "D"]
     assert question["answerIndex"] == 0
-    assert question["tts"]["choiceTexts"] == ["エスキューエルとジェイソンを使う選択肢です。", "B", "C", "D"]
+    assert question["tts"]["choiceTexts"] == ["エスキューエルとジェイソンを使う選択肢です。", "", "", ""]
     assert len(data["appliedFixes"]) == 2
     assert data["unappliedFixes"] == []
 
@@ -814,7 +814,7 @@ def test_tts_fix_no_llm_resolves_generic_choices_field_by_excerpt(tmp_path, monk
     question = data["updatedJson"]["questions"][0]
     assert question["choices"] == ["A", "SQL を使う選択肢", "JSON", "D"]
     assert question["answerIndex"] == 0
-    assert question["tts"]["choiceTexts"] == ["A", "エスキューエルを使う選択肢", "JSON", "D"]
+    assert question["tts"]["choiceTexts"] == ["", "エスキューエルを使う選択肢", "", ""]
     assert data["appliedFixes"][0]["location"]["field"] == "tts.choiceTexts[1]"
     assert data["unappliedFixes"] == []
 

@@ -1,10 +1,11 @@
 import logging
 
+from app.schemas.common import ReadingPattern
 from app.schemas.request import GeneratePackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
 from app.services import pack_agent
 from app.services.pack_agent import generate_pack
-from app.services.prompts import quiz_generation_prompt
+from app.services.prompts import document_generation_prompt, quiz_generation_prompt
 from app.services.quiz_generator import normalize_quiz_content
 from app.services.repairer import QUIZ_REPAIR_INSTRUCTIONS, repair_files
 from app.services.validator import validate_files
@@ -50,6 +51,94 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "do not mention the source or documents" in prompt
     assert "ドキュメントによると" in prompt
     assert "推奨されています" in prompt
+
+
+def test_selected_reading_patterns_are_injected_into_generation_prompts() -> None:
+    plan = _plan()
+    plan.proposedReadingPatterns = [
+        ReadingPattern(
+            id="dot_notation",
+            title="ドット記法を読み下す",
+            description=".config などのドットを含む表記を読み上げやすく扱う",
+            examples=[".config -> ドット コンフィグ"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="unused",
+            title="未選択",
+            description="この方針は選択されていません",
+            examples=["unused"],
+        ),
+    ]
+    plan.selectedReadingPatternIds = ["dot_notation"]
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "Reading policy selected by the user" in document_prompt
+    assert "Reading policy selected by the user" in quiz_prompt
+    assert "ドット記法を読み下す" in document_prompt
+    assert ".config -> ドット コンフィグ" in quiz_prompt
+    assert "未選択" not in document_prompt
+    assert "Do not output tts fields here" in quiz_prompt
+
+
+def test_reading_policy_block_is_omitted_when_no_pattern_is_selected() -> None:
+    plan = _plan()
+    plan.proposedReadingPatterns = [
+        ReadingPattern(
+            id="dot_notation",
+            title="ドット記法を読み下す",
+            description=".config などのドットを含む表記を読み上げやすく扱う",
+            examples=[".config -> ドット コンフィグ"],
+        )
+    ]
+
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "Reading policy selected by the user" not in prompt
+    assert "ドット記法を読み下す" not in prompt
+
+
+def test_generate_pack_filters_unknown_selected_reading_patterns_without_touching_tts_rules(monkeypatch) -> None:
+    plan = _plan()
+    plan.proposedReadingPatterns = [
+        ReadingPattern(
+            id="alphabet",
+            title="英略語を読む",
+            description="英略語をカタカナ読みで扱う",
+            examples=["API -> エーピーアイ"],
+        )
+    ]
+    plan.selectedReadingPatternIds = ["alphabet", "missing"]
+
+    captured = {}
+
+    def fake_document_pack(current_plan, *_args, **_kwargs):
+        captured["selectedReadingPatternIds"] = current_plan.selectedReadingPatternIds
+        captured["ttsRules"] = current_plan.ttsRules
+        return _source_pack()
+
+    clean_quiz = SokqaQuizPack(
+        id="quality_pack_quiz_01",
+        title="確認クイズ",
+        questions=[
+            {
+                "id": "q-1",
+                "question": "安全なパスワード管理として適切なものはどれですか？",
+                "choices": ["短い共通語を使う", "使い回す", "長く一意なものを使う", "保存しない"],
+                "answerIndex": 2,
+                "explanation": "長く一意なパスワードは推測されにくくなります。",
+            }
+        ],
+    )
+    monkeypatch.setattr(pack_agent, "generate_document_pack", fake_document_pack)
+    monkeypatch.setattr(pack_agent, "generate_quiz_pack", lambda *_args, **_kwargs: clean_quiz)
+
+    generate_pack(GeneratePackRequest(plan=plan, persist=False))
+
+    assert captured["selectedReadingPatternIds"] == ["alphabet"]
+    assert captured["ttsRules"] == []
 
 
 def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:

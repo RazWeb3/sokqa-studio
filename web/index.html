@@ -156,6 +156,27 @@
       .switch.off { background: color-mix(in oklch, var(--muted) 28%, white); }
       .switch.off::before { transform: translateX(20px); }
       .json { min-height: 210px; font-family: var(--mono); font-size: 13px; line-height: 1.55; color: oklch(27% .03 235); background: oklch(98.8% .004 235); }
+      .json-details { display: grid; gap: 10px; }
+      .plan-preview { display: grid; gap: 14px; }
+      .plan-card { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: white; }
+      .plan-card h4 { margin: 0; font-family: var(--display); font-size: 15px; line-height: 1.25; letter-spacing: -0.01em; }
+      .plan-card p { margin: 0; color: var(--muted); font-size: 13px; }
+      .plan-meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .plan-meta { min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); }
+      .plan-meta span { display: block; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+      .plan-meta strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 13px; }
+      .plan-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+      .plan-list li { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); }
+      .plan-list strong { font-size: 14px; }
+      .key-points { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; list-style: none; }
+      .key-points li { display: inline-flex; width: auto; padding: 3px 8px; border-radius: 999px; background: white; color: var(--muted); font-size: 12px; border: 1px solid var(--border); }
+      .reading-patterns { display: grid; gap: 9px; }
+      .pattern-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 11px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+      .pattern-option input { width: 18px; height: 18px; margin-top: 2px; }
+      .pattern-option strong { display: block; font-size: 14px; }
+      .pattern-option p { margin: 4px 0 0; }
+      .pattern-examples { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
+      .pattern-examples code { padding: 3px 7px; border-radius: 999px; background: var(--soft); border: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
       .result { display: grid; gap: 14px; padding: 14px; border: 1px solid color-mix(in oklch, var(--success) 22%, var(--border)); border-radius: 10px; background: linear-gradient(180deg, color-mix(in oklch, var(--success) 7%, white), white); }
       .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
       .stat { padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: white; }
@@ -255,7 +276,7 @@
       }
       @media (max-width: 760px) {
         .topbar, .tabs, .pack-bar { position: relative; top: auto; }
-        .topbar-inner, .tabs, .pack-inner, .url, .field-grid, .quality-stepper, .stats { grid-template-columns: 1fr; }
+        .topbar-inner, .tabs, .pack-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid { grid-template-columns: 1fr; }
         .top-actions { justify-content: flex-start; }
         .tab { min-height: 56px; }
         .pack-main { display: grid; }
@@ -347,8 +368,14 @@
 
             <div class="stack">
               <section class="panel">
-                <div class="panel-head"><div><h3>構成プレビュー</h3><p class="hint">編集可能なJSONとして、生成前に章立てを確認できます。</p></div><span class="badge info">editable</span></div>
-                <div class="panel-body"><textarea id="planJson" class="json" spellcheck="false" placeholder="構成案がここに表示されます。編集してから生成できます。"></textarea></div>
+                <div class="panel-head"><div><h3>構成プレビュー</h3><p class="hint">章立てとクイズ構成を確認し、必要な読みパターンだけ選んで生成します。</p></div><span class="badge info">preview</span></div>
+                <div class="panel-body stack">
+                  <div id="planPreview" class="plan-preview"><p class="muted">プレビュー作成後、構成案がここに表示されます。</p></div>
+                  <details class="json-details">
+                    <summary>詳細JSONを編集</summary>
+                    <textarea id="planJson" class="json" spellcheck="false" placeholder="構成案JSONがここに表示されます。上級者向けに直接編集できます。"></textarea>
+                  </details>
+                </div>
               </section>
               <section class="panel">
                 <div class="panel-head"><div><h3>生成結果</h3><p class="hint">完了後はスマホ学習アプリへ渡すURLとQRコードを共有します。</p></div></div>
@@ -538,9 +565,132 @@
       let playIndex = -1;
       let currentPlayingUnitId = null;
       let isPlaybackPaused = true;
+      let selectedReadingPatternIds = new Set();
 
       function escapeHtml(value) {
         return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+      }
+
+      function purposeLabel(value) {
+        return {
+          key_concepts: "重要概念",
+          application: "応用",
+          integrated_review: "総合・応用",
+          custom: "カスタム"
+        }[value] || value || "-";
+      }
+
+      function setPlanJson(plan) {
+        $("planJson").value = JSON.stringify(plan, null, 2);
+        updateActionAvailability();
+      }
+
+      function readPlanJson() {
+        const text = $("planJson").value.trim();
+        if (!text) return null;
+        return JSON.parse(text);
+      }
+
+      function selectedReadingPatternIdsFromControls() {
+        return new Set($$("[data-reading-pattern]:checked").map((input) => input.value));
+      }
+
+      function writeSelectedReadingPatternsToPlanJson() {
+        const plan = readPlanJson();
+        if (!plan) return null;
+        selectedReadingPatternIds = selectedReadingPatternIdsFromControls();
+        plan.selectedReadingPatternIds = Array.from(selectedReadingPatternIds);
+        setPlanJson(plan);
+        return plan;
+      }
+
+      function initializeReadingPatternSelection(plan) {
+        const explicit = Array.isArray(plan.selectedReadingPatternIds) && plan.selectedReadingPatternIds.length;
+        const selected = explicit
+          ? plan.selectedReadingPatternIds
+          : (plan.proposedReadingPatterns || []).filter((pattern) => pattern?.recommended).map((pattern) => pattern.id);
+        selectedReadingPatternIds = new Set(selected);
+        plan.selectedReadingPatternIds = Array.from(selectedReadingPatternIds);
+        return plan;
+      }
+
+      function renderPlanPreview(plan) {
+        const patterns = Array.isArray(plan.proposedReadingPatterns) ? plan.proposedReadingPatterns : [];
+        const documents = Array.isArray(plan.documents) ? plan.documents : [];
+        const quizPacks = Array.isArray(plan.quizPacks) ? plan.quizPacks : [];
+        $("planPreview").innerHTML = `
+          <section class="plan-card">
+            <h4>${escapeHtml(plan.title || "無題のパック")}</h4>
+            <p>${escapeHtml(plan.description || "説明はありません。")}</p>
+            <div class="plan-meta-grid">
+              <div class="plan-meta"><span>対象</span><strong>${escapeHtml(plan.targetUser || "-")}</strong></div>
+              <div class="plan-meta"><span>難易度</span><strong>${escapeHtml(plan.difficulty || "-")}</strong></div>
+              <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(plan.scale || "-")} / ${escapeHtml(plan.language || "-")}</strong></div>
+            </div>
+          </section>
+          <section class="plan-card">
+            <h4>章構成</h4>
+            <ul class="plan-list">
+              ${documents.map((document, index) => `
+                <li>
+                  <strong>${index + 1}. ${escapeHtml(document.title || document.id || "章")}</strong>
+                  <p>${escapeHtml(document.goal || "")}</p>
+                  <div class="muted">セクション数: ${escapeHtml(document.targetSectionCount || "-")}</div>
+                  ${(document.keyPoints || []).length ? `<ul class="key-points">${document.keyPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}
+                </li>
+              `).join("") || `<li><p class="muted">章はまだありません。</p></li>`}
+            </ul>
+          </section>
+          <section class="plan-card">
+            <h4>クイズ構成</h4>
+            <ul class="plan-list">
+              ${quizPacks.map((quiz) => `
+                <li>
+                  <strong>${escapeHtml(quiz.title || quiz.id || "クイズ")}</strong>
+                  <p>${escapeHtml(purposeLabel(quiz.purpose))} / ${escapeHtml(quiz.questionCount || "-")}問</p>
+                </li>
+              `).join("") || `<li><p class="muted">クイズはまだありません。</p></li>`}
+            </ul>
+          </section>
+          ${patterns.length ? `
+            <section class="plan-card">
+              <h4>読みパターン</h4>
+              <p>生成プロンプトに反映する読み上げ方針を選びます。確定単語ルールとは別系統です。</p>
+              <div class="reading-patterns">
+                ${patterns.map((pattern) => `
+                  <label class="pattern-option">
+                    <input type="checkbox" data-reading-pattern value="${escapeHtml(pattern.id || "")}" ${selectedReadingPatternIds.has(pattern.id) ? "checked" : ""} />
+                    <span>
+                      <strong>${escapeHtml(pattern.title || pattern.id || "読みパターン")}${pattern.recommended ? ` <span class="badge success">推奨</span>` : ""}</strong>
+                      <p>${escapeHtml(pattern.description || "")}</p>
+                      ${(pattern.examples || []).length ? `<span class="pattern-examples">${pattern.examples.map((example) => `<code>${escapeHtml(example)}</code>`).join("")}</span>` : ""}
+                    </span>
+                  </label>
+                `).join("")}
+              </div>
+            </section>
+          ` : ""}
+        `;
+        $$("[data-reading-pattern]").forEach((input) => input.addEventListener("change", () => {
+          writeSelectedReadingPatternsToPlanJson();
+          renderPlanPreview(readPlanJson());
+        }));
+      }
+
+      function renderPlanPreviewFromJson() {
+        const text = $("planJson").value.trim();
+        if (!text) {
+          selectedReadingPatternIds = new Set();
+          $("planPreview").innerHTML = `<p class="muted">プレビュー作成後、構成案がここに表示されます。</p>`;
+          return;
+        }
+        try {
+          const plan = JSON.parse(text);
+          selectedReadingPatternIds = new Set(Array.isArray(plan.selectedReadingPatternIds) ? plan.selectedReadingPatternIds : []);
+          renderPlanPreview(plan);
+        } catch (error) {
+          $("planPreview").innerHTML = `<p class="error">JSONを読み取れません: ${escapeHtml(error.message)}</p>`;
+        }
       }
 
       function setProgress(title, value, text, ratio = null) {
@@ -1787,7 +1937,9 @@
             ...ttsPayload(),
             ...sourcePayload()
           });
-          $("planJson").value = JSON.stringify(plan, null, 2);
+          initializeReadingPatternSelection(plan);
+          setPlanJson(plan);
+          renderPlanPreview(plan);
           finishProgress("プレビュー作成", "構成案を作成しました。");
         } catch (error) {
           $("status").textContent = error.message;
@@ -1801,7 +1953,8 @@
         setBusy(true, "Generating...");
         setProgress("生成", "Planning", "生成は完了後にログがまとめて返ります。");
         try {
-          const plan = JSON.parse($("planJson").value);
+          const plan = writeSelectedReadingPatternsToPlanJson();
+          if (!plan) throw new Error("先に構成プレビューを作成してください。");
           const generated = await requestJson("/generate-pack", {
             plan,
             outputMode: "manifest",
@@ -1879,7 +2032,10 @@
       });
       $("planBtn").addEventListener("click", createPlan);
       $("generateBtn").addEventListener("click", generatePack);
-      $("planJson").addEventListener("input", updateActionAvailability);
+      $("planJson").addEventListener("input", () => {
+        updateActionAvailability();
+        renderPlanPreviewFromJson();
+      });
       $("sourceText").addEventListener("input", syncInputState);
       $("reviseBtn").addEventListener("click", reviseTts);
       $("openPack").addEventListener("click", openPackModal);

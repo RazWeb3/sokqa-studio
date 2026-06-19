@@ -14,3 +14,11 @@ class TtsRule(BaseModel):
     source: str = Field(..., min_length=1, max_length=80)
     reading: str = Field(..., min_length=1, max_length=120)
     note: str | None = Field(default=None, max_length=200)
+
+
+class ReadingPattern(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=120)
+    description: str = Field(..., min_length=1, max_length=400)
+    examples: list[str] = Field(default_factory=list)
+    recommended: bool = False

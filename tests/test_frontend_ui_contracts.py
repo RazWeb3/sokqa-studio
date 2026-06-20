@@ -88,6 +88,24 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert '$("multilingualTtsOptions").hidden = ttsModeValue() !== "multilingual";' in html
 
 
+def test_generation_policy_unit_and_material_controls_are_available_and_sent() -> None:
+    html = _html()
+
+    for element_id in ["structurePolicy", "generationUnit", "docCount", "quizCount", "materialMode"]:
+        assert f'id="{element_id}"' in html
+    assert 'value="standard"' in html
+    assert 'value="listening"' in html
+    assert 'value="sequential"' in html
+    assert 'value="document"' in html
+    assert 'value="quiz"' in html
+    assert 'value="pack"' in html
+    assert 'value="reference"' in html
+    assert 'value="strict"' in html
+    assert "function generationControlsPayload()" in html
+    assert "...generationControlsPayload()," in html
+    assert "syncGenerationControlsToPlan(plan)" in html
+
+
 def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     html = _html()
 

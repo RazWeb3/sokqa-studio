@@ -141,6 +141,31 @@ def _resolve_selected_reading_patterns(plan):
     return plan.model_copy(update={"selectedReadingPatternIds": selected_ids})
 
 
+def _apply_generation_controls(plan: CoursePlan, request: GeneratePackRequest) -> CoursePlan:
+    updates = {}
+    for key in ["structurePolicy", "generationUnit", "docCount", "quizCount", "materialMode"]:
+        value = getattr(request, key, None)
+        if value is not None:
+            updates[key] = value
+    if updates:
+        plan = plan.model_copy(update=updates)
+
+    doc_count = plan.docCount
+    quiz_count = plan.quizCount
+    if plan.generationUnit == "document":
+        quiz_count = 0 if quiz_count is None else quiz_count
+    elif plan.generationUnit == "quiz":
+        doc_count = 0 if doc_count is None else doc_count
+
+    documents = plan.documents
+    quiz_packs = plan.quizPacks
+    if doc_count is not None:
+        documents = documents[:doc_count]
+    if quiz_count is not None:
+        quiz_packs = quiz_packs[:quiz_count]
+    return plan.model_copy(update={"docCount": doc_count, "quizCount": quiz_count, "documents": documents, "quizPacks": quiz_packs})
+
+
 def _effective_tts_mode(plan: CoursePlan, requested_mode=None):
     requested_mode = normalize_tts_reading_mode(requested_mode)
     if requested_mode:
@@ -188,6 +213,9 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         request.sourceText if request.sourceText is not None else plan.sourceText,
         request.sourceMode if request.sourceMode is not None else plan.sourceMode,
     )
+    plan = _apply_generation_controls(plan, request)
+    if plan.materialMode == "strict" and source_text:
+        source_mode = "document_only"
     plan.sourceText = source_text
     plan.sourceMode = source_mode
     if request.ttsLanguageSettings is not None:

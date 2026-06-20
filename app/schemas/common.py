@@ -10,6 +10,9 @@ QuizPurpose = Literal["key_concepts", "application", "integrated_review", "custo
 TtsReadingMode = Literal["none", "rule", "llm", "multilingual"]
 TtsLanguageMode = Literal["auto", "mixed", "select"]
 SourceMode = Literal["document_only", "document_reference"]
+StructurePolicy = Literal["standard", "listening", "sequential"]
+GenerationUnit = Literal["document", "quiz", "pack"]
+MaterialMode = Literal["reference", "strict"]
 
 SUPPORTED_PACK_LANGUAGES = {
     "ja": "ja-JP",

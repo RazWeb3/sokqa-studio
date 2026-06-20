@@ -53,6 +53,65 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "推奨されています" in prompt
 
 
+def test_generation_prompts_include_structure_and_material_policies() -> None:
+    plan = _plan()
+    plan.structurePolicy = "sequential"
+    plan.materialMode = "strict"
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "Structure policy: sequential" in prompt
+        assert "Introduce terms only after their prerequisites" in prompt
+        assert "Material mode: strict" in prompt
+        assert "Do not add outside facts, terms, examples, claims, or inferred details" in prompt
+
+
+def test_quiz_prompt_uses_source_text_when_documents_are_absent() -> None:
+    plan = _plan()
+    plan.generationUnit = "quiz"
+    plan.documents = []
+    plan.sourceText = "資料では二要素認証と長いパスワードの併用を扱います。"
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [])
+
+    assert "Quiz context source: sourceText" in prompt
+    assert "資料では二要素認証と長いパスワードの併用を扱います。" in prompt
+    assert "Use this sourceText as the direct quiz context" in prompt
+
+
+def test_quiz_prompt_prefers_generated_documents_over_source_text() -> None:
+    plan = _plan()
+    plan.sourceText = "この資料だけにあるバックアップ運用の話。"
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "Quiz context source: generated documents" in prompt
+    assert "安全なパスワード管理はアカウント保護に役立ちます。" in prompt
+    assert "この資料だけにあるバックアップ運用の話。" not in prompt
+
+
+def test_quiz_prompt_generic_fallback_when_no_context_exists() -> None:
+    plan = _plan()
+    plan.documents = []
+    plan.sourceText = None
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [])
+
+    assert "Quiz context source: generic fallback" in prompt
+    assert "No generated documents or sourceText were provided" in prompt
+
+
+def test_strict_quiz_only_source_text_prompt_forbids_outside_information() -> None:
+    plan = _plan()
+    plan.generationUnit = "quiz"
+    plan.materialMode = "strict"
+    plan.documents = []
+    plan.sourceText = "資料にある用語だけで確認問題を作る。"
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [])
+
+    assert "Quiz context source: sourceText" in prompt
+    assert "Use only this sourceText as quiz context" in prompt
+    assert "Do not add outside facts, terms, examples, claims, or inferred details" in prompt
+
+
 def test_selected_reading_patterns_are_injected_into_generation_prompts() -> None:
     plan = _plan()
     plan.ttsReadingMode = "llm"

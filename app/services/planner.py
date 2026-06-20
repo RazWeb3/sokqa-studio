@@ -66,6 +66,10 @@ FALLBACK_READING_PATTERNS = [
 
 
 def _document_count(request: PlanPackRequest) -> int:
+    if request.generationUnit == "quiz":
+        return 0
+    if request.docCount is not None:
+        return request.docCount
     if request.documentCount:
         return request.documentCount
     if request.scale == "quick":
@@ -77,6 +81,18 @@ def _document_count(request: PlanPackRequest) -> int:
 
 def _question_count(request: PlanPackRequest) -> int:
     return 20 if request.scale == "quick" else 30
+
+
+def _quiz_pack_count(request: PlanPackRequest, document_count: int) -> int:
+    if request.generationUnit == "document":
+        return 0
+    if request.quizCount is not None:
+        return request.quizCount
+    if request.quizPacks:
+        return len(request.quizPacks)
+    if request.generationUnit == "quiz":
+        return 1
+    return _range_quiz_pack_count(request.scale, document_count) + 1
 
 
 def _range_quiz_pack_count(scale: str, document_count: int) -> int:
@@ -110,6 +126,13 @@ def _section_count(request: PlanPackRequest) -> int:
 
 
 def _requested_document_count(request: PlanPackRequest) -> str:
+    if request.generationUnit == "quiz":
+        return "0 chapters. The user requested quiz-only generation."
+    if request.docCount is not None:
+        return (
+            f"{request.docCount} chapters exactly. "
+            "You must return exactly this many documents."
+        )
     if request.documentCount:
         return (
             f"{request.documentCount} chapters exactly. "
@@ -190,12 +213,21 @@ Input:
 - difficulty: {request.difficulty}
 - scale: {request.scale}
 - language: {request.language}
+- structurePolicy: {request.structurePolicy}
+- generationUnit: {request.generationUnit}
+- requested quizCount: {request.quizCount if request.quizCount is not None else "planner/default"}
+- materialMode: {request.materialMode}
 - requested documentCount: {_requested_document_count(request)}
 - requested sectionsPerDocument: {_requested_section_count(request)}
 {source_section}
 
 Rules:
 - The documents array is the most important output.
+- structurePolicy standard: use the existing balanced course structure.
+- structurePolicy listening: write the outline for listening-first content. Prefer one idea per section, short natural sentences, and avoid symbol-heavy or bullet-list-dependent structure.
+- structurePolicy sequential: organize from zero prerequisites to advanced use. Introduce terms only after their prerequisites and keep the learning path strictly incremental.
+- materialMode reference: reference material may be supplemented when needed.
+- materialMode strict: use only the supplied material. Do not add facts, terms, examples, claims, or inferred details that are absent from the material.
 - Also return shortTitle: a short pack identifier used as a title prefix, such as "Git入門". Keep it concise.
 - Chapter titles must describe the actual topic content. Do not return generic titles such as "第1章" or "{request.theme} 第1章".
 - The document order must be a natural learning path from basics to application/review.
@@ -239,6 +271,9 @@ Return this JSON shape:
 
 
 def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list[PlanQuizPack]:
+    requested_count = _quiz_pack_count(request, len(document_ids))
+    if requested_count <= 0:
+        return []
     if request.quizPacks:
         return [
             PlanQuizPack(
@@ -249,33 +284,46 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 difficulty=spec.difficulty,
                 sourceDocumentIds=document_ids,
             )
-            for spec in request.quizPacks
+            for spec in request.quizPacks[:requested_count]
         ]
 
-    range_count = _range_quiz_pack_count(request.scale, len(document_ids))
+    if requested_count == 1:
+        return [
+            PlanQuizPack(
+                id="quiz_single_01",
+                title="理解チェック",
+                purpose="key_concepts",
+                questionCount=_question_count(request),
+                difficulty=request.difficulty,
+                sourceDocumentIds=document_ids,
+            )
+        ]
+
+    range_count = max(1, requested_count - 1)
     chunks = _split_document_ids(document_ids, range_count)
     question_count = _question_count(request)
     quiz_packs = [
         PlanQuizPack(
             id=f"quiz_range_{index + 1:02d}",
-            title=RANGE_TITLES[range_count][index],
-            purpose=RANGE_PURPOSES[index],
+            title=(RANGE_TITLES.get(range_count) or [f"理解チェック{item + 1}" for item in range(range_count)])[index],
+            purpose=RANGE_PURPOSES[index] if index < len(RANGE_PURPOSES) else "application",
             questionCount=question_count,
             difficulty=request.difficulty,
             sourceDocumentIds=chunk,
         )
         for index, chunk in enumerate(chunks)
     ]
-    quiz_packs.append(
-        PlanQuizPack(
-            id="quiz_integrated_review",
-            title="総合・応用クイズ",
-            purpose="integrated_review",
-            questionCount=question_count,
-            difficulty=request.difficulty,
-            sourceDocumentIds=document_ids,
+    if len(quiz_packs) < requested_count:
+        quiz_packs.append(
+            PlanQuizPack(
+                id="quiz_integrated_review",
+                title="総合・応用クイズ",
+                purpose="integrated_review",
+                questionCount=question_count,
+                difficulty=request.difficulty,
+                sourceDocumentIds=document_ids,
+            )
         )
-    )
     return quiz_packs
 
 
@@ -329,8 +377,11 @@ def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequ
     if not isinstance(raw_documents, list):
         return []
 
-    if request.documentCount:
-        raw_documents = raw_documents[: request.documentCount]
+    requested_count = _document_count(request)
+    if requested_count == 0:
+        return []
+    if requested_count:
+        raw_documents = raw_documents[:requested_count]
 
     documents = []
     for index, raw in enumerate(raw_documents, start=1):
@@ -416,7 +467,7 @@ def _title_quiz_packs(quiz_packs: list[PlanQuizPack], documents: list[PlanDocume
             for document_id in quiz_pack.sourceDocumentIds
             if (index := _document_index(document_id, document_ids)) is not None
         ]
-        if quiz_pack.purpose == "integrated_review" or set(quiz_pack.sourceDocumentIds) == set(document_ids):
+        if quiz_pack.purpose == "integrated_review" or (total_count > 0 and set(quiz_pack.sourceDocumentIds) == set(document_ids)):
             chapter_range = _chapter_range_label(list(range(1, total_count + 1)), total_count)
             title = f"{short_title} 総合確認（{chapter_range}: 全範囲）"
         else:
@@ -524,11 +575,12 @@ def _is_generic_title(title: str, theme: str) -> bool:
 
 def _validate_planned_documents(documents: list[PlanDocument], request: PlanPackRequest) -> list[str]:
     errors = []
-    if not documents:
+    if request.generationUnit != "quiz" and not documents:
         errors.append("documents must not be empty")
-    if request.documentCount and len(documents) != request.documentCount:
-        errors.append(f"documents must contain exactly {request.documentCount} items")
-    if not request.documentCount and request.scale in SCALE_CHAPTER_RANGES and documents:
+    requested_count = _document_count(request)
+    if requested_count and len(documents) != requested_count:
+        errors.append(f"documents must contain exactly {requested_count} items")
+    if request.generationUnit != "quiz" and request.docCount is None and not request.documentCount and request.scale in SCALE_CHAPTER_RANGES and documents:
         min_count, max_count = SCALE_CHAPTER_RANGES[request.scale]
         if not min_count <= len(documents) <= max_count:
             errors.append(f"documents must contain {min_count}-{max_count} items for {request.scale} scale")
@@ -564,6 +616,8 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     title = f"{request.theme} 学習パック"
     description = f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。"
     source_text, source_mode = normalize_source(request.sourceText, request.sourceMode)
+    if request.materialMode == "strict" and source_text:
+        source_mode = "document_only"
     short_title = _fallback_short_title(request)
     tts_mode = _effective_request_tts_mode(request)
 
@@ -602,6 +656,11 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         targetUser=request.targetUser,
         difficulty=request.difficulty,
         scale=request.scale,
+        structurePolicy=request.structurePolicy,
+        generationUnit=request.generationUnit,
+        docCount=request.docCount,
+        quizCount=request.quizCount,
+        materialMode=request.materialMode,
         author=settings.sokqa_author,
         enableTtsOptimize=request.includeTts and request.enableTtsOptimize,
         ttsReadingMode=tts_mode,

@@ -29,10 +29,93 @@ def _selected_reading_patterns_block(plan: CoursePlan) -> str:
     return "\n\n" + "\n".join(lines)
 
 
+def _structure_policy_block(plan: CoursePlan) -> str:
+    if plan.structurePolicy == "listening":
+        return """
+Structure policy: listening
+- Make the generated content suitable for listening study.
+- Prefer short natural sentences with one idea per sentence.
+- Minimize symbol-heavy notation, tables, and bullet-list-dependent explanations.
+- Use smooth spoken transitions so the content remains understandable without looking at the screen.
+""".rstrip()
+    if plan.structurePolicy == "sequential":
+        return """
+Structure policy: sequential
+- Assume zero prerequisite knowledge and build concepts step by step.
+- Introduce terms only after their prerequisites have been explained.
+- Keep the learning path incremental from basics to applied use.
+- Avoid jumping ahead to advanced terms before the learner has the necessary foundation.
+""".rstrip()
+    return """
+Structure policy: standard
+- Use the existing balanced Sokqa course style.
+- Balance conceptual explanation, practical examples, and review.
+""".rstrip()
+
+
+def _material_mode_block(plan: CoursePlan) -> str:
+    if plan.materialMode == "strict":
+        return """
+Material mode: strict
+- Generate only from the provided reference material.
+- Do not add outside facts, terms, examples, claims, or inferred details.
+- If the material does not contain enough information, keep the output narrower rather than supplementing it.
+""".rstrip()
+    return """
+Material mode: reference
+- Use reference material as the foundation when provided.
+- You may supplement only as needed to make the material natural and useful.
+""".rstrip()
+
+
+def _quiz_context_block(plan: CoursePlan, source_documents: list[SokqaDocumentPack]) -> str:
+    document_context = "\n".join(
+        f"- {doc.title}: " + " ".join(item.text for item in doc.documents[:5])
+        for doc in source_documents
+    ).strip()
+    if document_context:
+        return f"""
+Quiz context source: generated documents
+- Use the generated document content below as the primary quiz context.
+- This document context takes priority over any raw reference material on the plan.
+
+Generated document context:
+{document_context}
+""".strip()
+
+    source_text = (plan.sourceText or "").strip()
+    if source_text:
+        if plan.materialMode == "strict":
+            source_instruction = (
+                "Use only this sourceText as quiz context. Do not add outside facts, terms, examples, "
+                "claims, or inferred details that are absent from it."
+            )
+        else:
+            source_instruction = (
+                "Use this sourceText as the direct quiz context. You may supplement only when needed, "
+                "without drifting away from the material's intent."
+            )
+        return f"""
+Quiz context source: sourceText
+{source_instruction}
+
+SourceText quiz context:
+{source_text}
+""".strip()
+
+    return """
+Quiz context source: generic fallback
+- No generated documents or sourceText were provided.
+- Create useful questions from the course theme, target user, and difficulty.
+""".strip()
+
+
 def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     source_block = source_prompt_block(plan.sourceText, plan.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
     reading_policy_section = _selected_reading_patterns_block(plan)
+    structure_policy = _structure_policy_block(plan)
+    material_policy = _material_mode_block(plan)
     return f"""Create one Sokqa document JSON.
 
 Rules:
@@ -57,6 +140,8 @@ Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
 - difficulty: {plan.difficulty}
+{structure_policy}
+{material_policy}
 {reading_policy_section}
 {source_section}
 
@@ -92,11 +177,10 @@ def quiz_generation_prompt(
     quiz_pack: PlanQuizPack,
     source_documents: list[SokqaDocumentPack],
 ) -> str:
-    source_text = "\n".join(
-        f"- {doc.title}: " + " ".join(item.text for item in doc.documents[:5])
-        for doc in source_documents
-    )
+    quiz_context = _quiz_context_block(plan, source_documents)
     reading_policy_section = _selected_reading_patterns_block(plan)
+    structure_policy = _structure_policy_block(plan)
+    material_policy = _material_mode_block(plan)
     integration_rules = ""
     if quiz_pack.purpose == "integrated_review":
         integration_rules = """
@@ -104,7 +188,7 @@ def quiz_generation_prompt(
 - Limit questions to integrated, applied, or practical scenario questions that connect multiple documents or fields.
 - Avoid repeating the same topics, angles, or issues covered by the range-specific quiz packs.
 """
-    return f"""Create one Sokqa quiz JSON from the provided document content.
+    return f"""Create one Sokqa quiz JSON from the provided quiz context.
 
 Rules:
 - Return strict JSON only.
@@ -117,7 +201,7 @@ Rules:
 - answerIndex must be an integer from 0 to 3.
 - Output answerIndex as a JSON number, never as a string. Use 2, not "2".
 - Distribute answerIndex across questions. Do not use the same answerIndex for every question.
-- Each question must be a meaningful question sentence based on the source documents. Do not use serial labels such as "{quiz_pack.title} 1".
+- Each question must be a meaningful question sentence based on the quiz context. Do not use serial labels such as "{quiz_pack.title} 1".
 - Each choices array must contain 4 meaningful strings, not objects.
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
@@ -125,8 +209,8 @@ Rules:
 - Do not output tts in the first quiz generation step.
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 - Do not add pronunciation-only parentheticals in question, choices, or explanation; parentheses may be used only for meaning explanations, not readings.
-- Every question must be grounded in the source documents.
-- Ground content in the source, but do not mention the source or documents in learner-facing text.
+- Every question must be grounded in the quiz context.
+- Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
 - Do not copy existing exam questions verbatim.
 {integration_rules}
@@ -134,6 +218,8 @@ Rules:
 Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
+{structure_policy}
+{material_policy}
 {reading_policy_section}
 
 Quiz pack:
@@ -142,8 +228,8 @@ Quiz pack:
 - purpose: {quiz_pack.purpose}
 - question count: {quiz_pack.questionCount}
 
-Source documents:
-{source_text}
+Quiz context:
+{quiz_context}
 
 Required JSON shape:
 {{

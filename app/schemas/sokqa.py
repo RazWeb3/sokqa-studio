@@ -4,10 +4,13 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.schemas.common import (
     Difficulty,
+    GenerationUnit,
+    MaterialMode,
     QuizPurpose,
     ReadingPattern,
     Scale,
     SourceMode,
+    StructurePolicy,
     TtsLanguageSettings,
     TtsReadingMode,
     TtsRule,
@@ -64,6 +67,11 @@ class CoursePlan(BaseModel):
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
     ttsLanguageSettings: TtsLanguageSettings | None = None
+    structurePolicy: StructurePolicy = "standard"
+    generationUnit: GenerationUnit = "pack"
+    docCount: int | None = Field(default=None, ge=0, le=20)
+    quizCount: int | None = Field(default=None, ge=0, le=20)
+    materialMode: MaterialMode = "reference"
     model: str | None = None
     docModel: str | None = None
     quizModel: str | None = None

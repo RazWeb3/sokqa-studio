@@ -80,6 +80,90 @@ def test_quick_plan_and_generate() -> None:
     assert len(generated["files"]) == len(generated["manifest"]["items"]) + 1
 
 
+def test_generation_unit_document_only_generates_only_documents() -> None:
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="Document Only",
+            targetUser="Learners",
+            generationUnit="document",
+            docCount=1,
+            quizCount=3,
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+
+    assert len(generated.manifest.items) == 1
+    assert all(item.kind == "document" for item in generated.manifest.items)
+    assert generated.plan.generationUnit == "document"
+
+
+def test_generation_unit_quiz_only_generates_only_quizzes() -> None:
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="Quiz Only",
+            targetUser="Learners",
+            generationUnit="quiz",
+            quizCount=1,
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+
+    assert len(generated.manifest.items) == 1
+    assert all(item.kind == "quiz" for item in generated.manifest.items)
+    assert generated.plan.generationUnit == "quiz"
+
+
+def test_quiz_only_generation_uses_source_text_as_mock_context() -> None:
+    source_text = "資料固有の論点として、二要素認証と長いパスワードの併用を扱います。"
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="Quiz Source",
+            targetUser="Learners",
+            generationUnit="quiz",
+            quizCount=1,
+            sourceText=source_text,
+            materialMode="strict",
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    quiz_file = next(file for file in generated.files if file.kind == "quiz")
+    first_explanation = quiz_file.content["questions"][0]["explanation"]
+
+    assert "二要素認証と長いパスワード" in first_explanation
+    assert generated.plan.sourceMode == "document_only"
+    assert generated.plan.materialMode == "strict"
+
+
+def test_generate_request_can_override_generation_counts() -> None:
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="Override Counts",
+            targetUser="Learners",
+            scale="quick",
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(
+        GeneratePackRequest(
+            plan=plan,
+            persist=False,
+            generationUnit="pack",
+            docCount=1,
+            quizCount=1,
+        )
+    )
+
+    assert _kind_count([item.model_dump() for item in generated.manifest.items], "document") == 1
+    assert _kind_count([item.model_dump() for item in generated.manifest.items], "quiz") == 1
+
+
 def test_creator_id_resolution_request_env_and_default(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "default_creator_id", "creator_env")

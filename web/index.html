@@ -363,6 +363,15 @@
                     <button data-scale="auto" type="button">auto</button>
                   </div>
                 </div>
+                <label>構成方針<select id="structurePolicy"><option value="standard" selected>標準</option><option value="listening">聞き流し向け</option><option value="sequential">入門から順に</option></select></label>
+                <div class="field-grid">
+                  <label>生成単位<select id="generationUnit"><option value="pack" selected>ドキュメント＋クイズ</option><option value="document">ドキュメントのみ</option><option value="quiz">クイズのみ</option></select></label>
+                  <label>資料モード<select id="materialMode"><option value="reference" selected>参考資料として使う</option><option value="strict">資料準拠（コピー専用）</option></select></label>
+                </div>
+                <div class="field-grid">
+                  <label>ドキュメント数<input id="docCount" type="number" min="0" max="20" placeholder="プランナー提案" /></label>
+                  <label>クイズ数<input id="quizCount" type="number" min="0" max="20" placeholder="プランナー提案" /></label>
+                </div>
                 <label>読み上げ補正<select id="ttsReadingMode"><option value="none">なし</option><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（AI補正）</option><option value="multilingual">多言語（AI補正）</option></select></label>
                 <section class="plan-card">
                   <div class="issue-top">
@@ -770,6 +779,42 @@
         };
       }
 
+      function optionalCountValue(id) {
+        const raw = $(id).value.trim();
+        if (!raw) return undefined;
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 0 || value > 20) throw new Error(`${id} は0〜20の整数で入力してください。`);
+        return value;
+      }
+
+      function generationControlsPayload() {
+        const payload = {
+          structurePolicy: $("structurePolicy").value,
+          generationUnit: $("generationUnit").value,
+          materialMode: $("materialMode").value,
+        };
+        const docCount = optionalCountValue("docCount");
+        const quizCount = optionalCountValue("quizCount");
+        if (docCount !== undefined) payload.docCount = docCount;
+        if (quizCount !== undefined) payload.quizCount = quizCount;
+        return payload;
+      }
+
+      function syncGenerationControlsToPlan(plan) {
+        if (!plan) return plan;
+        Object.assign(plan, generationControlsPayload());
+        return plan;
+      }
+
+      function applyGenerationControlsToPlan(plan) {
+        if (!plan) return;
+        $("structurePolicy").value = plan.structurePolicy || "standard";
+        $("generationUnit").value = plan.generationUnit || "pack";
+        $("materialMode").value = plan.materialMode || "reference";
+        $("docCount").value = plan.docCount ?? "";
+        $("quizCount").value = plan.quizCount ?? "";
+      }
+
       function applyTtsLanguageSettingsToControls(settings = {}) {
         populateTtsLanguageSelects();
         ["documentText", "question", "choices", "explanation"].forEach((key) => {
@@ -798,6 +843,7 @@
         selectedReadingPatternIds = selectedReadingPatternIdsFromControls();
         plan.selectedReadingPatternIds = Array.from(selectedReadingPatternIds);
         syncTtsLanguageSettingsToPlan(plan);
+        syncGenerationControlsToPlan(plan);
         setPlanJson(plan);
         return plan;
       }
@@ -830,6 +876,9 @@
               <div class="plan-meta"><span>対象</span><strong>${escapeHtml(plan.targetUser || "-")}</strong></div>
               <div class="plan-meta"><span>難易度</span><strong>${escapeHtml(plan.difficulty || "-")}</strong></div>
               <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(plan.scale || "-")} / ${escapeHtml(plan.language || "-")}</strong></div>
+              <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(plan.structurePolicy || "standard")}</strong></div>
+              <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(plan.generationUnit || "pack")}</strong></div>
+              <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(plan.materialMode || "reference")}</strong></div>
             </div>
           </section>
           <section class="plan-card">
@@ -890,10 +939,12 @@
         }
         try {
           const plan = JSON.parse(text);
+          applyGenerationControlsToPlan(plan);
           applyTtsLanguageSettingsToControls(plan.ttsLanguageSettings || {});
           selectedReadingPatternIds = usesReadingPatterns() ? new Set(Array.isArray(plan.selectedReadingPatternIds) ? plan.selectedReadingPatternIds : []) : new Set();
           if (!usesReadingPatterns()) plan.selectedReadingPatternIds = [];
           syncTtsLanguageSettingsToPlan(plan);
+          syncGenerationControlsToPlan(plan);
           renderPlanPreview(plan);
         } catch (error) {
           $("planPreview").innerHTML = `<p class="error">JSONを読み取れません: ${escapeHtml(error.message)}</p>`;
@@ -2259,9 +2310,11 @@
             language: languageValue(),
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
+            ...generationControlsPayload(),
             ...ttsPayload(),
             ...sourcePayload()
           });
+          applyGenerationControlsToPlan(plan);
           initializeReadingPatternSelection(plan);
           setPlanJson(plan);
           renderPlanPreview(plan);
@@ -2284,6 +2337,7 @@
             plan,
             outputMode: "manifest",
             persist: true,
+            ...generationControlsPayload(),
             ...ttsPayload(),
             ...sourcePayload()
           });
@@ -2368,6 +2422,15 @@
       }));
       $("language").addEventListener("change", syncPackLanguageUi);
       $("ttsReadingMode").addEventListener("change", syncTtsModeUi);
+      ["structurePolicy", "generationUnit", "materialMode", "docCount", "quizCount"].forEach((id) => $(id).addEventListener("change", () => {
+        let plan;
+        try { plan = readPlanJson(); } catch (_error) { plan = null; }
+        if (plan) {
+          syncGenerationControlsToPlan(plan);
+          setPlanJson(plan);
+          renderPlanPreview(plan);
+        }
+      }));
       $$("[data-tts-language-mode], [data-tts-language-select]").forEach((input) => input.addEventListener("change", () => {
         let plan;
         try { plan = readPlanJson(); } catch (_error) { plan = null; }

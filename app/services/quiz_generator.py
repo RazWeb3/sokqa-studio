@@ -5,11 +5,13 @@ from app.services.generation_status import record_generation_source
 from app.services.prompts import quiz_generation_prompt
 
 
-def _source_snippets(document_packs: list[SokqaDocumentPack]) -> list[str]:
+def _source_snippets(document_packs: list[SokqaDocumentPack], plan: CoursePlan | None = None) -> list[str]:
     snippets: list[str] = []
     for pack in document_packs:
         for item in pack.documents:
             snippets.append(item.text)
+    if not snippets and plan and plan.sourceText:
+        snippets.append(plan.sourceText)
     return snippets or ["学習内容を確認します。"]
 
 
@@ -42,7 +44,7 @@ def generate_mock_quiz_pack(
     quiz_plan: PlanQuizPack,
     document_packs: list[SokqaDocumentPack],
 ) -> SokqaQuizPack:
-    snippets = _source_snippets(document_packs)
+    snippets = _source_snippets(document_packs, plan)
     questions: list[SokqaQuestion] = []
     for index in range(1, quiz_plan.questionCount + 1):
         source = snippets[(index - 1) % len(snippets)]

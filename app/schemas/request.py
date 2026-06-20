@@ -6,6 +6,9 @@ from app.schemas.common import (
     Difficulty,
     Scale,
     SourceMode,
+    GenerationUnit,
+    MaterialMode,
+    StructurePolicy,
     TtsLanguageSettings,
     TtsReadingMode,
     TtsRule,
@@ -141,6 +144,11 @@ class PlanPackRequest(BaseModel):
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
     ttsLanguageSettings: TtsLanguageSettings | None = None
+    structurePolicy: StructurePolicy = "standard"
+    generationUnit: GenerationUnit = "pack"
+    docCount: int | None = Field(default=None, ge=0, le=20)
+    quizCount: int | None = Field(default=None, ge=0, le=20)
+    materialMode: MaterialMode = "reference"
     model: str | None = Field(default=None, min_length=1, max_length=120)
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)
@@ -233,6 +241,11 @@ class GeneratePackRequest(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=160)
     ttsReadingMode: TtsReadingMode | None = None
     ttsLanguageSettings: TtsLanguageSettings | None = None
+    structurePolicy: StructurePolicy | None = None
+    generationUnit: GenerationUnit | None = None
+    docCount: int | None = Field(default=None, ge=0, le=20)
+    quizCount: int | None = Field(default=None, ge=0, le=20)
+    materialMode: MaterialMode | None = None
     sourceText: str | None = Field(default=None, max_length=50000)
     sourceMode: SourceMode | None = None
     model: str | None = Field(default=None, min_length=1, max_length=120)

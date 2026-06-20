@@ -99,6 +99,54 @@ def test_planner_keeps_reading_patterns_only_for_llm_mode(monkeypatch) -> None:
     assert none_plan.proposedReadingPatterns == []
 
 
+def test_structure_policy_and_material_mode_are_recorded_and_prompted(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    request = PlanPackRequest(
+        theme="社内手順",
+        targetUser="新人",
+        scale="quick",
+        structurePolicy="listening",
+        materialMode="strict",
+        sourceText="手順Aだけを説明する。",
+    )
+    plan = planner.create_course_plan(request)
+
+    assert plan.structurePolicy == "listening"
+    assert plan.materialMode == "strict"
+    assert plan.sourceMode == "document_only"
+
+    prompt = planner._planner_prompt(request)
+    assert "structurePolicy listening" in prompt
+    assert "materialMode strict" in prompt
+    assert "Do not add facts, terms, examples, claims, or inferred details" in prompt
+
+
+def test_generation_unit_and_counts_shape_plan(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    docs_only = planner.create_course_plan(
+        PlanPackRequest(theme="Git", targetUser="初学者", generationUnit="document", docCount=1, quizCount=5)
+    )
+    quiz_only = planner.create_course_plan(
+        PlanPackRequest(theme="Git", targetUser="初学者", generationUnit="quiz", quizCount=1)
+    )
+    mixed = planner.create_course_plan(
+        PlanPackRequest(theme="Git", targetUser="初学者", generationUnit="pack", docCount=1, quizCount=1)
+    )
+
+    assert docs_only.generationUnit == "document"
+    assert len(docs_only.documents) == 1
+    assert docs_only.quizPacks == []
+    assert quiz_only.generationUnit == "quiz"
+    assert quiz_only.documents == []
+    assert len(quiz_only.quizPacks) == 1
+    assert len(mixed.documents) == 1
+    assert len(mixed.quizPacks) == 1
+
+
 def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
     plan = planner.create_course_plan(
         PlanPackRequest(

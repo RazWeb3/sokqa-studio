@@ -2,7 +2,7 @@ import re
 from typing import Any
 
 from app.config import get_settings
-from app.schemas.common import ReadingPattern
+from app.schemas.common import ReadingPattern, normalize_tts_reading_mode
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
@@ -149,9 +149,35 @@ def _fallback_short_title(request: PlanPackRequest) -> str:
     return text
 
 
+def _effective_request_tts_mode(request: PlanPackRequest) -> str:
+    if not request.includeTts or not request.enableTtsOptimize:
+        return "none"
+    return normalize_tts_reading_mode(request.ttsReadingMode) or get_settings().tts_reading_mode
+
+
 def _planner_prompt(request: PlanPackRequest) -> str:
     source_block = source_prompt_block(request.sourceText, request.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
+    tts_mode = _effective_request_tts_mode(request)
+    reading_pattern_rules = (
+        """
+- Also propose optional reading-pattern policies that may help TTS generation for this theme.
+- proposedReadingPatterns are selectable policies, not fixed word dictionaries. Do not mix them with ttsRules.
+- Each reading pattern should describe a general reading strategy, include 1 to 3 examples, and use a stable snake_case id.
+- Consider these common categories and propose the ones that are relevant to the theme:
+  - dot notation and symbol-heavy file/config names, e.g. ".git -> ドットギット", ".env -> ドットイーエヌブイ", ".gitignore -> ドットギットイグノア".
+  - alphabet reading for abbreviations, e.g. "OS -> オーエス", "API -> エーピーアイ", "URL -> ユーアールエル".
+  - commands and technical phrases, e.g. "git checkout -> ギット チェックアウト".
+  - camelCase or delimiter-separated terms, e.g. "localStorage -> ローカルストレージ".
+- Prioritize categories that match the theme/source text. Do not force unrelated patterns just to fill the list.
+- Examples must use the concrete "source -> reading" format so users can judge the pattern quickly.
+""".rstrip()
+        if tts_mode == "llm"
+        else """
+- Do not propose reading-pattern policies because the selected TTS mode will not use them.
+- Return proposedReadingPatterns as an empty array.
+""".rstrip()
+    )
     return f"""
 Return strict JSON only. Do not use markdown fences.
 
@@ -184,16 +210,7 @@ Rules:
 - keyPoints should contain 3 to 6 concise items.
 - If sectionsPerDocument was not specified, targetSectionCount must be an integer from 30 to 50 for every document.
 - targetSectionCount must be an integer from 1 to 120.
-- Also propose optional reading-pattern policies that may help TTS generation for this theme.
-- proposedReadingPatterns are selectable policies, not fixed word dictionaries. Do not mix them with ttsRules.
-- Each reading pattern should describe a general reading strategy, include 1 to 3 examples, and use a stable snake_case id.
-- Consider these common categories and propose the ones that are relevant to the theme:
-  - dot notation and symbol-heavy file/config names, e.g. ".git -> ドットギット", ".env -> ドットイーエヌブイ", ".gitignore -> ドットギットイグノア".
-  - alphabet reading for abbreviations, e.g. "OS -> オーエス", "API -> エーピーアイ", "URL -> ユーアールエル".
-  - commands and technical phrases, e.g. "git checkout -> ギット チェックアウト".
-  - camelCase or delimiter-separated terms, e.g. "localStorage -> ローカルストレージ".
-- Prioritize categories that match the theme/source text. Do not force unrelated patterns just to fill the list.
-- Examples must use the concrete "source -> reading" format so users can judge the pattern quickly.
+{reading_pattern_rules}
 
 Return this JSON shape:
 {{
@@ -548,6 +565,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     description = f"{request.targetUser}向けの{request.theme}用Sokqa学習パックです。"
     source_text, source_mode = normalize_source(request.sourceText, request.sourceMode)
     short_title = _fallback_short_title(request)
+    tts_mode = _effective_request_tts_mode(request)
 
     if settings.gemini_provider == "gemini":
         try:
@@ -566,6 +584,8 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         raise ValueError("; ".join(validation_errors))
 
     tts_rules = request.userTtsRules if request.includeTts else []
+    if tts_mode != "llm":
+        reading_patterns = []
     documents = _prefix_document_titles(documents, short_title)
     quiz_packs = _title_quiz_packs(_build_quiz_packs(request, [document.id for document in documents]), documents, short_title)
 
@@ -584,7 +604,8 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         scale=request.scale,
         author=settings.sokqa_author,
         enableTtsOptimize=request.includeTts and request.enableTtsOptimize,
-        ttsReadingMode=request.ttsReadingMode,
+        ttsReadingMode=tts_mode,
+        ttsLanguageSettings=request.ttsLanguageSettings if tts_mode == "multilingual" else None,
         model=request.model,
         docModel=request.docModel,
         quizModel=request.quizModel,

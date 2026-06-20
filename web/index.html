@@ -155,11 +155,6 @@
       .segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
       .segmented button { min-height: 36px; background: transparent; color: var(--muted); border-color: transparent; border-radius: 7px; padding: 0 8px; font-size: 13px; }
       .segmented .active { background: white; color: var(--fg); border-color: var(--border); }
-      .switch-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
-      .switch { width: 46px; min-width: 46px; height: 26px; min-height: 26px; border-radius: 999px; padding: 3px; border: 0; background: color-mix(in oklch, var(--accent) 58%, white); justify-content: flex-start; }
-      .switch::before { content: ""; width: 20px; height: 20px; border-radius: 999px; background: white; box-shadow: 0 2px 8px rgba(15,23,42,.18); transition: transform .16s ease; }
-      .switch.off { background: color-mix(in oklch, var(--muted) 28%, white); }
-      .switch.off::before { transform: translateX(20px); }
       .json { min-height: 210px; font-family: var(--mono); font-size: 13px; line-height: 1.55; color: oklch(27% .03 235); background: oklch(98.8% .004 235); }
       .json-details { display: grid; gap: 10px; }
       .plan-preview { display: grid; gap: 14px; }
@@ -352,8 +347,9 @@
                 <label>対象ユーザー<input id="targetUser" value="IT初心者の社会人" maxlength="160" /></label>
                 <div class="field-grid">
                   <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
-                  <label>言語<input id="language" value="ja" maxlength="20" /></label>
+                  <label>パック言語<select id="language"><option value="ja" selected>日本語 / ja</option><option value="en">English / en</option><option value="zh">中文 / zh</option><option value="ko">한국어 / ko</option><option value="es">Español / es</option><option value="fr">Français / fr</option><option value="de">Deutsch / de</option><option value="it">Italiano / it</option><option value="pt">Português / pt</option><option value="custom">カスタム</option></select></label>
                 </div>
+                <label id="customLanguageLine" hidden>カスタム言語コード<input id="customLanguageCode" value="pt-BR" maxlength="20" placeholder="pt-BR / es-419 など" /></label>
                 <div class="tight">
                   <span class="muted">規模</span>
                   <div class="segmented" id="scaleSegment">
@@ -362,11 +358,23 @@
                     <button data-scale="auto" type="button">auto</button>
                   </div>
                 </div>
-                <div class="switch-line">
-                  <div><strong>TTS最適化</strong><div class="muted">読み上げ用テキストを同時に整えます</div></div>
-                  <button class="switch" id="ttsSwitch" aria-label="TTS最適化" type="button" aria-pressed="true"></button>
-                </div>
-                <label>TTS読みモード<select id="ttsReadingMode"><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（AI補正）</option></select></label>
+                <label>読み上げ補正<select id="ttsReadingMode"><option value="none">なし</option><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（AI補正）</option><option value="multilingual">多言語（AI補正）</option></select></label>
+                <details id="multilingualTtsOptions" class="plan-card" hidden>
+                  <summary>多言語読み上げの詳細</summary>
+                  <div class="stack">
+                    <p class="hint">多言語（AI補正）のときだけ送信します。選択した言語はインラインタグと文字化けガードの許可スクリプトに使います。</p>
+                    <div class="field-grid">
+                      <label>ドキュメント本文<select id="documentTextLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>本文の言語<select id="documentTextLanguage" data-tts-language-select></select></label>
+                      <label>クイズ問題文<select id="questionLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>問題文の言語<select id="questionLanguage" data-tts-language-select></select></label>
+                      <label>クイズ選択肢<select id="choicesLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>選択肢の言語<select id="choicesLanguage" data-tts-language-select></select></label>
+                      <label>クイズ解説<select id="explanationLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>解説の言語<select id="explanationLanguage" data-tts-language-select></select></label>
+                    </div>
+                  </div>
+                </details>
                 <label>元資料テキスト<textarea id="sourceText" placeholder="社内資料や教材メモを貼り付けると、生成時に参照します。"></textarea></label>
                 <label>資料の扱い<select id="sourceMode" disabled><option value="document_reference">資料を参考に</option><option value="document_only">資料のみ</option></select></label>
                 <div class="actions"><button id="planBtn" type="button">プレビュー作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
@@ -547,6 +555,17 @@
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
       const INITIAL_CREDITS = 1.0;
       const RECORDING_CHUNK_SIZE = 20;
+      const PACK_LANGUAGE_OPTIONS = [
+        ["ja", "日本語 / ja"],
+        ["en", "English / en"],
+        ["zh", "中文 / zh"],
+        ["ko", "한국어 / ko"],
+        ["es", "Español / es"],
+        ["fr", "Français / fr"],
+        ["de", "Deutsch / de"],
+        ["it", "Italiano / it"],
+        ["pt", "Português / pt"],
+      ];
 
       let currentPacks = [];
       let selectedPack = null;
@@ -599,8 +618,58 @@
         return JSON.parse(text);
       }
 
+      function populateTtsLanguageSelects() {
+        const options = PACK_LANGUAGE_OPTIONS.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
+        $$("[data-tts-language-select]").forEach((select) => {
+          if (!select.innerHTML) select.innerHTML = options;
+        });
+      }
+
+      function languageCodePattern(value) {
+        return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(value);
+      }
+
+      function languageValue() {
+        const value = $("language").value;
+        if (value !== "custom") return value;
+        const custom = $("customLanguageCode").value.trim();
+        if (!languageCodePattern(custom)) throw new Error("カスタム言語コードは pt-BR や es-419 の形式で入力してください。");
+        return custom;
+      }
+
+      function ttsLanguageSettingsFromControls() {
+        if (ttsModeValue() !== "multilingual") return null;
+        return {
+          documentTextLanguageMode: $("documentTextLanguageMode").value,
+          documentTextLanguage: $("documentTextLanguage").value,
+          questionLanguageMode: $("questionLanguageMode").value,
+          questionLanguage: $("questionLanguage").value,
+          choicesLanguageMode: $("choicesLanguageMode").value,
+          choicesLanguage: $("choicesLanguage").value,
+          explanationLanguageMode: $("explanationLanguageMode").value,
+          explanationLanguage: $("explanationLanguage").value,
+        };
+      }
+
+      function applyTtsLanguageSettingsToControls(settings = {}) {
+        populateTtsLanguageSelects();
+        ["documentText", "question", "choices", "explanation"].forEach((key) => {
+          const mode = $(`${key}LanguageMode`);
+          const language = $(`${key}Language`);
+          if (mode) mode.value = settings?.[`${key}LanguageMode`] || "auto";
+          if (language) language.value = settings?.[`${key}Language`] || "en";
+        });
+      }
+
+      function syncTtsLanguageSettingsToPlan(plan) {
+        if (!plan) return plan;
+        if (ttsModeValue() === "multilingual") plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();
+        else delete plan.ttsLanguageSettings;
+        return plan;
+      }
+
       function selectedReadingPatternIdsFromControls() {
-        if (!isLlmReadingMode()) return new Set();
+        if (!usesReadingPatterns()) return new Set();
         return new Set($$("[data-reading-pattern]:checked").map((input) => input.value));
       }
 
@@ -609,12 +678,13 @@
         if (!plan) return null;
         selectedReadingPatternIds = selectedReadingPatternIdsFromControls();
         plan.selectedReadingPatternIds = Array.from(selectedReadingPatternIds);
+        syncTtsLanguageSettingsToPlan(plan);
         setPlanJson(plan);
         return plan;
       }
 
       function initializeReadingPatternSelection(plan) {
-        if (!isLlmReadingMode()) {
+        if (!usesReadingPatterns()) {
           selectedReadingPatternIds = new Set();
           plan.selectedReadingPatternIds = [];
           return plan;
@@ -630,7 +700,7 @@
 
       function renderPlanPreview(plan) {
         const patterns = Array.isArray(plan.proposedReadingPatterns) ? plan.proposedReadingPatterns : [];
-        const showReadingPatterns = isLlmReadingMode() && patterns.length;
+        const showReadingPatterns = usesReadingPatterns() && patterns.length;
         const documents = Array.isArray(plan.documents) ? plan.documents : [];
         const quizPacks = Array.isArray(plan.quizPacks) ? plan.quizPacks : [];
         $("planPreview").innerHTML = `
@@ -670,7 +740,7 @@
           ${showReadingPatterns ? `
             <section class="plan-card">
               <h4>読みパターン</h4>
-              <p>AI補正で使う読み上げ方針を選びます。辞書ルールのみのモードでは使用しません。</p>
+              <p>高精度（AI補正）で使う読み上げ方針を選びます。なし・標準（ルールのみ）・多言語（AI補正）では使用しません。</p>
               <div class="reading-patterns">
                 ${patterns.map((pattern) => `
                   <label class="pattern-option">
@@ -701,16 +771,18 @@
         }
         try {
           const plan = JSON.parse(text);
-          selectedReadingPatternIds = isLlmReadingMode() ? new Set(Array.isArray(plan.selectedReadingPatternIds) ? plan.selectedReadingPatternIds : []) : new Set();
-          if (!isLlmReadingMode()) plan.selectedReadingPatternIds = [];
+          applyTtsLanguageSettingsToControls(plan.ttsLanguageSettings || {});
+          selectedReadingPatternIds = usesReadingPatterns() ? new Set(Array.isArray(plan.selectedReadingPatternIds) ? plan.selectedReadingPatternIds : []) : new Set();
+          if (!usesReadingPatterns()) plan.selectedReadingPatternIds = [];
+          syncTtsLanguageSettingsToPlan(plan);
           renderPlanPreview(plan);
         } catch (error) {
           $("planPreview").innerHTML = `<p class="error">JSONを読み取れません: ${escapeHtml(error.message)}</p>`;
         }
       }
 
-      function isLlmReadingMode() {
-        return isTtsEnabled() && $("ttsReadingMode").value === "llm";
+      function usesReadingPatterns() {
+        return ttsModeValue() === "llm";
       }
 
       function syncReadingPatternMode() {
@@ -721,7 +793,7 @@
           return;
         }
         if (!plan) return;
-        if (isLlmReadingMode()) {
+        if (usesReadingPatterns()) {
           const selected = selectedReadingPatternIds.size
             ? Array.from(selectedReadingPatternIds)
             : (plan.proposedReadingPatterns || []).filter((pattern) => pattern?.recommended).map((pattern) => pattern.id);
@@ -731,8 +803,19 @@
           selectedReadingPatternIds = new Set();
           plan.selectedReadingPatternIds = [];
         }
+        syncTtsLanguageSettingsToPlan(plan);
         setPlanJson(plan);
         renderPlanPreview(plan);
+      }
+
+      function syncTtsModeUi() {
+        $("multilingualTtsOptions").hidden = ttsModeValue() !== "multilingual";
+        populateTtsLanguageSelects();
+        syncReadingPatternMode();
+      }
+
+      function syncPackLanguageUi() {
+        $("customLanguageLine").hidden = $("language").value !== "custom";
       }
 
       function setProgress(title, value, text, ratio = null) {
@@ -935,12 +1018,19 @@
         return document.querySelector("#scaleSegment button.active")?.dataset.scale || "quick";
       }
 
+      function ttsModeValue() {
+        return $("ttsReadingMode").value || "llm";
+      }
+
       function isTtsEnabled() {
-        return $("ttsSwitch").getAttribute("aria-pressed") !== "false";
+        return ttsModeValue() !== "none";
       }
 
       function ttsPayload() {
-        return isTtsEnabled() ? { ttsReadingMode: $("ttsReadingMode").value } : {};
+        const payload = { ttsReadingMode: ttsModeValue() };
+        const settings = ttsLanguageSettingsFromControls();
+        if (settings) payload.ttsLanguageSettings = settings;
+        return payload;
       }
 
       function sourcePayload() {
@@ -1973,7 +2063,7 @@
             targetUser: $("targetUser").value,
             difficulty: $("difficulty").value,
             scale: scaleValue(),
-            language: $("language").value,
+            language: languageValue(),
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
             ...ttsPayload(),
@@ -2067,13 +2157,16 @@
         $$("#scaleSegment button").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
       }));
-      $("ttsSwitch").addEventListener("click", () => {
-        const next = $("ttsSwitch").getAttribute("aria-pressed") === "false";
-        $("ttsSwitch").setAttribute("aria-pressed", String(next));
-        $("ttsSwitch").classList.toggle("off", !next);
-        syncReadingPatternMode();
-      });
-      $("ttsReadingMode").addEventListener("change", syncReadingPatternMode);
+      $("language").addEventListener("change", syncPackLanguageUi);
+      $("ttsReadingMode").addEventListener("change", syncTtsModeUi);
+      $$("[data-tts-language-mode], [data-tts-language-select]").forEach((input) => input.addEventListener("change", () => {
+        let plan;
+        try { plan = readPlanJson(); } catch (_error) { plan = null; }
+        if (plan) {
+          syncTtsLanguageSettingsToPlan(plan);
+          setPlanJson(plan);
+        }
+      }));
       $("planBtn").addEventListener("click", createPlan);
       $("generateBtn").addEventListener("click", generatePack);
       $("planJson").addEventListener("input", () => {
@@ -2147,6 +2240,9 @@
       $("resetCreditsBtn").addEventListener("click", () => saveCredits(INITIAL_CREDITS));
 
       syncInputState();
+      syncPackLanguageUi();
+      populateTtsLanguageSelects();
+      syncTtsModeUi();
       saveCredits(creditBalance);
       updateGlobalStatus();
       updateStatusBadges();

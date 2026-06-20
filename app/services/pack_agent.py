@@ -2,7 +2,8 @@ import logging
 
 from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
-from app.schemas.sokqa import GeneratePackResponse, GeneratedFile
+from app.schemas.common import normalize_tts_reading_mode
+from app.schemas.sokqa import CoursePlan, GeneratePackResponse, GeneratedFile
 from app.config import get_settings
 from app.services.document_generator import generate_document_pack
 from app.services.exporter import build_generated_files
@@ -140,6 +141,15 @@ def _resolve_selected_reading_patterns(plan):
     return plan.model_copy(update={"selectedReadingPatternIds": selected_ids})
 
 
+def _effective_tts_mode(plan: CoursePlan, requested_mode=None):
+    requested_mode = normalize_tts_reading_mode(requested_mode)
+    if requested_mode:
+        return requested_mode
+    if not plan.enableTtsOptimize:
+        return "none"
+    return normalize_tts_reading_mode(plan.ttsReadingMode) or get_settings().tts_reading_mode
+
+
 def plan_pack(request: PlanPackRequest):
     models = resolve_task_models(request=request)
     plan = create_course_plan(request, model=models.planner)
@@ -180,7 +190,12 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     )
     plan.sourceText = source_text
     plan.sourceMode = source_mode
+    if request.ttsLanguageSettings is not None:
+        plan.ttsLanguageSettings = request.ttsLanguageSettings
     plan = _resolve_selected_reading_patterns(plan)
+    tts_mode = _effective_tts_mode(plan, request.ttsReadingMode)
+    if tts_mode != "llm" and plan.selectedReadingPatternIds:
+        plan = plan.model_copy(update={"selectedReadingPatternIds": []})
     models = resolve_task_models(plan, request)
     logs.append(f"Model planner: {models.planner}")
     logs.append(f"Model document: {models.document}")
@@ -215,10 +230,9 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         append_validation_logs(logs, validation)
         _log_remaining_repair_warnings(validation)
 
-    if plan.enableTtsOptimize:
-        tts_mode = request.ttsReadingMode or plan.ttsReadingMode
-        logs.append(f"Optimizing TTS ({tts_mode or get_settings().tts_reading_mode})")
-        files, tts_report = optimize_generated_files_with_report(files, plan.ttsRules, tts_mode)
+    if tts_mode != "none":
+        logs.append(f"Optimizing TTS ({tts_mode})")
+        files, tts_report = optimize_generated_files_with_report(files, plan.ttsRules, tts_mode, plan.ttsLanguageSettings)
         validation = validate_files(files)
         append_validation_logs(logs, validation)
     else:
@@ -264,7 +278,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         for file in existing.files
         if file.kind in {"document", "quiz"}
     ]
-    optimized_files = optimize_generated_files(content_files, plan.ttsRules, plan.ttsReadingMode)
+    optimized_files = optimize_generated_files(content_files, plan.ttsRules, _effective_tts_mode(plan), plan.ttsLanguageSettings)
 
     logs = [*existing.logs, "Revising TTS", "Optimizing TTS"]
     if not isinstance(existing.manifest, PackManifestV2):

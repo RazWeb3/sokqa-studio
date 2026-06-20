@@ -2,7 +2,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import Difficulty, Scale, SourceMode, TtsReadingMode, TtsRule
+from app.schemas.common import (
+    Difficulty,
+    Scale,
+    SourceMode,
+    TtsLanguageSettings,
+    TtsReadingMode,
+    TtsRule,
+    normalize_tts_reading_mode,
+    validate_language_code,
+)
 from app.schemas.pack_v2 import PackManifestV2
 from app.schemas.sokqa import CoursePlan, GeneratedFile, ValidationResult
 
@@ -131,6 +140,7 @@ class PlanPackRequest(BaseModel):
     includeTts: bool = True
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
+    ttsLanguageSettings: TtsLanguageSettings | None = None
     model: str | None = Field(default=None, min_length=1, max_length=120)
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)
@@ -149,6 +159,16 @@ class PlanPackRequest(BaseModel):
             return None
         value = value.strip()
         return value or None
+
+    @field_validator("ttsReadingMode", mode="before")
+    @classmethod
+    def normalize_legacy_tts_reading_mode(cls, value):
+        return normalize_tts_reading_mode(value)
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def normalize_language_code(cls, value):
+        return validate_language_code(value)
 
 
 class GeneratePackRequest(BaseModel):
@@ -212,6 +232,7 @@ class GeneratePackRequest(BaseModel):
     contentId: str | None = Field(default=None, min_length=1, max_length=160)
     slug: str | None = Field(default=None, min_length=1, max_length=160)
     ttsReadingMode: TtsReadingMode | None = None
+    ttsLanguageSettings: TtsLanguageSettings | None = None
     sourceText: str | None = Field(default=None, max_length=50000)
     sourceMode: SourceMode | None = None
     model: str | None = Field(default=None, min_length=1, max_length=120)
@@ -226,6 +247,11 @@ class GeneratePackRequest(BaseModel):
             return None
         value = value.strip()
         return value or None
+
+    @field_validator("ttsReadingMode", mode="before")
+    @classmethod
+    def normalize_legacy_tts_reading_mode(cls, value):
+        return normalize_tts_reading_mode(value)
 
 
 class ValidatePackRequest(BaseModel):

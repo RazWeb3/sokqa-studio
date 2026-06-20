@@ -2,7 +2,18 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.schemas.common import Difficulty, QuizPurpose, ReadingPattern, Scale, SourceMode, TtsReadingMode, TtsRule
+from app.schemas.common import (
+    Difficulty,
+    QuizPurpose,
+    ReadingPattern,
+    Scale,
+    SourceMode,
+    TtsLanguageSettings,
+    TtsReadingMode,
+    TtsRule,
+    normalize_tts_reading_mode,
+    validate_language_code,
+)
 from app.schemas.pack_v2 import PackManifestV2
 
 
@@ -52,6 +63,7 @@ class CoursePlan(BaseModel):
     version: str = "1.0.0"
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
+    ttsLanguageSettings: TtsLanguageSettings | None = None
     model: str | None = None
     docModel: str | None = None
     quizModel: str | None = None
@@ -63,6 +75,22 @@ class CoursePlan(BaseModel):
     ttsRules: list[TtsRule] = Field(default_factory=list)
     proposedReadingPatterns: list[ReadingPattern] = Field(default_factory=list)
     selectedReadingPatternIds: list[str] = Field(default_factory=list)
+
+    @field_validator("ttsReadingMode", mode="before")
+    @classmethod
+    def normalize_legacy_tts_reading_mode(cls, value):
+        return normalize_tts_reading_mode(value)
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def normalize_language_code(cls, value):
+        return validate_language_code(value)
+
+    @model_validator(mode="after")
+    def normalize_tts_disabled_mode(self):
+        if not self.enableTtsOptimize:
+            self.ttsReadingMode = "none"
+        return self
 
 
 class DocumentTts(BaseModel):

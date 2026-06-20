@@ -70,6 +70,35 @@ def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch)
     assert all(pattern.id for pattern in plan.proposedReadingPatterns)
 
 
+def test_planner_keeps_reading_patterns_only_for_llm_mode(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    llm_plan = planner.create_course_plan(
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="llm")
+    )
+    auto_plan = planner.create_course_plan(
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="auto")
+    )
+    rule_plan = planner.create_course_plan(
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="rule")
+    )
+    multilingual_plan = planner.create_course_plan(
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="multilingual")
+    )
+    none_plan = planner.create_course_plan(
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", enableTtsOptimize=False)
+    )
+
+    assert llm_plan.proposedReadingPatterns
+    assert auto_plan.ttsReadingMode == "llm"
+    assert auto_plan.proposedReadingPatterns
+    assert rule_plan.proposedReadingPatterns == []
+    assert multilingual_plan.proposedReadingPatterns == []
+    assert none_plan.ttsReadingMode == "none"
+    assert none_plan.proposedReadingPatterns == []
+
+
 def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
     plan = planner.create_course_plan(
         PlanPackRequest(

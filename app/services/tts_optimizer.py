@@ -2,7 +2,7 @@ import logging
 import re
 
 from app.config import get_settings
-from app.schemas.common import TtsReadingMode, TtsRule
+from app.schemas.common import TtsLanguageSettings, TtsReadingMode, TtsRule, default_speech_language_code, normalize_tts_reading_mode
 from app.schemas.sokqa import (
     DocumentTts,
     GeneratedFile,
@@ -65,25 +65,85 @@ def _speech_text(value: str, rules: list[TtsRule]) -> str:
     return normalize_tts_text(result)
 
 
-def _is_allowed_tts_char(char: str) -> bool:
+def _base_language(language: str | None) -> str:
+    return (language or "ja").split("-")[0].lower()
+
+
+def _language_script(language: str | None) -> str:
+    base = _base_language(language)
+    if base in {"ja"}:
+        return "japanese"
+    if base in {"zh"}:
+        return "cjk"
+    if base in {"ko"}:
+        return "hangul"
+    if base in {"en", "es", "fr", "de", "it", "pt"}:
+        return "latin"
+    if base in {"ru", "uk", "bg", "sr"}:
+        return "cyrillic"
+    if base in {"ar", "fa", "ur"}:
+        return "arabic"
+    if base == "th":
+        return "thai"
+    return "latin"
+
+
+def _script_languages(pack_language: str, language_settings: TtsLanguageSettings | None, field_key: str, multilingual: bool) -> set[str]:
+    languages = {pack_language}
+    if multilingual and language_settings:
+        mode = getattr(language_settings, f"{field_key}LanguageMode", "auto")
+        selected_language = getattr(language_settings, f"{field_key}Language", None)
+        if mode in {"mixed", "select"} and selected_language:
+            languages.add(selected_language)
+    return languages
+
+
+def _allowed_scripts(pack_language: str, language_settings: TtsLanguageSettings | None, field_key: str, multilingual: bool) -> set[str]:
+    return {_language_script(language) for language in _script_languages(pack_language, language_settings, field_key, multilingual)}
+
+
+def _is_allowed_tts_char(char: str, allowed_scripts: set[str] | None = None) -> bool:
+    allowed_scripts = allowed_scripts or {"japanese"}
     code = ord(char)
-    return (
-        char in "\t\n\r"
-        or 0x0020 <= code <= 0x007E  # basic Latin, digits, and common ASCII symbols
-        or 0x3000 <= code <= 0x303F  # Japanese punctuation and ideographic space
-        or 0x3040 <= code <= 0x309F  # hiragana
-        or 0x30A0 <= code <= 0x30FF  # katakana
-        or 0x31F0 <= code <= 0x31FF  # katakana phonetic extensions
-        or 0x3400 <= code <= 0x4DBF  # CJK extension A
-        or 0x4E00 <= code <= 0x9FFF  # CJK unified ideographs
-        or 0xF900 <= code <= 0xFAFF  # CJK compatibility ideographs
-        or 0xFF00 <= code <= 0xFFEF  # fullwidth forms and halfwidth katakana
-    )
+    if char in "\t\n\r" or 0x0020 <= code <= 0x007E:
+        return True
+    if 0x3000 <= code <= 0x303F or 0xFF00 <= code <= 0xFFEF:
+        return True
+    if "japanese" in allowed_scripts and (
+        0x3040 <= code <= 0x309F
+        or 0x30A0 <= code <= 0x30FF
+        or 0x31F0 <= code <= 0x31FF
+        or 0x3400 <= code <= 0x4DBF
+        or 0x4E00 <= code <= 0x9FFF
+        or 0xF900 <= code <= 0xFAFF
+    ):
+        return True
+    if "cjk" in allowed_scripts and (
+        0x3400 <= code <= 0x4DBF
+        or 0x4E00 <= code <= 0x9FFF
+        or 0xF900 <= code <= 0xFAFF
+    ):
+        return True
+    if "hangul" in allowed_scripts and (
+        0x1100 <= code <= 0x11FF
+        or 0x3130 <= code <= 0x318F
+        or 0xAC00 <= code <= 0xD7AF
+    ):
+        return True
+    if "latin" in allowed_scripts and (0x00C0 <= code <= 0x024F):
+        return True
+    if "cyrillic" in allowed_scripts and (0x0400 <= code <= 0x052F):
+        return True
+    if "arabic" in allowed_scripts and (0x0600 <= code <= 0x06FF):
+        return True
+    if "thai" in allowed_scripts and (0x0E00 <= code <= 0x0E7F):
+        return True
+    return False
 
 
-def _unexpected_script_snippet(value: str) -> str | None:
+def _unexpected_script_snippet(value: str, allowed_scripts: set[str] | None = None) -> str | None:
     for index, char in enumerate(value):
-        if not _is_allowed_tts_char(char):
+        if not _is_allowed_tts_char(char, allowed_scripts):
             return value[max(0, index - 16) : index + 17]
     return None
 
@@ -96,10 +156,14 @@ def _guard_llm_text(
     item_id: str,
     field: str,
     warnings: list[TtsReportItem],
+    allow_language_tags: bool = False,
+    allowed_scripts: set[str] | None = None,
 ) -> str | None:
     if not value:
         return value
-    snippet = _unexpected_script_snippet(value)
+    if not allow_language_tags:
+        value = re.sub(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]", "", value)
+    snippet = _unexpected_script_snippet(value, allowed_scripts)
     if not snippet:
         return value
     logger.warning(
@@ -130,6 +194,9 @@ def _guard_llm_quiz_tts(
     *,
     file_name: str,
     warnings: list[TtsReportItem],
+    allow_language_tags: bool = False,
+    pack_language: str = "ja",
+    language_settings: TtsLanguageSettings | None = None,
 ) -> QuizTts | None:
     if not tts:
         return tts
@@ -142,6 +209,8 @@ def _guard_llm_quiz_tts(
         item_id=question.id,
         field="questionText",
         warnings=warnings,
+        allow_language_tags=allow_language_tags,
+        allowed_scripts=_allowed_scripts(pack_language, language_settings, "question", allow_language_tags),
     )
     explanation_text = _guard_llm_text(
         tts.explanationText,
@@ -150,6 +219,8 @@ def _guard_llm_quiz_tts(
         item_id=question.id,
         field="explanationText",
         warnings=warnings,
+        allow_language_tags=allow_language_tags,
+        allowed_scripts=_allowed_scripts(pack_language, language_settings, "explanation", allow_language_tags),
     )
     choice_texts = list(tts.choiceTexts) if tts.choiceTexts else None
     if choice_texts:
@@ -162,6 +233,8 @@ def _guard_llm_quiz_tts(
                 item_id=question.id,
                 field=f"choiceTexts.{index}",
                 warnings=warnings,
+                allow_language_tags=allow_language_tags,
+                allowed_scripts=_allowed_scripts(pack_language, language_settings, "choices", allow_language_tags),
             ) or ""
         if not any(choice_texts):
             choice_texts = None
@@ -177,6 +250,12 @@ def _guard_llm_quiz_tts(
 
 def _combined_rules(rules: list[TtsRule]) -> list[TtsRule]:
     return merge_tts_rules(load_system_tts_rules(), load_user_tts_rules(), rules)
+
+
+def _rules_for_mode(rules: list[TtsRule], mode: TtsReadingMode) -> list[TtsRule]:
+    if mode in {"rule", "llm"}:
+        return _combined_rules(rules)
+    return []
 
 
 def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
@@ -257,6 +336,42 @@ Pronunciation examples. Treat these as normative examples, not as the only allow
 """.strip()
 
 
+def _language_tag_rules(language: str, allow_language_tags: bool) -> str:
+    speech_code = default_speech_language_code(language)
+    if not allow_language_tags:
+        return """
+Language tag rules:
+- Do not output language tags such as [en-US], [ja-JP], or any [xx-YY] marker.
+- Keep the entire TTS reading text in the default language without bracketed language switches.
+""".strip()
+    return f"""
+Language tag rules:
+- The scenario default language is "{language}" and its speech code is "{speech_code}". Default-language text should not start with a language tag.
+- Add a tag such as [ja-JP] or [en-US] only when a span switches to a non-default language.
+- Add the default-language tag only when returning from a non-default language to the default language.
+- A text item may end while still in a non-default language; the next item starts in the default language automatically.
+""".strip()
+
+
+def _field_language_instruction(label: str, field_key: str, settings: TtsLanguageSettings | None) -> str:
+    if not settings:
+        return f"- {label}: auto-detect only when the source text clearly switches language."
+    mode = getattr(settings, f"{field_key}LanguageMode", "auto")
+    selected_language = getattr(settings, f"{field_key}Language", None)
+    if mode == "select" and selected_language:
+        return f"- {label}: read this field in {selected_language} ({default_speech_language_code(selected_language)}). Use an inline language tag if needed."
+    if mode == "mixed":
+        if selected_language:
+            return f"- {label}: mixed-language field. Use inline tags for non-default spans, especially {selected_language} ({default_speech_language_code(selected_language)})."
+        return f"- {label}: mixed-language field. Use inline tags for clear non-default spans."
+    return f"- {label}: auto-detect. Add inline tags only when the text clearly contains a non-default language."
+
+
+def _language_policy_block(settings: TtsLanguageSettings | None, fields: list[tuple[str, str]]) -> str:
+    lines = [_field_language_instruction(label, field_key, settings) for label, field_key in fields]
+    return "Field language policy:\n" + "\n".join(lines)
+
+
 def _gemini_speech_text(value: str, rules: list[TtsRule]) -> str:
     data = GeminiClient().generate_json(_tts_reading_prompt(value, rules))
     text = data.get("text", "")
@@ -282,7 +397,13 @@ def _chunk_entries(entries: list[tuple[str, str]], max_chars: int = MAX_TTS_BATC
     return chunks
 
 
-def _tts_batch_document_prompt(entries: list[tuple[str, str]], rules: list[TtsRule]) -> str:
+def _tts_batch_document_prompt(
+    entries: list[tuple[str, str]],
+    rules: list[TtsRule],
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> str:
     entries_text = "\n".join(f"- id: {entry_id}\n  text: {text}" for entry_id, text in entries)
     return f"""
 Return strict JSON only. Do not use markdown fences.
@@ -290,6 +411,10 @@ Return strict JSON only. Do not use markdown fences.
 Create Sokqa TTS reading texts for the fixed source texts.
 
 {_tts_reading_rules_block(rules)}
+
+{_language_tag_rules(language, allow_language_tags)}
+
+{_language_policy_block(language_settings, [("document text", "documentText")])}
 
 Source texts:
 {entries_text}
@@ -304,11 +429,17 @@ Return this shape:
 """.strip()
 
 
-def _gemini_document_speech_map(entries: list[tuple[str, str]], rules: list[TtsRule]) -> dict[str, str]:
+def _gemini_document_speech_map(
+    entries: list[tuple[str, str]],
+    rules: list[TtsRule],
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> dict[str, str]:
     readings: dict[str, str] = {}
     source_by_id = {entry_id: text for entry_id, text in entries}
     for chunk in _chunk_entries(entries):
-        data = GeminiClient().generate_json(_tts_batch_document_prompt(chunk, rules))
+        data = GeminiClient().generate_json(_tts_batch_document_prompt(chunk, rules, language, allow_language_tags, language_settings))
         items = data.get("items", [])
         if not isinstance(items, list):
             items = []
@@ -331,6 +462,8 @@ def _tts_quiz_question_prompt(
     explanation: str,
     rules: list[TtsRule],
     language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
 ) -> str:
     choices_text = "\n".join(f"- index: {index}\n  text: {choice}" for index, choice in enumerate(choices))
     return f"""
@@ -344,11 +477,9 @@ Quiz punctuation rules:
 - Keep questionText and explanationText punctuation as natural speech cues. Do not remove sentence-final "?", "？", "!", "！", "." or Japanese punctuation.
 - Choice readings are independent tracks. Do not add trailing separator commas to choice texts, but keep meaningful final ".", "?", "？", "!", and "！".
 
-Language tag rules:
-- The scenario default language is "{language}". Default-language text should not start with a language tag.
-- Add a tag such as [ja-JP] or [en-US] only when a span switches to a non-default language.
-- Add the default-language tag only when returning from a non-default language to the default language.
-- A text item may end while still in a non-default language; the next item starts in the default language automatically.
+{_language_tag_rules(language, allow_language_tags)}
+
+{_language_policy_block(language_settings, [("questionText", "question"), ("choiceTexts", "choices"), ("explanationText", "explanation")])}
 
 Question id: {question_id}
 Question text:
@@ -432,7 +563,13 @@ def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts | None:
     )
 
 
-def _gemini_quiz_question_tts(question, rules: list[TtsRule], language: str = "ja") -> QuizTts | None:
+def _gemini_quiz_question_tts(
+    question,
+    rules: list[TtsRule],
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> QuizTts | None:
     total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
     if total_chars > MAX_TTS_BATCH_CHARS:
         question_text = _gemini_speech_text(question.question, rules)
@@ -441,7 +578,7 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule], language: str = "j
         return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
 
     data = GeminiClient().generate_json(
-        _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules, language)
+        _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules, language, allow_language_tags, language_settings)
     )
     question_text = data.get("questionText", "")
     explanation_text = data.get("explanationText", "")
@@ -468,7 +605,13 @@ def _gemini_quiz_question_tts(question, rules: list[TtsRule], language: str = "j
     return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
 
 
-def _tts_batch_quiz_prompt(questions, rules: list[TtsRule], language: str = "ja") -> str:
+def _tts_batch_quiz_prompt(
+    questions,
+    rules: list[TtsRule],
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> str:
     questions_text = "\n\n".join(
         "\n".join(
             [
@@ -492,11 +635,9 @@ Quiz punctuation rules:
 - Keep questionText and explanationText punctuation as natural speech cues. Do not remove sentence-final "?", "？", "!", "！", "." or Japanese punctuation.
 - Choice readings are independent tracks. Do not add trailing separator commas to choice texts, but keep meaningful final ".", "?", "？", "!", and "！".
 
-Language tag rules:
-- The scenario default language is "{language}". Default-language text should not start with a language tag.
-- Add a tag such as [ja-JP] or [en-US] only when a span switches to a non-default language.
-- Add the default-language tag only when returning from a non-default language to the default language.
-- A text item may end while still in a non-default language; the next item starts in the default language automatically.
+{_language_tag_rules(language, allow_language_tags)}
+
+{_language_policy_block(language_settings, [("questionText", "question"), ("choiceTexts", "choices"), ("explanationText", "explanation")])}
 
 Questions:
 {questions_text}
@@ -552,15 +693,21 @@ def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_BATCH_CHARS):
     return [[questions_by_id[entry_id] for entry_id, _ in chunk] for chunk in chunks]
 
 
-def _gemini_quiz_tts_map(questions, rules: list[TtsRule], language: str = "ja") -> dict[str, QuizTts | None]:
+def _gemini_quiz_tts_map(
+    questions,
+    rules: list[TtsRule],
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> dict[str, QuizTts | None]:
     readings: dict[str, QuizTts | None] = {}
     for chunk in _chunk_quiz_questions(questions):
         if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
             question = chunk[0]
-            readings[question.id] = _gemini_quiz_question_tts(question, rules, language)
+            readings[question.id] = _gemini_quiz_question_tts(question, rules, language, allow_language_tags, language_settings)
             continue
 
-        data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules, language))
+        data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules, language, allow_language_tags, language_settings))
         items = data.get("items", [])
         if not isinstance(items, list):
             items = []
@@ -635,7 +782,7 @@ def _select_tts_ids(
 
 
 def _mode_or_default(mode: TtsReadingMode | None) -> TtsReadingMode:
-    return mode or get_settings().tts_reading_mode
+    return normalize_tts_reading_mode(mode) or get_settings().tts_reading_mode
 
 
 def _field_issues(
@@ -658,7 +805,7 @@ def _field_issues(
                 field=field,
                 issueType="ascii_after_dot_reading",
                 snippet=match.group(0),
-                recommendation="未登録のドット始まり語が部分置換されています。llm/autoモードで再生成するか、ユーザー辞書に確定読みを追加してください。",
+                recommendation="未登録のドット始まり語が部分置換されています。llmモードで再生成するか、ユーザー辞書に確定読みを追加してください。",
                 suggestedRuleSource=suggested,
             )
         )
@@ -732,16 +879,22 @@ def optimize_document_pack(
     llm_ids: list[str] | None = None,
     file_name: str = "",
     warnings: list[TtsReportItem] | None = None,
+    language_settings: TtsLanguageSettings | None = None,
 ) -> SokqaDocumentPack:
-    rules = _combined_rules(rules)
     active_mode = _mode_or_default(mode)
+    rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []
     file_name = file_name or f"{pack.id}.json"
     entries = [(item.id, item.text) for item in pack.documents]
+    if active_mode == "none":
+        for item in pack.documents:
+            item.tags = None
+            item.tts = None
+        return pack
     selected_ids = (
         {entry_id for entry_id, _ in entries}
-        if active_mode == "llm"
+        if active_mode in {"llm", "multilingual"}
         else _select_tts_ids("document", entries, rules, allow_gemini=False)
     )
     if not selected_ids:
@@ -750,10 +903,10 @@ def optimize_document_pack(
             item.tts = None
         return pack
     llm_readings: dict[str, str] = {}
-    if active_mode == "llm":
+    if active_mode in {"llm", "multilingual"}:
         selected_entries = [(item.id, item.text) for item in pack.documents if item.id in selected_ids]
         try:
-            llm_readings = _gemini_document_speech_map(selected_entries, rules)
+            llm_readings = _gemini_document_speech_map(selected_entries, rules, pack.language, active_mode == "multilingual", language_settings)
             llm_ids.extend(entry_id for entry_id, _ in selected_entries)
         except Exception as exc:
             logger.warning("tts_optimizer.llm_document_fallback file=%s error=%s", file_name, exc)
@@ -761,7 +914,7 @@ def optimize_document_pack(
         item.tags = None
         if item.id in selected_ids:
             rule_speech = _speech_text(item.text, rules)
-            if active_mode == "llm" and item.id in llm_readings:
+            if active_mode in {"llm", "multilingual"} and item.id in llm_readings:
                 speech = _guard_llm_text(
                     llm_readings[item.id],
                     rule_speech,
@@ -769,6 +922,8 @@ def optimize_document_pack(
                     item_id=item.id,
                     field="text",
                     warnings=warnings,
+                    allow_language_tags=active_mode == "multilingual",
+                    allowed_scripts=_allowed_scripts(pack.language, language_settings, "documentText", active_mode == "multilingual"),
                 )
             else:
                 speech = rule_speech
@@ -785,9 +940,10 @@ def optimize_quiz_pack(
     llm_ids: list[str] | None = None,
     file_name: str = "",
     warnings: list[TtsReportItem] | None = None,
+    language_settings: TtsLanguageSettings | None = None,
 ) -> SokqaQuizPack:
-    rules = _combined_rules(rules)
     active_mode = _mode_or_default(mode)
+    rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []
     file_name = file_name or f"{pack.id}.json"
@@ -798,29 +954,37 @@ def optimize_quiz_pack(
         )
         for question in pack.questions
     ]
+    if active_mode == "none":
+        for question in pack.questions:
+            question.tags = None
+            question.tts = None
+        return pack
     selected_ids = (
         {entry_id for entry_id, _ in entries}
-        if active_mode == "llm"
+        if active_mode in {"llm", "multilingual"}
         else _select_tts_ids("quiz question", entries, rules, allow_gemini=False)
     )
     llm_readings: dict[str, QuizTts] = {}
-    if active_mode == "llm":
+    if active_mode in {"llm", "multilingual"}:
         selected_questions = [question for question in pack.questions if question.id in selected_ids]
         try:
-            llm_readings = _gemini_quiz_tts_map(selected_questions, rules, pack.language)
+            llm_readings = _gemini_quiz_tts_map(selected_questions, rules, pack.language, active_mode == "multilingual", language_settings)
             llm_ids.extend(question.id for question in selected_questions)
         except Exception as exc:
             logger.warning("tts_optimizer.llm_quiz_fallback file=%s error=%s", file_name, exc)
     for question in pack.questions:
         question.tags = None
         if question.id in selected_ids:
-            if active_mode == "llm":
+            if active_mode in {"llm", "multilingual"}:
                 question.tts = _guard_llm_quiz_tts(
                     question,
                     llm_readings.get(question.id, _rule_quiz_question_tts(question, rules)),
                     rules,
                     file_name=file_name,
                     warnings=warnings,
+                    allow_language_tags=active_mode == "multilingual",
+                    pack_language=pack.language,
+                    language_settings=language_settings,
                 )
             else:
                 question.tts = _rule_quiz_question_tts(question, rules)
@@ -829,94 +993,26 @@ def optimize_quiz_pack(
     return pack
 
 
-def _rerun_items_with_llm(
-    file: GeneratedFile,
-    issue_item_ids: set[str],
-    rules: list[TtsRule],
-    llm_ids: list[str],
-    warnings: list[TtsReportItem],
-) -> None:
-    if not issue_item_ids:
-        return
-    if file.kind == "document":
-        pack = SokqaDocumentPack.model_validate(file.content)
-        combined = _combined_rules(rules)
-        entries = [(item.id, item.text) for item in pack.documents if item.id in issue_item_ids and item.tts]
-        try:
-            readings = _gemini_document_speech_map(entries, combined)
-            llm_ids.extend(entry_id for entry_id, _ in entries)
-        except Exception as exc:
-            logger.warning("tts_optimizer.auto_llm_document_fallback file=%s error=%s", file.name, exc)
-            readings = {}
-        for item in pack.documents:
-            if item.id in issue_item_ids and item.tts:
-                rule_speech = _speech_text(item.text, combined)
-                reading = _guard_llm_text(
-                    readings.get(item.id, rule_speech),
-                    rule_speech,
-                    file_name=file.name,
-                    item_id=item.id,
-                    field="text",
-                    warnings=warnings,
-                )
-                item.tts = _document_tts_from_reading(item.text, reading, combined)
-        file.content = pack.model_dump(exclude_none=True)
-    elif file.kind == "quiz":
-        pack = SokqaQuizPack.model_validate(file.content)
-        combined = _combined_rules(rules)
-        selected_questions = [
-            question
-            for question in pack.questions
-            if question.id in issue_item_ids and question.tts
-        ]
-        try:
-            readings = _gemini_quiz_tts_map(selected_questions, combined, pack.language)
-            llm_ids.extend(question.id for question in selected_questions)
-        except Exception as exc:
-            logger.warning("tts_optimizer.auto_llm_quiz_fallback file=%s error=%s", file.name, exc)
-            readings = {}
-        for question in pack.questions:
-            if question.id not in issue_item_ids or not question.tts:
-                continue
-            question.tts = _guard_llm_quiz_tts(
-                question,
-                readings.get(question.id, _rule_quiz_question_tts(question, combined)),
-                combined,
-                file_name=file.name,
-                warnings=warnings,
-            )
-        file.content = pack.model_dump(exclude_none=True)
-
-
 def optimize_generated_files_with_report(
     files: list[GeneratedFile],
     rules: list[TtsRule],
     mode: TtsReadingMode | None = None,
+    language_settings: TtsLanguageSettings | None = None,
 ) -> tuple[list[GeneratedFile], TtsReport]:
     active_mode = _mode_or_default(mode)
     optimized = []
     llm_ids: list[str] = []
     warnings: list[TtsReportItem] = []
-    first_pass_mode: TtsReadingMode = "rule" if active_mode == "auto" else active_mode
     for file in files:
         if file.kind == "document":
-            pack = optimize_document_pack(SokqaDocumentPack.model_validate(file.content), rules, first_pass_mode, llm_ids, file.name, warnings)
+            pack = optimize_document_pack(SokqaDocumentPack.model_validate(file.content), rules, active_mode, llm_ids, file.name, warnings, language_settings)
             file.content = pack.model_dump(exclude_none=True)
         elif file.kind == "quiz":
-            pack = optimize_quiz_pack(SokqaQuizPack.model_validate(file.content), rules, first_pass_mode, llm_ids, file.name, warnings)
+            pack = optimize_quiz_pack(SokqaQuizPack.model_validate(file.content), rules, active_mode, llm_ids, file.name, warnings, language_settings)
             file.content = pack.model_dump(exclude_none=True)
         optimized.append(file)
     report = validate_tts_files(optimized, active_mode, llm_ids)
     report.issues.extend(warnings)
-    if active_mode == "auto" and report.issues:
-        issue_ids_by_file: dict[str, set[str]] = {}
-        for issue in report.issues:
-            if issue.issueType in {"ascii_after_dot_reading", "raw_period"}:
-                issue_ids_by_file.setdefault(issue.file, set()).add(issue.itemId)
-        for file in optimized:
-            _rerun_items_with_llm(file, issue_ids_by_file.get(file.name, set()), rules, llm_ids, warnings)
-        report = validate_tts_files(optimized, active_mode, llm_ids)
-        report.issues.extend(warnings)
     return optimized, report
 
 
@@ -924,6 +1020,7 @@ def optimize_generated_files(
     files: list[GeneratedFile],
     rules: list[TtsRule],
     mode: TtsReadingMode | None = None,
+    language_settings: TtsLanguageSettings | None = None,
 ) -> list[GeneratedFile]:
-    optimized, _ = optimize_generated_files_with_report(files, rules, mode)
+    optimized, _ = optimize_generated_files_with_report(files, rules, mode, language_settings)
     return optimized

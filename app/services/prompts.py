@@ -3,6 +3,8 @@ from app.services.source_material import source_prompt_block
 
 
 def _selected_reading_patterns_block(plan: CoursePlan) -> str:
+    if plan.ttsReadingMode != "llm":
+        return ""
     selected_ids = set(plan.selectedReadingPatternIds or [])
     if not selected_ids:
         return ""

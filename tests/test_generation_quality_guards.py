@@ -55,6 +55,7 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
 
 def test_selected_reading_patterns_are_injected_into_generation_prompts() -> None:
     plan = _plan()
+    plan.ttsReadingMode = "llm"
     plan.proposedReadingPatterns = [
         ReadingPattern(
             id="dot_notation",
@@ -117,6 +118,25 @@ def test_reading_policy_block_is_omitted_when_no_pattern_is_selected() -> None:
     assert "ドット記法を読み下す" not in prompt
 
 
+def test_reading_policy_block_is_omitted_outside_llm_mode() -> None:
+    plan = _plan()
+    plan.ttsReadingMode = "multilingual"
+    plan.proposedReadingPatterns = [
+        ReadingPattern(
+            id="alphabet",
+            title="英略語を読む",
+            description="英略語をカタカナ読みで扱う",
+            examples=["IT -> アイティー"],
+        )
+    ]
+    plan.selectedReadingPatternIds = ["alphabet"]
+
+    prompt = document_generation_prompt(plan, plan.documents[0])
+
+    assert "TTS reading hints selected by the user" not in prompt
+    assert "英略語を読む" not in prompt
+
+
 def test_generate_pack_filters_unknown_selected_reading_patterns_without_touching_tts_rules(monkeypatch) -> None:
     plan = _plan()
     plan.proposedReadingPatterns = [
@@ -156,6 +176,46 @@ def test_generate_pack_filters_unknown_selected_reading_patterns_without_touchin
 
     assert captured["selectedReadingPatternIds"] == ["alphabet"]
     assert captured["ttsRules"] == []
+
+
+def test_generate_pack_clears_selected_reading_patterns_outside_llm_mode(monkeypatch) -> None:
+    plan = _plan()
+    plan.ttsReadingMode = "multilingual"
+    plan.proposedReadingPatterns = [
+        ReadingPattern(
+            id="alphabet",
+            title="英略語を読む",
+            description="英略語をカタカナ読みで扱う",
+            examples=["API -> エーピーアイ"],
+        )
+    ]
+    plan.selectedReadingPatternIds = ["alphabet"]
+
+    captured = {}
+
+    def fake_document_pack(current_plan, *_args, **_kwargs):
+        captured["selectedReadingPatternIds"] = current_plan.selectedReadingPatternIds
+        return _source_pack()
+
+    clean_quiz = SokqaQuizPack(
+        id="quality_pack_quiz_01",
+        title="確認クイズ",
+        questions=[
+            {
+                "id": "q-1",
+                "question": "安全なパスワード管理として適切なものはどれですか？",
+                "choices": ["短い共通語を使う", "使い回す", "長く一意なものを使う", "保存しない"],
+                "answerIndex": 2,
+                "explanation": "長く一意なパスワードは推測されにくくなります。",
+            }
+        ],
+    )
+    monkeypatch.setattr(pack_agent, "generate_document_pack", fake_document_pack)
+    monkeypatch.setattr(pack_agent, "generate_quiz_pack", lambda *_args, **_kwargs: clean_quiz)
+
+    generate_pack(GeneratePackRequest(plan=plan, persist=False))
+
+    assert captured["selectedReadingPatternIds"] == []
 
 
 def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:

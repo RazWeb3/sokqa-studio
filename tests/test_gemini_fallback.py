@@ -12,6 +12,7 @@ def test_gemini_provider_falls_back_to_mock(monkeypatch) -> None:
             theme="ITパスポート試験対策",
             targetUser="IT初心者の社会人",
             scale="quick",
+            ttsReadingMode="rule",
         )
     )
     generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))

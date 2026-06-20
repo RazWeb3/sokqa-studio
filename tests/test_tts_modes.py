@@ -1,6 +1,7 @@
 from app.config import Settings, get_settings
-from app.schemas.common import TtsRule
-from app.schemas.sokqa import GeneratedFile, QuizTts
+from app.schemas.common import TtsLanguageSettings, TtsRule, default_speech_language_code
+from app.schemas.request import GeneratePackRequest, PlanPackRequest
+from app.schemas.sokqa import CoursePlan, GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import _mode_or_default, _tts_reading_prompt, _tts_reading_rules_block, optimize_generated_files_with_report, validate_tts_files
 
@@ -181,8 +182,62 @@ def test_default_tts_reading_mode_is_llm() -> None:
 
 
 def test_explicit_tts_reading_mode_overrides_default() -> None:
+    assert _mode_or_default("none") == "none"
     assert _mode_or_default("rule") == "rule"
     assert _mode_or_default("llm") == "llm"
+    assert _mode_or_default("multilingual") == "multilingual"
+
+
+def test_legacy_auto_tts_reading_mode_is_normalized_to_llm() -> None:
+    plan_request = PlanPackRequest(
+        theme="Git入門",
+        targetUser="初学者",
+        ttsReadingMode="auto",
+    )
+    plan = CoursePlan(
+        id="git_intro",
+        title="Git入門",
+        description="Gitを学ぶ",
+        language="ja",
+        targetUser="初学者",
+        difficulty="beginner",
+        documents=[{"id": "doc_01", "title": "Git概要", "goal": "Gitを理解する"}],
+        quizPacks=[{"id": "quiz_01", "title": "Git確認", "purpose": "key_concepts", "questionCount": 4}],
+        ttsReadingMode="auto",
+    )
+    generate_request = GeneratePackRequest(plan=plan, ttsReadingMode="auto")
+
+    assert plan_request.ttsReadingMode == "llm"
+    assert plan.ttsReadingMode == "llm"
+    assert generate_request.ttsReadingMode == "llm"
+
+
+def test_disabled_legacy_tts_fields_normalize_to_none() -> None:
+    plan = CoursePlan(
+        id="no_tts",
+        title="TTSなし",
+        description="TTSを作らない",
+        language="ja",
+        targetUser="初学者",
+        difficulty="beginner",
+        documents=[{"id": "doc_01", "title": "概要", "goal": "理解する"}],
+        quizPacks=[{"id": "quiz_01", "title": "確認", "purpose": "key_concepts", "questionCount": 4}],
+        enableTtsOptimize=False,
+        ttsReadingMode="llm",
+    )
+
+    assert plan.ttsReadingMode == "none"
+
+
+def test_language_codes_are_normalized_and_speech_defaults_are_known() -> None:
+    request = PlanPackRequest(theme="韓国語基礎", targetUser="初学者", language="pt-br")
+
+    assert request.language == "pt-BR"
+    assert default_speech_language_code("ja") == "ja-JP"
+    assert default_speech_language_code("en") == "en-US"
+    assert default_speech_language_code("zh") == "zh-CN"
+    assert default_speech_language_code("ko") == "ko-KR"
+    assert default_speech_language_code("pt") == "pt-PT"
 
 
 def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch) -> None:
@@ -482,32 +537,18 @@ def test_llm_quiz_tts_falls_back_only_for_field_with_unexpected_script(monkeypat
     assert any(issue.issueType == "unexpected_script" and issue.field == "choiceTexts.0" for issue in report.issues)
 
 
-def test_auto_mode_reruns_only_items_with_tts_report_issues(monkeypatch) -> None:
+def test_none_mode_skips_tts_generation(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
-    calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
-        calls.append(prompt)
-        return {
-            "items": [
-                {
-                    "id": "doc-1",
-                    "text": "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、",
-                }
-            ]
-        }
-
-    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
-
-    files, report = optimize_generated_files_with_report([_doc_file()], [], mode="auto")
+    files, report = optimize_generated_files_with_report([_doc_file()], [], mode="none")
     docs = files[0].content["documents"]
 
-    assert docs[0]["tts"]["text"] == "ドット ギットコンフィグ と ドット ギットログ を確認します、バージョン いってんに も確認します、"
-    assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します。"
-    assert len(calls) == 1
+    assert "tts" not in docs[0]
+    assert "tts" not in docs[1]
+    assert report.mode == "none"
     assert report.issues == []
-    assert report.llmGeneratedIds == ["doc-1"]
+    assert report.llmGeneratedIds == []
 
 
 def test_tts_report_detects_raw_period_and_duplicate_punctuation() -> None:
@@ -683,7 +724,41 @@ def test_llm_quiz_omits_choice_texts_when_choices_match_source(monkeypatch) -> N
     assert "tts" not in question
 
 
-def test_llm_quiz_outputs_choice_texts_and_preserves_meaningful_punctuation_and_tags(monkeypatch) -> None:
+def test_llm_quiz_outputs_choice_texts_and_removes_language_tags(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert "Do not output language tags" in prompt
+        return {
+            "items": [
+                {
+                    "id": "q-plain",
+                    "questionText": "次の説明として正しいものはどれですか?",
+                    "choices": [
+                        {"index": 0, "text": "[en-US]Save it、"},
+                        {"index": 1, "text": "OK."},
+                        {"index": 2, "text": "続けます?"},
+                        {"index": 3, "text": "本当です？"},
+                    ],
+                    "explanationText": "[en-US]Save it? [ja-JP]を選びます.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="llm")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts["choiceTexts"] == ["Save it", "OK.", "続けます?", "本当です？"]
+    assert "choicesText" not in tts
+    assert "questionText" not in tts
+    assert tts["explanationText"] == "Save it? を選びます."
+    assert tts.get("answerText") is None
+
+
+def test_multilingual_quiz_outputs_choice_texts_and_preserves_language_tags(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
@@ -707,14 +782,141 @@ def test_llm_quiz_outputs_choice_texts_and_preserves_meaningful_punctuation_and_
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
-    files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="llm")
+    files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="multilingual")
     tts = files[0].content["questions"][0]["tts"]
 
     assert tts["choiceTexts"] == ["[en-US]Save it", "OK.", "続けます?", "本当です？"]
-    assert "choicesText" not in tts
-    assert "questionText" not in tts
     assert tts["explanationText"] == "[en-US]Save it? [ja-JP]を選びます."
-    assert tts.get("answerText") is None
+
+
+def test_multilingual_prompt_includes_field_language_policy(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    seen_prompts: list[str] = []
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        seen_prompts.append(prompt)
+        return {
+            "items": [
+                {
+                    "id": "q-plain",
+                    "questionText": "다음 설명으로 올바른 것은 무엇입니까?",
+                    "choices": [{"index": 0, "text": "저장합니다"}],
+                    "explanationText": "저장하는 작업을 고릅니다.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    language_settings = TtsLanguageSettings(
+        questionLanguageMode="select",
+        questionLanguage="ko",
+        choicesLanguageMode="mixed",
+        choicesLanguage="ko",
+        explanationLanguageMode="select",
+        explanationLanguage="ko",
+    )
+
+    optimize_generated_files_with_report([_plain_quiz_file()], [], mode="multilingual", language_settings=language_settings)
+
+    prompt = seen_prompts[0]
+    assert "Field language policy:" in prompt
+    assert "questionText: read this field in ko (ko-KR)" in prompt
+    assert "choiceTexts: mixed-language field" in prompt
+    assert "especially ko (ko-KR)" in prompt
+    assert "explanationText: read this field in ko (ko-KR)" in prompt
+
+
+def test_multilingual_document_allows_selected_korean_script(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_multilingual_ko.json",
+        kind="document",
+        content={
+            "id": "pack_doc_multilingual_ko",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "韓国語確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "韓国語の挨拶を確認します。"}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert "document text: read this field in ko (ko-KR)" in prompt
+        return {"items": [{"id": "doc-1", "text": "[ko-KR]안녕하세요를 확인합니다."}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    language_settings = TtsLanguageSettings(documentTextLanguageMode="select", documentTextLanguage="ko")
+
+    files, report = optimize_generated_files_with_report([file], [], mode="multilingual", language_settings=language_settings)
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "[ko-KR]안녕하세요를 확인합니다."
+    assert not any(issue.issueType == "unexpected_script" for issue in report.issues)
+
+
+def test_multilingual_document_does_not_apply_katakana_dictionary_rules(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_multilingual_it.json",
+        kind="document",
+        content={
+            "id": "pack_doc_multilingual_it",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "IT確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "ITを確認します。"}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert "IT -> アイティー" not in prompt
+        return {"items": [{"id": "doc-1", "text": "[en-US]IT[ja-JP]を確認します。"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report(
+        [file],
+        [TtsRule(source="IT", reading="アイティー")],
+        mode="multilingual",
+    )
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "[en-US]IT[ja-JP]を確認します。"
+    assert "アイティー" not in tts["text"]
+    assert not any(issue.issueType == "unexpected_script" for issue in report.issues)
+
+
+def test_llm_document_still_falls_back_for_korean_script_without_multilingual(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_llm_ko_noise.json",
+        kind="document",
+        content={
+            "id": "pack_doc_llm_ko_noise",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "韓国語ノイズ確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "CRMを確認します。"}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {"items": [{"id": "doc-1", "text": "シーアールエム안녕하세요"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [TtsRule(source="CRM", reading="シーアールエム")], mode="llm")
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "シーアールエムを確認します。"
+    assert any(issue.issueType == "unexpected_script" and issue.field == "text" for issue in report.issues)
 
 
 def test_llm_quiz_falls_back_to_rules_when_batch_response_omits_question(monkeypatch) -> None:
@@ -930,37 +1132,15 @@ def test_rule_mode_omits_choice_texts_when_only_choice_separators_differ(monkeyp
     assert "tts" not in question
 
 
-def test_auto_quiz_reruns_only_question_with_report_issue(monkeypatch) -> None:
+def test_none_mode_skips_quiz_tts_generation(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
-    calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
-        calls.append(prompt)
-        assert "- id: q-2" in prompt
-        return {
-            "items": [
-                {
-                    "id": "q-2",
-                    "questionText": "ドット ギットコンフィグ を確認する理由は何ですか？",
-                    "choices": [
-                        {"index": 0, "text": "ユーザー設定を確認するため"},
-                        {"index": 1, "text": "ジェイソンを削除するため"},
-                        {"index": 2, "text": "CPUを交換するため"},
-                        {"index": 3, "text": "ユーアイを隠すため"},
-                    ],
-                    "explanationText": "ドット ギットコンフィグ にはギットのユーザー設定などが保存されます。",
-                }
-            ]
-        }
-
-    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
-
-    files, report = optimize_generated_files_with_report([_quiz_file()], [], mode="auto")
+    files, report = optimize_generated_files_with_report([_quiz_file()], [], mode="none")
     questions = files[0].content["questions"]
 
-    assert len(calls) == 1
-    assert "ドット ギットconfig" not in str(questions[1]["tts"])
-    assert "ドット ギットコンフィグ" in questions[1]["tts"]["questionText"]
+    assert "tts" not in questions[0]
+    assert "tts" not in questions[1]
+    assert report.mode == "none"
     assert report.issues == []
-    assert report.llmGeneratedIds == ["q-2"]
+    assert report.llmGeneratedIds == []

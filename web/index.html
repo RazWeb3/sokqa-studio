@@ -364,6 +364,16 @@
                   </div>
                 </div>
                 <label>読み上げ補正<select id="ttsReadingMode"><option value="none">なし</option><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（AI補正）</option><option value="multilingual">多言語（AI補正）</option></select></label>
+                <section class="plan-card">
+                  <div class="issue-top">
+                    <div>
+                      <h4>共通TTS辞書</h4>
+                      <p>生成前に登録しておくと、標準/高精度の読み補正に使われます。</p>
+                    </div>
+                    <span class="badge info" id="ttsDictionaryCount">未読込</span>
+                  </div>
+                  <div class="actions"><button class="secondary" id="openDictionaryRulesBtn" type="button">辞書を管理</button></div>
+                </section>
                 <details id="multilingualTtsOptions" class="plan-card" hidden>
                   <summary>多言語読み上げの詳細</summary>
                   <div class="stack">
@@ -402,17 +412,18 @@
                 <div class="panel-head"><div><h3>生成結果</h3><p class="hint">完了後はスマホ学習アプリへ渡すURLとQRコードを共有します。</p></div></div>
                 <div class="panel-body result" id="result"><p class="muted">まだ生成結果はありません。</p></div>
               </section>
-              <section class="panel">
-                <div class="panel-head"><div><h3>TTS再最適化</h3><p class="hint">この生成結果だけに読みルールを追加して、表示テキストを変えずにTTSを作り直します。</p></div></div>
+              <section class="panel" id="postTtsReplacePanel" hidden>
+                <div class="panel-head"><div><h3>生成後の読み置き換え</h3><p class="hint">表示テキストは変えずに、TTSで読む言葉だけを置き換えて再最適化します。</p></div></div>
                 <div class="panel-body stack">
                   <div class="rule-editor">
                     <div id="temporaryRuleRows" class="stack"></div>
                     <div class="rule-tools">
-                      <button class="secondary" id="addTemporaryRuleBtn" type="button">ルール追加</button>
-                      <button class="ghost" id="clearTemporaryRulesBtn" type="button">一時ルールをクリア</button>
+                      <button class="secondary" id="addTemporaryRuleBtn" type="button">置き換えを追加</button>
+                      <button class="secondary" id="promoteTemporaryRulesBtn" type="button">共通辞書にも追加</button>
+                      <button class="ghost" id="clearTemporaryRulesBtn" type="button">クリア</button>
                     </div>
                     <details class="json-details">
-                      <summary>上級者向け: JSONで一時ルールを貼り付け</summary>
+                      <summary>上級者向け: JSONで一括指定</summary>
                       <textarea id="ttsRules" class="json" spellcheck="false">[
   { "source": "日本橋", "reading": "にほんばし" }
 ]</textarea>
@@ -421,28 +432,7 @@
                       </div>
                     </details>
                   </div>
-                  <button class="secondary" id="reviseBtn" type="button" disabled>TTSだけ再最適化</button>
-                </div>
-              </section>
-              <section class="panel">
-                <div class="panel-head"><div><h3>共通TTS辞書ルール</h3><p class="hint">今後の生成や再最適化で使う共通辞書です。対象語と読みだけを登録します。</p></div><span class="badge info" id="ttsDictionaryPath">未読込</span></div>
-                <div class="panel-body stack">
-                  <div class="rule-editor">
-                    <div id="dictionaryRuleRows" class="stack"></div>
-                    <div class="rule-tools">
-                      <button class="secondary" id="addDictionaryRuleBtn" type="button">辞書ルール追加</button>
-                      <button class="secondary" id="reloadDictionaryRulesBtn" type="button">再読込</button>
-                      <button id="saveDictionaryRulesBtn" type="button">辞書を保存</button>
-                    </div>
-                    <details class="json-details">
-                      <summary>上級者向け: JSONで辞書を上書き</summary>
-                      <textarea id="dictionaryRulesJson" class="json" spellcheck="false" placeholder='[{"source":"IT","reading":"アイティー"}]'></textarea>
-                      <div class="rule-tools">
-                        <button class="secondary" id="replaceDictionaryRulesJsonBtn" type="button">JSONで上書き</button>
-                      </div>
-                    </details>
-                    <p id="ttsDictionaryStatus" class="muted"></p>
-                  </div>
+                  <button class="secondary" id="reviseBtn" type="button" disabled>読みを置き換えてTTS再最適化</button>
                 </div>
               </section>
             </div>
@@ -589,6 +579,29 @@
       </div>
     </div>
 
+    <div class="modal" id="dictionaryRulesModal" aria-hidden="true">
+      <div class="dialog">
+        <div class="panel-head"><div><h3>共通TTS辞書</h3><p class="hint">今後の生成・再最適化で使う置き換え辞書です。対象語と読みだけを登録します。</p></div><button class="ghost" id="closeDictionaryRules" type="button">閉じる</button></div>
+        <div class="panel-body stack">
+          <div class="actions"><span class="badge info" id="ttsDictionaryPath">未読込</span><button class="secondary" id="reloadDictionaryRulesBtn" type="button">再読込</button><button id="saveDictionaryRulesBtn" type="button">辞書を保存</button></div>
+          <div class="rule-editor">
+            <div id="dictionaryRuleRows" class="stack"></div>
+            <div class="rule-tools">
+              <button class="secondary" id="addDictionaryRuleBtn" type="button">辞書ルール追加</button>
+            </div>
+            <details class="json-details">
+              <summary>上級者向け: JSONで辞書を上書き</summary>
+              <textarea id="dictionaryRulesJson" class="json" spellcheck="false" placeholder='[{"source":"IT","reading":"アイティー"}]'></textarea>
+              <div class="rule-tools">
+                <button class="secondary" id="replaceDictionaryRulesJsonBtn" type="button">JSONで上書き</button>
+              </div>
+            </details>
+            <p id="ttsDictionaryStatus" class="muted"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       const $ = (id) => document.getElementById(id);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -675,7 +688,7 @@
         const container = $(containerId);
         container.innerHTML = rules.map((rule, index) => `
           <div class="rule-row" data-rule-row="${escapeHtml(prefix)}" data-index="${index}">
-            <label>対象語<input data-rule-source="${escapeHtml(prefix)}" value="${escapeHtml(rule.source || "")}" placeholder="例: IT" maxlength="80" /></label>
+            <label>置き換え対象<input data-rule-source="${escapeHtml(prefix)}" value="${escapeHtml(rule.source || "")}" placeholder="例: IT" maxlength="80" /></label>
             <label>置き換え後の読み<input data-rule-reading="${escapeHtml(prefix)}" value="${escapeHtml(rule.reading || "")}" placeholder="例: アイティー" maxlength="120" /></label>
             <button class="ghost" type="button" data-remove-rule="${escapeHtml(prefix)}" data-index="${index}">削除</button>
           </div>
@@ -698,6 +711,10 @@
       function renderDictionaryRules() {
         renderRuleRows("dictionaryRuleRows", dictionaryTtsRules, "dictionary");
         $("dictionaryRulesJson").value = rulesToJson(dictionaryTtsRules);
+      }
+
+      function updateDictionarySummary() {
+        $("ttsDictionaryCount").textContent = dictionaryTtsRules.length ? `登録済み ${dictionaryTtsRules.length}件` : "未登録";
       }
 
       function purposeLabel(value) {
@@ -976,12 +993,14 @@
           const data = await requestGet("/debug/tts-rules");
           dictionaryTtsRules = normalizeRules(data.rules || []);
           renderDictionaryRules();
+          updateDictionarySummary();
           $("ttsDictionaryPath").textContent = data.path || "tts_rules.json";
           $("ttsDictionaryStatus").textContent = `${dictionaryTtsRules.length}件の辞書ルールを読み込みました。`;
           $("ttsDictionaryStatus").classList.remove("error");
         } catch (error) {
           $("ttsDictionaryStatus").textContent = error.message;
           $("ttsDictionaryStatus").classList.add("error");
+          $("ttsDictionaryCount").textContent = "読込失敗";
         }
       }
 
@@ -991,12 +1010,44 @@
           const data = await requestPutJson("/debug/tts-rules", { rules: dictionaryTtsRules });
           dictionaryTtsRules = normalizeRules(data.rules || []);
           renderDictionaryRules();
+          updateDictionarySummary();
           $("ttsDictionaryPath").textContent = data.path || "tts_rules.json";
           $("ttsDictionaryStatus").textContent = `${dictionaryTtsRules.length}件の辞書ルールを保存しました。`;
           $("ttsDictionaryStatus").classList.remove("error");
         } catch (error) {
           $("ttsDictionaryStatus").textContent = error.message;
           $("ttsDictionaryStatus").classList.add("error");
+          $("ttsDictionaryCount").textContent = "保存失敗";
+        }
+      }
+
+      function openDictionaryRulesModal() {
+        $("dictionaryRulesModal").classList.add("open");
+        $("dictionaryRulesModal").setAttribute("aria-hidden", "false");
+      }
+
+      function closeDictionaryRulesModal() {
+        $("dictionaryRulesModal").classList.remove("open");
+        $("dictionaryRulesModal").setAttribute("aria-hidden", "true");
+      }
+
+      function promoteTemporaryRulesToDictionary() {
+        try {
+          const additions = collectRuleRows("temporary");
+          if (!additions.length) {
+            $("status").textContent = "共通辞書に追加する置き換えを入力してください。";
+            $("status").classList.add("error");
+            return;
+          }
+          dictionaryTtsRules = normalizeRules([...dictionaryTtsRules, ...additions]);
+          renderDictionaryRules();
+          updateDictionarySummary();
+          $("ttsDictionaryStatus").textContent = "生成後の読み置き換えを共通辞書の入力欄に追加しました。保存すると今後の生成にも反映されます。";
+          $("ttsDictionaryStatus").classList.remove("error");
+          openDictionaryRulesModal();
+        } catch (error) {
+          $("status").textContent = error.message;
+          $("status").classList.add("error");
         }
       }
 
@@ -2238,6 +2289,7 @@
           });
           currentJobId = generated.jobId;
           $("reviseBtn").disabled = false;
+          $("postTtsReplacePanel").hidden = false;
           renderGeneratedResult(generated);
           await loadPacks({ keepSelection: false });
           const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId) || currentPacks[0];
@@ -2332,10 +2384,14 @@
       });
       $("sourceText").addEventListener("input", syncInputState);
       $("reviseBtn").addEventListener("click", reviseTts);
+      $("openDictionaryRulesBtn").addEventListener("click", openDictionaryRulesModal);
+      $("closeDictionaryRules").addEventListener("click", closeDictionaryRulesModal);
+      $("dictionaryRulesModal").addEventListener("click", (event) => { if (event.target.id === "dictionaryRulesModal") closeDictionaryRulesModal(); });
       $("addTemporaryRuleBtn").addEventListener("click", () => {
         temporaryTtsRules = [...collectRuleRows("temporary"), { source: "", reading: "" }];
         renderTemporaryRules();
       });
+      $("promoteTemporaryRulesBtn").addEventListener("click", promoteTemporaryRulesToDictionary);
       $("clearTemporaryRulesBtn").addEventListener("click", () => {
         temporaryTtsRules = [];
         renderTemporaryRules();

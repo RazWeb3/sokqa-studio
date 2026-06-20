@@ -94,7 +94,13 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     for element_id in [
         "temporaryRuleRows",
         "addTemporaryRuleBtn",
+        "promoteTemporaryRulesBtn",
         "applyTemporaryRulesJsonBtn",
+        "postTtsReplacePanel",
+        "openDictionaryRulesBtn",
+        "ttsDictionaryCount",
+        "dictionaryRulesModal",
+        "closeDictionaryRules",
         "dictionaryRuleRows",
         "addDictionaryRuleBtn",
         "reloadDictionaryRulesBtn",
@@ -105,6 +111,13 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     assert "appendDictionaryRulesJsonBtn" not in html
     assert "JSONを追加" not in html
     assert "上級者向け: JSONで辞書を上書き" in html
+    assert "生成後の読み置き換え" in html
+    assert "読みを置き換えてTTS再最適化" in html
+    assert "生成前に登録しておくと、標準/高精度の読み補正に使われます。" in html
+    assert "辞書を管理" in html
+    assert "function updateDictionarySummary()" in html
+    assert "function openDictionaryRulesModal()" in html
+    assert "function promoteTemporaryRulesToDictionary()" in html
     assert "function normalizeRule(rule)" in html
     assert "function parseRulesJson(text)" in html
     assert "right.rule.source.length - left.rule.source.length" in html
@@ -112,4 +125,4 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     assert "function saveDictionaryRules()" in html
     assert 'requestGet("/debug/tts-rules")' in html
     assert 'requestPutJson("/debug/tts-rules", { rules: dictionaryTtsRules })' in html
-    assert '"note"' not in html[html.index('<section class="panel">', html.index('TTS再最適化')):html.index('共通TTS辞書ルール')]
+    assert '"note"' not in html[html.index('<section class="panel" id="postTtsReplacePanel"'):html.index('id="dictionaryRulesModal"')]

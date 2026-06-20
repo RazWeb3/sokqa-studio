@@ -1,13 +1,20 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from fastapi import HTTPException
-
-from app.schemas.request import OptimizeTtsRequest, RepairPackRequest, ReviseTtsRequest, ValidatePackRequest
+from app.config import get_settings
+from app.schemas.request import (
+    OptimizeTtsRequest,
+    RepairPackRequest,
+    ReviseTtsRequest,
+    SaveTtsRulesRequest,
+    TtsRulesConfigResponse,
+    ValidatePackRequest,
+)
 from app.schemas.sokqa import GeneratePackResponse, GeneratedFile, ValidationResult
 from app.services.pack_agent import revise_tts
 from app.services.gemini_client import GeminiClient
 from app.services.repairer import repair_files
 from app.services.tts_optimizer import optimize_generated_files
+from app.services.tts_rules import load_system_tts_rules, save_system_tts_rules
 from app.services.validator import validate_files
 
 
@@ -35,6 +42,20 @@ def revise_job_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         return revise_tts(request)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/tts-rules", response_model=TtsRulesConfigResponse)
+def get_tts_rules() -> TtsRulesConfigResponse:
+    return TtsRulesConfigResponse(rules=load_system_tts_rules(), path=get_settings().tts_rules_path)
+
+
+@router.put("/tts-rules", response_model=TtsRulesConfigResponse)
+def save_tts_rules(request: SaveTtsRulesRequest) -> TtsRulesConfigResponse:
+    try:
+        rules = save_system_tts_rules(request.rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TtsRulesConfigResponse(rules=rules, path=get_settings().tts_rules_path)
 
 
 @router.get("/test-gemini")

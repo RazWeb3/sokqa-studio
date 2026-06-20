@@ -312,6 +312,15 @@ class ReviseTtsRequest(BaseModel):
     persist: bool = True
 
 
+class TtsRulesConfigResponse(BaseModel):
+    rules: list[TtsRule] = Field(default_factory=list)
+    path: str
+
+
+class SaveTtsRulesRequest(BaseModel):
+    rules: list[TtsRule] = Field(default_factory=list)
+
+
 class TtsRecordingTarget(BaseModel):
     manifestUrl: str | None = Field(default=None, min_length=1)
     packUrl: str | None = Field(default=None, min_length=1)

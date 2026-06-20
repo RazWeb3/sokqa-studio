@@ -86,3 +86,30 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert 'if (ttsModeValue() === "multilingual") plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();' in html
     assert 'else delete plan.ttsLanguageSettings;' in html
     assert '$("multilingualTtsOptions").hidden = ttsModeValue() !== "multilingual";' in html
+
+
+def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
+    html = _html()
+
+    for element_id in [
+        "temporaryRuleRows",
+        "addTemporaryRuleBtn",
+        "applyTemporaryRulesJsonBtn",
+        "dictionaryRuleRows",
+        "addDictionaryRuleBtn",
+        "reloadDictionaryRulesBtn",
+        "saveDictionaryRulesBtn",
+        "replaceDictionaryRulesJsonBtn",
+    ]:
+        assert f'id="{element_id}"' in html
+    assert "appendDictionaryRulesJsonBtn" not in html
+    assert "JSONを追加" not in html
+    assert "上級者向け: JSONで辞書を上書き" in html
+    assert "function normalizeRule(rule)" in html
+    assert "function parseRulesJson(text)" in html
+    assert "right.rule.source.length - left.rule.source.length" in html
+    assert "function loadDictionaryRules()" in html
+    assert "function saveDictionaryRules()" in html
+    assert 'requestGet("/debug/tts-rules")' in html
+    assert 'requestPutJson("/debug/tts-rules", { rules: dictionaryTtsRules })' in html
+    assert '"note"' not in html[html.index('<section class="panel">', html.index('TTS再最適化')):html.index('共通TTS辞書ルール')]

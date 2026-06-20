@@ -3,7 +3,7 @@ from app.schemas.common import TtsRule
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.services.pack_agent import generate_pack, plan_pack
 from app.services.tts_optimizer import _combined_rules, _speech_text
-from app.services.tts_rules import load_configured_tts_rules
+from app.services.tts_rules import load_configured_tts_rules, load_system_tts_rules, save_system_tts_rules
 
 
 def test_system_rules_apply_when_user_rules_missing(tmp_path, monkeypatch) -> None:
@@ -59,6 +59,42 @@ def test_plan_rules_override_user_and_system_rules(tmp_path, monkeypatch) -> Non
 
     rules = _combined_rules([TtsRule(source="git init", reading="ジーアイティー イニット")])
     assert _speech_text("git init を実行します", rules) == "ジーアイティー イニット を実行します"
+
+
+def test_save_system_tts_rules_persists_editable_dictionary(tmp_path, monkeypatch) -> None:
+    system_rules = tmp_path / "tts_rules.json"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", str(system_rules))
+
+    saved = save_system_tts_rules(
+        [
+            TtsRule(source="IT", reading="アイティー"),
+            TtsRule(source="ROE", reading="アールオーイー"),
+            TtsRule(source="IT", reading="アイティー更新"),
+        ]
+    )
+
+    assert [rule.source for rule in saved] == ["ROE", "IT"]
+    assert saved[1].reading == "アイティー更新"
+    loaded = load_system_tts_rules()
+    assert [(rule.source, rule.reading) for rule in loaded] == [("ROE", "アールオーイー"), ("IT", "アイティー更新")]
+
+
+def test_saved_tts_rules_are_sorted_by_longest_source_first(tmp_path, monkeypatch) -> None:
+    system_rules = tmp_path / "tts_rules.json"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "tts_rules_path", str(system_rules))
+
+    saved = save_system_tts_rules(
+        [
+            TtsRule(source=".git", reading="ドット ギット"),
+            TtsRule(source=".gitignore", reading="ドット ギットイグノア"),
+            TtsRule(source="Git", reading="ギット"),
+        ]
+    )
+
+    assert [rule.source for rule in saved] == [".gitignore", ".git", "Git"]
+    assert [rule.source for rule in load_system_tts_rules()] == [".gitignore", ".git", "Git"]
 
 
 def test_enable_tts_optimize_false_keeps_tts_absent() -> None:

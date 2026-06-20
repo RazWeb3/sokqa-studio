@@ -177,6 +177,11 @@
       .pattern-option p { margin: 4px 0 0; }
       .pattern-examples { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
       .pattern-examples code { padding: 3px 7px; border-radius: 999px; background: var(--soft); border: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
+      .rule-editor { display: grid; gap: 10px; }
+      .rule-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+      .rule-row label { gap: 5px; }
+      .rule-row button { min-width: 42px; padding-inline: 10px; }
+      .rule-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       .result { display: grid; gap: 14px; padding: 14px; border: 1px solid color-mix(in oklch, var(--success) 22%, var(--border)); border-radius: 10px; background: linear-gradient(180deg, color-mix(in oklch, var(--success) 7%, white), white); }
       .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
       .stat { padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: white; }
@@ -398,12 +403,46 @@
                 <div class="panel-body result" id="result"><p class="muted">まだ生成結果はありません。</p></div>
               </section>
               <section class="panel">
-                <div class="panel-head"><div><h3>上級者向け TTS再最適化</h3><p class="hint">表示コンテンツは変えず、読みルールだけを追加して再生成します。</p></div></div>
+                <div class="panel-head"><div><h3>TTS再最適化</h3><p class="hint">この生成結果だけに読みルールを追加して、表示テキストを変えずにTTSを作り直します。</p></div></div>
                 <div class="panel-body stack">
-                  <label>読みルールJSON<textarea id="ttsRules" class="json" spellcheck="false">[
-  { "source": "日本橋", "reading": "にほんばし", "note": "地名として読む場合" }
-]</textarea></label>
+                  <div class="rule-editor">
+                    <div id="temporaryRuleRows" class="stack"></div>
+                    <div class="rule-tools">
+                      <button class="secondary" id="addTemporaryRuleBtn" type="button">ルール追加</button>
+                      <button class="ghost" id="clearTemporaryRulesBtn" type="button">一時ルールをクリア</button>
+                    </div>
+                    <details class="json-details">
+                      <summary>上級者向け: JSONで一時ルールを貼り付け</summary>
+                      <textarea id="ttsRules" class="json" spellcheck="false">[
+  { "source": "日本橋", "reading": "にほんばし" }
+]</textarea>
+                      <div class="rule-tools">
+                        <button class="secondary" id="applyTemporaryRulesJsonBtn" type="button">JSONを入力欄へ反映</button>
+                      </div>
+                    </details>
+                  </div>
                   <button class="secondary" id="reviseBtn" type="button" disabled>TTSだけ再最適化</button>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><h3>共通TTS辞書ルール</h3><p class="hint">今後の生成や再最適化で使う共通辞書です。対象語と読みだけを登録します。</p></div><span class="badge info" id="ttsDictionaryPath">未読込</span></div>
+                <div class="panel-body stack">
+                  <div class="rule-editor">
+                    <div id="dictionaryRuleRows" class="stack"></div>
+                    <div class="rule-tools">
+                      <button class="secondary" id="addDictionaryRuleBtn" type="button">辞書ルール追加</button>
+                      <button class="secondary" id="reloadDictionaryRulesBtn" type="button">再読込</button>
+                      <button id="saveDictionaryRulesBtn" type="button">辞書を保存</button>
+                    </div>
+                    <details class="json-details">
+                      <summary>上級者向け: JSONで辞書を上書き</summary>
+                      <textarea id="dictionaryRulesJson" class="json" spellcheck="false" placeholder='[{"source":"IT","reading":"アイティー"}]'></textarea>
+                      <div class="rule-tools">
+                        <button class="secondary" id="replaceDictionaryRulesJsonBtn" type="button">JSONで上書き</button>
+                      </div>
+                    </details>
+                    <p id="ttsDictionaryStatus" class="muted"></p>
+                  </div>
                 </div>
               </section>
             </div>
@@ -593,9 +632,72 @@
       let currentPlayingUnitId = null;
       let isPlaybackPaused = true;
       let selectedReadingPatternIds = new Set();
+      let temporaryTtsRules = [{ source: "日本橋", reading: "にほんばし" }];
+      let dictionaryTtsRules = [];
 
       function escapeHtml(value) {
         return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+      }
+
+      function normalizeRule(rule) {
+        const source = String(rule?.source || "").trim();
+        const reading = String(rule?.reading || "").trim();
+        const note = String(rule?.note || "").trim();
+        return { source, reading, ...(note ? { note } : {}) };
+      }
+
+      function normalizeRules(rules) {
+        if (!Array.isArray(rules)) throw new Error("TTSルールJSONは配列で入力してください。");
+        const merged = new Map();
+        rules.map(normalizeRule).filter((rule) => rule.source && rule.reading).forEach((rule) => merged.set(rule.source, rule));
+        return Array.from(merged.values())
+          .map((rule, index) => ({ rule, index }))
+          .sort((left, right) => right.rule.source.length - left.rule.source.length || left.index - right.index)
+          .map((item) => item.rule);
+      }
+
+      function parseRulesJson(text) {
+        const trimmed = text.trim();
+        if (!trimmed) return [];
+        const data = JSON.parse(trimmed);
+        if (Array.isArray(data)) return normalizeRules(data);
+        if (data && typeof data === "object") {
+          return normalizeRules(Object.entries(data).map(([source, reading]) => ({ source, reading })));
+        }
+        throw new Error("TTSルールJSONは配列または {対象: 読み} の形式で入力してください。");
+      }
+
+      function rulesToJson(rules) {
+        return JSON.stringify(normalizeRules(rules), null, 2);
+      }
+
+      function renderRuleRows(containerId, rules, prefix) {
+        const container = $(containerId);
+        container.innerHTML = rules.map((rule, index) => `
+          <div class="rule-row" data-rule-row="${escapeHtml(prefix)}" data-index="${index}">
+            <label>対象語<input data-rule-source="${escapeHtml(prefix)}" value="${escapeHtml(rule.source || "")}" placeholder="例: IT" maxlength="80" /></label>
+            <label>置き換え後の読み<input data-rule-reading="${escapeHtml(prefix)}" value="${escapeHtml(rule.reading || "")}" placeholder="例: アイティー" maxlength="120" /></label>
+            <button class="ghost" type="button" data-remove-rule="${escapeHtml(prefix)}" data-index="${index}">削除</button>
+          </div>
+        `).join("");
+      }
+
+      function collectRuleRows(prefix) {
+        return normalizeRules($$(`[data-rule-row="${prefix}"]`).map((row) => {
+          const source = row.querySelector(`[data-rule-source="${prefix}"]`)?.value || "";
+          const reading = row.querySelector(`[data-rule-reading="${prefix}"]`)?.value || "";
+          return { source, reading };
+        }));
+      }
+
+      function renderTemporaryRules() {
+        renderRuleRows("temporaryRuleRows", temporaryTtsRules, "temporary");
+        $("ttsRules").value = rulesToJson(temporaryTtsRules);
+      }
+
+      function renderDictionaryRules() {
+        renderRuleRows("dictionaryRuleRows", dictionaryTtsRules, "dictionary");
+        $("dictionaryRulesJson").value = rulesToJson(dictionaryTtsRules);
       }
 
       function purposeLabel(value) {
@@ -851,11 +953,51 @@
         return data;
       }
 
+      async function requestPutJson(url, payload) {
+        const response = await fetch(url, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+        return data;
+      }
+
       async function requestGet(url) {
         const response = await fetch(url);
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
         return data;
+      }
+
+      async function loadDictionaryRules() {
+        try {
+          const data = await requestGet("/debug/tts-rules");
+          dictionaryTtsRules = normalizeRules(data.rules || []);
+          renderDictionaryRules();
+          $("ttsDictionaryPath").textContent = data.path || "tts_rules.json";
+          $("ttsDictionaryStatus").textContent = `${dictionaryTtsRules.length}件の辞書ルールを読み込みました。`;
+          $("ttsDictionaryStatus").classList.remove("error");
+        } catch (error) {
+          $("ttsDictionaryStatus").textContent = error.message;
+          $("ttsDictionaryStatus").classList.add("error");
+        }
+      }
+
+      async function saveDictionaryRules() {
+        try {
+          dictionaryTtsRules = collectRuleRows("dictionary");
+          const data = await requestPutJson("/debug/tts-rules", { rules: dictionaryTtsRules });
+          dictionaryTtsRules = normalizeRules(data.rules || []);
+          renderDictionaryRules();
+          $("ttsDictionaryPath").textContent = data.path || "tts_rules.json";
+          $("ttsDictionaryStatus").textContent = `${dictionaryTtsRules.length}件の辞書ルールを保存しました。`;
+          $("ttsDictionaryStatus").classList.remove("error");
+        } catch (error) {
+          $("ttsDictionaryStatus").textContent = error.message;
+          $("ttsDictionaryStatus").classList.add("error");
+        }
       }
 
       function setBadge(id, text, tone = "") {
@@ -2115,7 +2257,9 @@
         if (!currentJobId) return;
         setBusy(true, "Revising TTS...");
         try {
-          const revised = await requestJson("/debug/revise-tts", { jobId: currentJobId, ttsRules: JSON.parse($("ttsRules").value), persist: true });
+          temporaryTtsRules = collectRuleRows("temporary");
+          renderTemporaryRules();
+          const revised = await requestJson("/debug/revise-tts", { jobId: currentJobId, ttsRules: temporaryTtsRules, persist: true });
           $("result").insertAdjacentHTML("beforeend", `<p><strong>TTS再最適化:</strong> ${escapeHtml(revised.validation?.valid ? "valid" : "invalid")}</p>`);
           await loadPacks();
         } catch (error) {
@@ -2150,6 +2294,19 @@
             playUnit(unit);
           }
         }
+        const removeRuleButton = event.target.closest("[data-remove-rule]");
+        if (removeRuleButton) {
+          const type = removeRuleButton.dataset.removeRule;
+          const index = Number(removeRuleButton.dataset.index);
+          if (type === "temporary") {
+            temporaryTtsRules = collectRuleRows("temporary").filter((_rule, ruleIndex) => ruleIndex !== index);
+            renderTemporaryRules();
+          }
+          if (type === "dictionary") {
+            dictionaryTtsRules = collectRuleRows("dictionary").filter((_rule, ruleIndex) => ruleIndex !== index);
+            renderDictionaryRules();
+          }
+        }
       });
 
       $$(".tab").forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.tab)));
@@ -2175,6 +2332,40 @@
       });
       $("sourceText").addEventListener("input", syncInputState);
       $("reviseBtn").addEventListener("click", reviseTts);
+      $("addTemporaryRuleBtn").addEventListener("click", () => {
+        temporaryTtsRules = [...collectRuleRows("temporary"), { source: "", reading: "" }];
+        renderTemporaryRules();
+      });
+      $("clearTemporaryRulesBtn").addEventListener("click", () => {
+        temporaryTtsRules = [];
+        renderTemporaryRules();
+      });
+      $("applyTemporaryRulesJsonBtn").addEventListener("click", () => {
+        try {
+          temporaryTtsRules = parseRulesJson($("ttsRules").value);
+          renderTemporaryRules();
+        } catch (error) {
+          $("status").textContent = error.message;
+          $("status").classList.add("error");
+        }
+      });
+      $("addDictionaryRuleBtn").addEventListener("click", () => {
+        dictionaryTtsRules = [...collectRuleRows("dictionary"), { source: "", reading: "" }];
+        renderDictionaryRules();
+      });
+      $("reloadDictionaryRulesBtn").addEventListener("click", loadDictionaryRules);
+      $("saveDictionaryRulesBtn").addEventListener("click", saveDictionaryRules);
+      $("replaceDictionaryRulesJsonBtn").addEventListener("click", () => {
+        try {
+          dictionaryTtsRules = parseRulesJson($("dictionaryRulesJson").value);
+          renderDictionaryRules();
+          $("ttsDictionaryStatus").textContent = "JSONで入力欄を上書きしました。保存すると辞書に反映されます。";
+          $("ttsDictionaryStatus").classList.remove("error");
+        } catch (error) {
+          $("ttsDictionaryStatus").textContent = error.message;
+          $("ttsDictionaryStatus").classList.add("error");
+        }
+      });
       $("openPack").addEventListener("click", openPackModal);
       $("openPackTop").addEventListener("click", openPackModal);
       $("openPackFromRecord").addEventListener("click", openPackModal);
@@ -2243,6 +2434,8 @@
       syncPackLanguageUi();
       populateTtsLanguageSelects();
       syncTtsModeUi();
+      renderTemporaryRules();
+      loadDictionaryRules();
       saveCredits(creditBalance);
       updateGlobalStatus();
       updateStatusBadges();

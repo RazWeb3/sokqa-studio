@@ -126,6 +126,7 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
         "promoteTemporaryRulesBtn",
         "applyTemporaryRulesJsonBtn",
         "postTtsReplacePanel",
+        "exportJsonZipBtn",
         "openDictionaryRulesBtn",
         "ttsDictionaryCount",
         "dictionaryRulesModal",
@@ -142,6 +143,12 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     assert "上級者向け: JSONで辞書を上書き" in html
     assert "生成後の読み置き換え" in html
     assert "読みを置き換えてTTS再最適化" in html
+    assert 'requestJson("/packs/revise-tts"' in html
+    assert 'requestJson("/debug/revise-tts"' in html
+    assert "対象パックが選択されている場合は、その最新マニフェスト全体に適用します" in html
+    assert "currentJobId" in html
+    assert "if (!selectedPack && !currentJobId) return;" in html
+    assert "postTtsReplacePanel\" hidden" not in html
     assert "生成前に登録しておくと、標準/高精度の読み補正に使われます。" in html
     assert "辞書を管理" in html
     assert "function updateDictionarySummary()" in html
@@ -155,3 +162,13 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     assert 'requestGet("/debug/tts-rules")' in html
     assert 'requestPutJson("/debug/tts-rules", { rules: dictionaryTtsRules })' in html
     assert '"note"' not in html[html.index('<section class="panel" id="postTtsReplacePanel"'):html.index('id="dictionaryRulesModal"')]
+
+
+def test_json_zip_export_ui_is_available_for_selected_pack() -> None:
+    html = _html()
+
+    assert 'id="exportJsonZipBtn"' in html
+    assert 'id="exportGeneratedJsonZipBtn"' in html
+    assert "function exportJsonZip()" in html
+    assert 'requestBlob("/packs/export-json-zip", recordingTarget(selectedPack))' in html
+    assert "application/zip" not in html

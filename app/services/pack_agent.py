@@ -16,10 +16,11 @@ from app.services.quiz_generator import generate_quiz_pack
 from app.services.repairer import repair_files
 from app.services.revision_commit import build_revision_commit
 from app.services.revision_store import persist_revision_commit
+from app.services.pack_revision_tools import apply_tts_replacement_rules
 from app.services.source_material import normalize_source
 from app.services.storage_client import StorageClient
 from app.services.storage_status import pop_storage_events
-from app.services.tts_optimizer import optimize_generated_files, optimize_generated_files_with_report
+from app.services.tts_optimizer import optimize_generated_files_with_report
 from app.services.validator import validate_files
 from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
@@ -299,33 +300,39 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     plan = resolve_plan_identity(existing.plan.model_copy(deep=True))
     metadata = build_pack_metadata(plan)
     plan.version = bump_patch(plan.version)
-    plan.ttsRules.extend(request.ttsRules)
 
     content_files = [
         file.model_copy(deep=True)
         for file in existing.files
         if file.kind in {"document", "quiz"}
     ]
-    optimized_files = optimize_generated_files(content_files, plan.ttsRules, _effective_tts_mode(plan), plan.ttsLanguageSettings)
+    revised_files = apply_tts_replacement_rules(content_files, request.ttsRules)
 
-    logs = [*existing.logs, "Revising TTS", "Optimizing TTS"]
+    logs = [*existing.logs, "Revising TTS", "Applying TTS replacement rules"]
     if not isinstance(existing.manifest, PackManifestV2):
         raise ValueError("revise_tts requires a revision manifest")
 
+    if not revised_files:
+        validation = validate_files(existing.files, existing.manifest)
+        append_validation_logs(logs, validation)
+        revised = existing.model_copy(update={"plan": plan, "validation": validation, "logs": [*logs, "No TTS replacement changes"]})
+        update_job(revised)
+        return revised
+
     logs.append("Persisting TTS revision" if request.persist else "Building TTS revision")
-    commit_result = _persist_changed_revision(plan, metadata, optimized_files, existing.manifest, request.persist)
+    commit_result = _persist_changed_revision(plan, metadata, revised_files, existing.manifest, request.persist)
     if request.persist:
         logs.extend(event.message for event in pop_storage_events())
     manifest = commit_result.manifest
-    optimized_files = _files_from_revision_result(commit_result)
+    revised_files = _files_from_revision_result(commit_result)
 
-    validation = validate_files(optimized_files, manifest)
+    validation = validate_files(revised_files, manifest)
     append_validation_logs(logs, validation)
     revised = GeneratePackResponse(
         status="completed",
         jobId=existing.jobId,
         plan=plan,
-        files=optimized_files,
+        files=revised_files,
         manifest=manifest,
         validation=validation,
         ttsReport=None,

@@ -336,6 +336,7 @@
           <div class="pack-actions">
             <button class="secondary" id="openVersionInfo" type="button" hidden>バージョン情報</button>
             <button class="secondary" id="openImportQr" type="button">QRコード表示</button>
+            <button class="secondary" id="exportJsonZipBtn" type="button">JSON Zip出力</button>
             <button class="secondary" id="openPack" type="button">別のパックに切り替え</button>
             <button class="ghost" id="clearPack" type="button">未選択にする</button>
           </div>
@@ -421,9 +422,10 @@
                 <div class="panel-head"><div><h3>生成結果</h3><p class="hint">完了後はスマホ学習アプリへ渡すURLとQRコードを共有します。</p></div></div>
                 <div class="panel-body result" id="result"><p class="muted">まだ生成結果はありません。</p></div>
               </section>
-              <section class="panel" id="postTtsReplacePanel" hidden>
+              <section class="panel" id="postTtsReplacePanel">
                 <div class="panel-head"><div><h3>生成後の読み置き換え</h3><p class="hint">表示テキストは変えずに、TTSで読む言葉だけを置き換えて再最適化します。</p></div></div>
                 <div class="panel-body stack">
+                  <p class="hint">対象パックが選択されている場合は、その最新マニフェスト全体に適用します。生成直後だけでなく、後からでも実行できます。</p>
                   <div class="rule-editor">
                     <div id="temporaryRuleRows" class="stack"></div>
                     <div class="rule-tools">
@@ -1038,6 +1040,23 @@
         return data;
       }
 
+      async function requestBlob(url, payload) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          let message = response.statusText;
+          try {
+            const data = await response.json();
+            message = data.detail ? JSON.stringify(data.detail) : message;
+          } catch (_error) {}
+          throw new Error(message);
+        }
+        return response.blob();
+      }
+
       async function loadDictionaryRules() {
         try {
           const data = await requestGet("/debug/tts-rules");
@@ -1122,7 +1141,9 @@
           $("packStatusText").textContent = "生成、品質チェック、録音の対象として共有されます";
           $("openVersionInfo").disabled = true;
           $("openImportQr").disabled = true;
+          $("exportJsonZipBtn").disabled = true;
           setBadge("recordBadge", "未判定");
+          updateActionAvailability();
           return;
         }
         $("packIcon").textContent = `R${selectedPack.revision || "-"}`;
@@ -1132,6 +1153,7 @@
         $("packStatusText").textContent = `contentId: ${selectedPack.contentId || "-"} / versionId: ${selectedPack.versionId || "-"}`;
         $("openVersionInfo").disabled = !selectedPack.manifestUrl;
         $("openImportQr").disabled = !selectedPack.manifestUrl;
+        $("exportJsonZipBtn").disabled = !selectedPack.manifestUrl && !(selectedPack.creatorId && selectedPack.contentId);
       }
 
       function updateStatusBadges() {
@@ -1231,7 +1253,7 @@
           "planBtn", "generateBtn", "reviseBtn", "textCheckBtn", "textFixBtn", "applyTextFixBtn",
           "saveTextFixBtn", "skipTextWorkflowBtn", "ttsCheckBtn", "ttsFixBtn", "saveTtsFixBtn",
           "recordSelectedBtn", "forceRecordSelectedBtn", "resetSelectedRecordingBtn", "resetAllRecordingBtn",
-          "loadPacksBtn", "importPackBtn", "openImportQr"
+          "loadPacksBtn", "importPackBtn", "openImportQr", "exportJsonZipBtn"
         ].forEach((id) => { const el = $(id); if (el) el.disabled = flag || el.dataset.forceDisabled === "true"; });
         updateActionAvailability();
       }
@@ -1254,6 +1276,8 @@
         $("resetSelectedRecordingBtn").disabled = isBusy || !selectedCount;
         $("resetAllRecordingBtn").disabled = isBusy || !selectedPack;
         $("openImportQr").disabled = isBusy || !selectedPack?.manifestUrl;
+        $("exportJsonZipBtn").disabled = isBusy || !selectedPack;
+        $("reviseBtn").disabled = isBusy || !normalizeRules(temporaryTtsRules).length || (!selectedPack && !currentJobId);
         $("creditWarning").textContent = insufficient ? "クレジットが不足しています。来月のチャージ後に録音できます。" : "";
       }
 
@@ -2276,10 +2300,11 @@
           <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.status)}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${generated.validation?.valid ? "ok" : "ng"}</strong></div></div>
           <div class="url"><code>${escapeHtml(manifestUrl || "not persisted")}</code>${manifestUrl ? `<a class="button secondary" href="${escapeHtml(manifestUrl)}" target="_blank" rel="noreferrer">manifest</a>` : ""}</div>
           ${shareUrl ? `<div class="url"><code id="shareUrl">${escapeHtml(shareUrl)}</code><button class="secondary" id="copyShareUrlBtn" type="button">URLコピー</button></div><div id="qrcode"></div>` : ""}
-          <div class="actions"><a class="button" href="/jobs/${escapeHtml(generated.jobId)}" target="_blank" rel="noreferrer">job JSONを見る</a><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
+          <div class="actions"><a class="button" href="/jobs/${escapeHtml(generated.jobId)}" target="_blank" rel="noreferrer">job JSONを見る</a><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
           <ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`;
         if (shareUrl && window.QRCode) new QRCode($("qrcode"), { text: shareUrl, width: 260, height: 260 });
         $("copyShareUrlBtn")?.addEventListener("click", async () => navigator.clipboard?.writeText(shareUrl));
+        $("exportGeneratedJsonZipBtn")?.addEventListener("click", exportJsonZip);
         $("goQualityBtn")?.addEventListener("click", () => setTab("quality"));
         $("goRecordBtn")?.addEventListener("click", () => setTab("record"));
       }
@@ -2328,8 +2353,6 @@
             ...sourcePayload()
           });
           currentJobId = generated.jobId;
-          $("reviseBtn").disabled = false;
-          $("postTtsReplacePanel").hidden = false;
           renderGeneratedResult(generated);
           await loadPacks({ keepSelection: false });
           const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId) || currentPacks[0];
@@ -2346,16 +2369,51 @@
       }
 
       async function reviseTts() {
-        if (!currentJobId) return;
+        if (!selectedPack && !currentJobId) return;
         setBusy(true, "Revising TTS...");
+        setProgress("読み置き換え", "処理中", "TTS読みをマニフェスト全体へ適用しています。");
         try {
           temporaryTtsRules = collectRuleRows("temporary");
           renderTemporaryRules();
-          const revised = await requestJson("/debug/revise-tts", { jobId: currentJobId, ttsRules: temporaryTtsRules, persist: true });
+          const revised = selectedPack
+            ? await requestJson("/packs/revise-tts", { target: recordingTarget(selectedPack), ttsRules: temporaryTtsRules, persist: true })
+            : await requestJson("/debug/revise-tts", { jobId: currentJobId, ttsRules: temporaryTtsRules, persist: true });
           $("result").insertAdjacentHTML("beforeend", `<p><strong>TTS再最適化:</strong> ${escapeHtml(revised.validation?.valid ? "valid" : "invalid")}</p>`);
-          await loadPacks();
+          const before = selectedPack;
+          await loadPacks({ keepSelection: true });
+          if (before) {
+            selectedPack = latestMatchingPack(before) || selectedPack;
+            updateGlobalStatus();
+          }
+          await refreshImportQrIfOpen();
+          await refreshVersionInfoIfOpen();
+          finishProgress("読み置き換え", `revision ${revised.manifest?.revision || "-"} に保存しました。`);
         } catch (error) {
           $("status").textContent = error.message;
+          setProgress("読み置き換え", "失敗", error.message, 1);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function exportJsonZip() {
+        if (!selectedPack) return;
+        setBusy(true, "Exporting JSON Zip...");
+        try {
+          const blob = await requestBlob("/packs/export-json-zip", recordingTarget(selectedPack));
+          const name = `${selectedPack.contentId || "sokqa-pack"}_${selectedPack.versionId || "latest"}_json.zip`;
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = name;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          finishProgress("JSON Zip", "最新リビジョンのJSONを出力しました。");
+        } catch (error) {
+          $("status").textContent = error.message;
+          setProgress("JSON Zip", "失敗", error.message, 1);
         } finally {
           setBusy(false);
         }
@@ -2433,6 +2491,7 @@
       });
       $("sourceText").addEventListener("input", syncInputState);
       $("reviseBtn").addEventListener("click", reviseTts);
+      $("exportJsonZipBtn").addEventListener("click", exportJsonZip);
       $("openDictionaryRulesBtn").addEventListener("click", openDictionaryRulesModal);
       $("closeDictionaryRules").addEventListener("click", closeDictionaryRulesModal);
       $("dictionaryRulesModal").addEventListener("click", (event) => { if (event.target.id === "dictionaryRulesModal") closeDictionaryRulesModal(); });

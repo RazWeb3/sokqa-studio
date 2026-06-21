@@ -251,3 +251,12 @@ class GeneratePackResponse(BaseModel):
     validation: ValidationResult
     ttsReport: TtsReport | None = None
     logs: list[str] = Field(default_factory=list)
+
+
+class PackRevisionResponse(BaseModel):
+    status: Literal["completed"]
+    files: list[GeneratedFile]
+    manifest: PackManifestV2
+    validation: ValidationResult
+    ttsReport: TtsReport | None = None
+    logs: list[str] = Field(default_factory=list)

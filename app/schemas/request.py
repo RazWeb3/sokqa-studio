@@ -344,6 +344,12 @@ class TtsRecordingTarget(BaseModel):
     kind: Literal["document", "quiz"] | None = None
 
 
+class RevisePackTtsRequest(BaseModel):
+    target: TtsRecordingTarget
+    ttsRules: list[TtsRule] = Field(default_factory=list)
+    persist: bool = True
+
+
 class EstimateTtsRecordingRequest(BaseModel):
     target: TtsRecordingTarget
     unitIds: list[str] | None = None

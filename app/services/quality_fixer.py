@@ -44,6 +44,7 @@ from app.services.tts_recording_api import (
     _validate_target_matches_loaded_prefix,
     load_target_pack,
 )
+from app.services.tts_text import collapse_duplicate_katakana_utterances
 from app.services.validator import validate_files
 
 
@@ -172,6 +173,25 @@ def _generate_tts_fix_without_llm(
 
         location = _resolve_tts_location_for_issue(updated_json, location, issue.excerpt)
         before = _get_tts_field(updated_json, location) or _get_raw_field(updated_json, location)
+        if issue.category == "double_utterance":
+            after = _collapse_double_utterance(before)
+            if after is not None:
+                if not _set_tts_field(updated_json, location, after):
+                    skipped += 1
+                    logger.info("tts fix skipped issue: failed to set tts field %s", location.model_dump())
+                    continue
+                applied.append(
+                    AppliedFix(
+                        id=f"auto-{index}",
+                        category=issue.category,
+                        location=location,
+                        field=_tts_field_name(updated_json, location),
+                        before=before,
+                        after=after,
+                        sourceIssue=issue.issue,
+                    )
+                )
+                continue
         replacement = _fix_after_text(issue.suggestion, location)
         if replacement is None or not _is_applicable_tts_suggestion(issue.suggestion, replacement):
             unapplied.append(
@@ -676,6 +696,14 @@ def _apply_partial_tts_replacement(base: str | None, excerpt: str | None, replac
         start, end = span
         return f"{base_text[:start]}{replacement}{base_text[end:]}"
     return base_text.replace(excerpt_text, replacement, 1)
+
+
+def _collapse_double_utterance(base: str | None) -> str | None:
+    base_text = _non_empty_text(base)
+    if base_text is None:
+        return None
+    collapsed = collapse_duplicate_katakana_utterances(base_text)
+    return collapsed if collapsed != base_text else None
 
 
 def _resolve_tts_location_for_issue(content: dict[str, Any], location: QualityLocation, excerpt: str | None) -> QualityLocation:

@@ -80,7 +80,7 @@ def test_listening_document_prompt_forbids_glossary_style_and_requires_flow() ->
     assert "Do not write glossary-style entries" in prompt
     assert "not as an independent term definition" in prompt
     assert "avoid starting sections with a term name followed by its definition" in prompt
-    assert "3 to 6 Japanese sentences" in prompt
+    assert "3 to 6 sentences in the pack language" in prompt
 
 
 def test_standard_document_prompt_keeps_existing_balanced_structure() -> None:
@@ -90,7 +90,7 @@ def test_standard_document_prompt_keeps_existing_balanced_structure() -> None:
 
     assert "Structure policy: standard" in prompt
     assert "Use the existing balanced Sokqa course style" in prompt
-    assert "Each text should be 2 to 4 Japanese sentences" in prompt
+    assert "Each text should be 2 to 4 sentences in the pack language" in prompt
     assert "avoid starting sections with a term name followed by its definition" not in prompt
 
 

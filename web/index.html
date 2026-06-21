@@ -193,10 +193,10 @@
       .log.done { border-color: color-mix(in oklch, var(--success) 26%, var(--border)); color: var(--fg); }
       .url { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px; border: 1px dashed color-mix(in oklch, var(--accent) 28%, var(--border)); border-radius: 9px; background: color-mix(in oklch, var(--accent) 5%, white); }
       .url code { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
-      #qrcode { display: grid; justify-items: center; }
+      #qrcode { display: grid; justify-items: start; }
       #qrcode img, #qrcode canvas { width: min(260px, 100%); height: auto; max-width: 100%; }
       .qr-box { display: grid; justify-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
-      .qr-box img { width: 180px; height: 180px; }
+      .qr-box img, .qr-box canvas { width: 180px; height: 180px; }
       .quality { display: grid; gap: 16px; }
       .quality-board { display: grid; grid-template-columns: minmax(360px, .92fr) minmax(360px, 1.08fr); gap: 16px; align-items: start; }
       .quality-controls { display: grid; gap: 12px; max-height: calc(100vh - 250px); overflow: auto; align-self: start; padding-right: 2px; }
@@ -219,7 +219,13 @@
       .checkline { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 9px; align-items: start; font-size: 13px; color: var(--fg); letter-spacing: 0; font-weight: 520; }
       .checkline input { width: 18px; height: 18px; margin-top: 2px; }
       .applied { display: grid; gap: 8px; padding: 11px; border-radius: 9px; background: color-mix(in oklch, var(--success) 7%, white); border: 1px solid color-mix(in oklch, var(--success) 22%, var(--border)); font-size: 13px; }
-      .record { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr); gap: 16px; }
+      .quality-skip-actions { justify-content: flex-end; }
+      .record { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(360px, 1.1fr); gap: 16px; align-items: start; }
+      .record-operations { position: sticky; top: 250px; max-height: calc(100vh - 250px); overflow: auto; align-self: start; padding-right: 2px; }
+      .record .step { grid-template-columns: minmax(0, 1fr); }
+      .record .step-num { display: none; }
+      .record-units .panel-body { overflow: visible; padding-right: 18px; }
+      .credit-ui[hidden] { display: none !important; }
       .step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
       .step-num { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-family: var(--mono); font-weight: 750; background: color-mix(in oklch, var(--accent) 10%, white); color: var(--accent-ink); }
       .units { display: grid; gap: 8px; margin-top: 10px; }
@@ -279,6 +285,8 @@
         .generate-left .actions { position: static; padding-top: 0; background: transparent; }
         .quality-controls { max-height: none; overflow: visible; padding-right: 0; }
         .quality-results { max-height: none; overflow: visible; }
+        .record-operations { position: static; max-height: none; overflow: visible; padding-right: 0; }
+        .record-units .panel-body { padding-right: 18px; }
         .tabs { top: 64px; }
         .pack-bar { top: 151px; }
       }
@@ -334,9 +342,7 @@
             </div>
           </div>
           <div class="pack-actions">
-            <button class="secondary" id="openVersionInfo" type="button" hidden>バージョン情報</button>
-            <button class="secondary" id="openImportQr" type="button">QRコード表示</button>
-            <button class="secondary" id="exportJsonZipBtn" type="button">JSON Zip出力</button>
+            <button class="secondary" id="openVersionInfo" type="button">バージョン情報</button>
             <button class="secondary" id="openPack" type="button">別のパックに切り替え</button>
             <button class="ghost" id="clearPack" type="button">未選択にする</button>
           </div>
@@ -353,7 +359,7 @@
                 <label>対象ユーザー<input id="targetUser" value="IT初心者の社会人" maxlength="160" /></label>
                 <div class="field-grid">
                   <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
-                  <label>パック言語<select id="language"><option value="ja" selected>日本語 / ja</option><option value="en">English / en</option><option value="zh">中文 / zh</option><option value="ko">한국어 / ko</option><option value="es">Español / es</option><option value="fr">Français / fr</option><option value="de">Deutsch / de</option><option value="it">Italiano / it</option><option value="pt">Português / pt</option><option value="custom">カスタム</option></select></label>
+                  <label>パック言語<select id="language"><option value="ja" selected>日本語 / ja</option><option value="en">English / en</option><option value="zh">中文 / zh</option><option value="ko">한국어 / ko</option><option value="es">Español / es</option><option value="fr">Français / fr</option><option value="de">Deutsch / de</option><option value="it">Italiano / it</option><option value="pt">Português / pt</option><option value="id">Bahasa Indonesia / id</option><option value="custom">カスタム</option></select></label>
                 </div>
                 <label id="customLanguageLine" hidden>カスタム言語コード<input id="customLanguageCode" value="pt-BR" maxlength="20" placeholder="pt-BR / es-419 など" /></label>
                 <div class="tight">
@@ -483,7 +489,7 @@
                       <div class="quality-step-main"><strong>テキスト修正版を保存</strong><p class="muted">本文修正済みJSONを新リビジョンとして保存し、最新を再選択します。</p></div>
                       <div class="quality-step-actions"><span class="badge" id="textSaveStatus">未実施</span><button id="saveTextFixBtn" type="button" disabled>テキスト修正版を保存</button></div>
                     </div>
-                    <div class="actions"><button class="secondary" id="skipTextWorkflowBtn" type="button">テキスト工程をスキップしてTTSへ</button></div>
+                    <div class="actions quality-skip-actions"><button id="skipTextWorkflowBtn" type="button">テキスト工程をスキップしてTTSへ</button></div>
                     <div class="quality-step" id="ttsStepCheck">
                       <div class="step-num">B1</div>
                       <div class="quality-step-main"><strong>TTS品質チェック</strong><p class="muted">reading / double_utterance / notation / mismatch を検出します。</p></div>
@@ -519,26 +525,27 @@
 
         <section class="tab-panel" id="tab-record" hidden>
           <div class="record">
-            <section class="panel">
-              <div class="panel-head"><div><h3>録音ワークフロー</h3><p class="hint">対象確認から録音、再生までを1画面で扱います。</p></div><span class="badge warn" id="selectionBadge">0件選択中</span></div>
-              <div class="panel-body stack">
-                <div class="step"><div class="step-num">1</div><div><strong>対象パック</strong><p class="muted">共通の対象パックバーと同期します。</p><div class="actions"><button class="secondary" id="openPackFromRecord" type="button">パックを切り替え</button><button class="secondary" id="loadPacksBtn" type="button">一覧更新</button></div></div></div>
-                <details class="step">
-                  <summary><strong>JSONインポート</strong></summary>
-                  <div class="stack" style="grid-column:1/-1">
+            <aside class="stack record-operations">
+              <section class="panel">
+                <div class="panel-head"><div><h3>実行と再生</h3><p class="hint">選択したユニットを録音し、音声がないユニットはOS TTSフォールバックで試聴できます。</p></div></div>
+                <div class="panel-body stack">
+                  <div class="field-grid"><label>読み上げテキスト元<select id="recordingTextSource"><option value="raw">raw</option><option value="corrected">corrected</option></select></label><label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label><label>再生速度<select id="playbackRateSelect"><option value="0.75">0.75x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2.0x</option></select></label></div>
+                  <div class="actions"><button id="recordSelectedBtn" type="button">選択分を録音</button><button class="secondary" id="forceRecordSelectedBtn" type="button">強制再録音</button><button class="danger-btn" id="resetSelectedRecordingBtn" type="button">選択リセット</button><button class="danger-btn" id="resetAllRecordingBtn" type="button">全リセット</button></div>
+                  <div class="player"><strong id="nowPlaying">未再生</strong><audio id="recordingAudio"></audio><div class="player-controls"><button class="secondary" id="prevTrackBtn" type="button">前</button><button id="pauseTrackBtn" type="button">再生</button><button class="secondary" id="nextTrackBtn" type="button">次</button><button class="secondary" id="playAllBtn" type="button">全体再生</button></div><button class="secondary" id="playSelectedBtn" type="button">選択分を連続再生</button></div>
+                  <div class="recording-result applied" id="recordingResult"><strong>録音結果</strong><span>まだ実行していません。</span></div>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><h3>JSONインポート</h3><p class="hint">手元のJSONを録音対象パックとして取り込みます。</p></div></div>
+                <div class="panel-body stack">
                     <label>インポートJSON<input id="importFiles" type="file" accept="application/json,.json" multiple /></label>
                     <div class="field-grid"><label>title<input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" /></label><label>contentId<input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" /></label></div>
                     <label>slug<input id="importSlug" maxlength="160" placeholder="任意" /></label>
-                    <button id="importPackBtn" type="button" class="secondary">JSONをインポート</button>
+                    <div class="actions"><button id="importPackBtn" type="button" class="secondary">JSONをインポート</button><button class="secondary" id="loadPacksBtn" type="button">一覧更新</button></div>
                     <p id="importStatus" class="muted"></p>
-                  </div>
-                </details>
-                <div class="step"><div class="step-num">2</div><div><strong>録音するユニット</strong><p class="muted">録音状態と使用テキスト元を見ながら選択します。</p><div class="actions"><button class="secondary" id="selectUnrecordedBtn" type="button">未録音をすべて選択</button><button class="ghost" id="clearUnitSelectionBtn" type="button">選択解除</button></div><div class="units" id="unitList"><p class="muted">パックを選択するとユニットが表示されます。</p></div></div></div>
-                <div class="step"><div class="step-num">3</div><div class="field-grid"><label>読み上げテキスト元<select id="recordingTextSource"><option value="raw">raw</option><option value="corrected">corrected</option></select></label><label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label><label>再生速度<select id="playbackRateSelect"><option value="0.75">0.75x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2.0x</option></select></label></div></div>
-              </div>
-            </section>
-            <aside class="stack">
-              <section class="panel">
+                </div>
+              </section>
+              <section class="panel credit-ui" hidden>
                 <div class="panel-head"><div><h3>見積もり</h3><p class="hint">選択分の概算クレジットと残高を確認します。</p></div></div>
                 <div class="panel-body stack">
                   <div class="stats"><div class="stat"><span>UNITS</span><strong id="selectedUnitCount">0</strong></div><div class="stat"><span>CHARS</span><strong id="selectedChars">0</strong></div><div class="stat"><span>CREDITS</span><strong id="selectedCredits">0.0000</strong></div></div>
@@ -546,15 +553,14 @@
                   <button class="secondary" id="resetCreditsBtn" type="button">残高リセット</button>
                 </div>
               </section>
-              <section class="panel">
-                <div class="panel-head"><div><h3>実行と再生</h3><p class="hint">音声がないユニットはOS TTSフォールバックで試聴できます。</p></div></div>
-                <div class="panel-body stack">
-                  <div class="actions"><button id="recordSelectedBtn" type="button">選択分を録音</button><button class="secondary" id="forceRecordSelectedBtn" type="button">強制再録音</button><button class="danger-btn" id="resetSelectedRecordingBtn" type="button">選択リセット</button><button class="danger-btn" id="resetAllRecordingBtn" type="button">全リセット</button></div>
-                  <div class="player"><strong id="nowPlaying">未再生</strong><audio id="recordingAudio"></audio><div class="player-controls"><button class="secondary" id="prevTrackBtn" type="button">前</button><button id="pauseTrackBtn" type="button">再生</button><button class="secondary" id="nextTrackBtn" type="button">次</button><button class="secondary" id="playAllBtn" type="button">全体再生</button></div><button class="secondary" id="playSelectedBtn" type="button">選択分を連続再生</button></div>
-                  <div class="recording-result applied" id="recordingResult"><strong>録音結果</strong><span>まだ実行していません。</span></div>
-                </div>
-              </section>
             </aside>
+            <section class="panel record-units">
+              <div class="panel-head"><div><h3>録音するユニット</h3><p class="hint">録音状態と使用テキスト元を見ながら選択します。</p></div><span class="badge warn" id="selectionBadge">0件選択中</span></div>
+              <div class="panel-body stack">
+                <div class="actions"><button class="secondary" id="selectUnrecordedBtn" type="button">未録音をすべて選択</button><button class="ghost" id="clearUnitSelectionBtn" type="button">選択解除</button></div>
+                <div class="units" id="unitList"><p class="muted">パックを選択するとユニットが表示されます。</p></div>
+              </div>
+            </section>
           </div>
         </section>
       </main>
@@ -579,7 +585,22 @@
     <div class="modal" id="versionModal" aria-hidden="true">
       <div class="dialog">
         <div class="panel-head"><div><h3>マニフェスト / バージョン情報</h3><p class="hint">現在対象にしているリビジョンのmanifestを読み込み、変更内容を表示します。</p></div><button class="ghost" id="closeVersionInfo" type="button">閉じる</button></div>
-        <div class="panel-body stack" id="versionInfoBody"><p class="muted">対象パックを選択してください。</p></div>
+        <div class="panel-body stack">
+          <div class="actions">
+            <button class="secondary" id="exportJsonZipBtn" type="button">JSON Zip出力</button>
+            <button class="secondary" id="openSelectedJsonBtn" type="button" disabled>選択JSONを別タブで開く</button>
+          </div>
+          <div id="versionQrSection" class="change-block">
+            <strong>インポート用QRコード</strong>
+            <div class="segmented" id="versionQrMode">
+              <button class="active" data-qr-mode="pack" type="button">パック全体</button>
+              <button data-qr-mode="file" type="button">このファイル</button>
+            </div>
+            <div class="qr-box"><div id="versionImportQrCode"></div><p class="muted" id="versionImportQrHint">パック全体のmanifest URLをアプリに渡します。</p></div>
+            <div class="url"><code id="versionImportUrlText"></code><button class="secondary" id="copyVersionImportUrlBtn" type="button">URLをコピー</button></div>
+          </div>
+          <div id="versionInfoBody"><p class="muted">対象パックを選択してください。</p></div>
+        </div>
       </div>
     </div>
 
@@ -617,6 +638,7 @@
       const $ = (id) => document.getElementById(id);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
       const INITIAL_CREDITS = 1.0;
+      const CREDIT_UI_ENABLED = false; // Credits UI/accounting is parked for future use.
       const PACK_LANGUAGE_OPTIONS = [
         ["ja", "日本語 / ja"],
         ["en", "English / en"],
@@ -627,6 +649,7 @@
         ["de", "Deutsch / de"],
         ["it", "Italiano / it"],
         ["pt", "Português / pt"],
+        ["id", "Bahasa Indonesia / id"],
       ];
 
       let currentPacks = [];
@@ -634,7 +657,7 @@
       let fullEstimate = null;
       let selectedEstimate = null;
       let selectedUnitIds = new Set();
-      let creditBalance = Number(localStorage.getItem("sokqaCreditBalance") || INITIAL_CREDITS);
+      let creditBalance = INITIAL_CREDITS;
       let currentJobId = "";
       let activeTab = "generate";
       let isBusy = false;
@@ -649,6 +672,7 @@
       let ttsWorkflowSaved = false;
       let textSavedVersionId = "";
       let knownAudioUrls = new Map();
+      let versionQrMode = "pack";
       let knownUsedTextSources = new Map();
       let playQueueItems = [];
       let playIndex = -1;
@@ -1140,20 +1164,24 @@
           $("packRevision").textContent = "-";
           $("packStatusText").textContent = "生成、品質チェック、録音の対象として共有されます";
           $("openVersionInfo").disabled = true;
-          $("openImportQr").disabled = true;
+          if ($("openImportQr")) $("openImportQr").disabled = true;
           $("exportJsonZipBtn").disabled = true;
+          $("openSelectedJsonBtn").disabled = true;
+          updateVersionQrSection();
           setBadge("recordBadge", "未判定");
           updateActionAvailability();
           return;
         }
         $("packIcon").textContent = `R${selectedPack.revision || "-"}`;
-        $("packName").textContent = selectedPack.manifestTitle || selectedPack.title || selectedPack.contentId || selectedPack.packName;
+        $("packName").textContent = selectedPack.title || selectedPack.manifestTitle || selectedPack.contentId || selectedPack.packName;
         $("packKind").textContent = `${selectedPack.kind || "-"} / ${selectedPack.packName || "-"}`;
         $("packRevision").textContent = `revision ${selectedPack.revision || "-"}`;
         $("packStatusText").textContent = `contentId: ${selectedPack.contentId || "-"} / versionId: ${selectedPack.versionId || "-"}`;
         $("openVersionInfo").disabled = !selectedPack.manifestUrl;
-        $("openImportQr").disabled = !selectedPack.manifestUrl;
+        if ($("openImportQr")) $("openImportQr").disabled = !selectedPack.manifestUrl;
         $("exportJsonZipBtn").disabled = !selectedPack.manifestUrl && !(selectedPack.creatorId && selectedPack.contentId);
+        $("openSelectedJsonBtn").disabled = !selectedFileJsonUrl(selectedPack);
+        updateVersionQrSection();
       }
 
       function updateStatusBadges() {
@@ -1253,7 +1281,7 @@
           "planBtn", "generateBtn", "reviseBtn", "textCheckBtn", "textFixBtn", "applyTextFixBtn",
           "saveTextFixBtn", "skipTextWorkflowBtn", "ttsCheckBtn", "ttsFixBtn", "saveTtsFixBtn",
           "recordSelectedBtn", "forceRecordSelectedBtn", "resetSelectedRecordingBtn", "resetAllRecordingBtn",
-          "loadPacksBtn", "importPackBtn", "openImportQr", "exportJsonZipBtn"
+          "loadPacksBtn", "importPackBtn", "openImportQr", "exportJsonZipBtn", "openSelectedJsonBtn"
         ].forEach((id) => { const el = $(id); if (el) el.disabled = flag || el.dataset.forceDisabled === "true"; });
         updateActionAvailability();
       }
@@ -1270,15 +1298,16 @@
         $("saveTtsFixBtn").disabled = isBusy || !selectedPack || !lastTtsFixResult || appliedTtsFixCount === 0 || !isTtsWorkflowUnlocked();
         const selectedCount = selectedUnitIds.size;
         const credits = selectedEstimate?.estimatedCredits || 0;
-        const insufficient = credits > creditBalance;
-        $("recordSelectedBtn").disabled = isBusy || !selectedCount || insufficient;
+        const insufficient = CREDIT_UI_ENABLED && credits > creditBalance;
+        $("recordSelectedBtn").disabled = isBusy || !selectedCount;
         $("forceRecordSelectedBtn").disabled = isBusy || !selectedCount;
         $("resetSelectedRecordingBtn").disabled = isBusy || !selectedCount;
         $("resetAllRecordingBtn").disabled = isBusy || !selectedPack;
-        $("openImportQr").disabled = isBusy || !selectedPack?.manifestUrl;
+        if ($("openImportQr")) $("openImportQr").disabled = isBusy || !selectedPack?.manifestUrl;
         $("exportJsonZipBtn").disabled = isBusy || !selectedPack;
+        $("openSelectedJsonBtn").disabled = isBusy || !selectedFileJsonUrl(selectedPack);
         $("reviseBtn").disabled = isBusy || !normalizeRules(temporaryTtsRules).length || (!selectedPack && !currentJobId);
-        $("creditWarning").textContent = insufficient ? "クレジットが不足しています。来月のチャージ後に録音できます。" : "";
+        $("creditWarning").textContent = "";
       }
 
       function scaleValue() {
@@ -1428,6 +1457,7 @@
             ${items.length ? `<ul>${items.map((item) => `<li><span class="badge">${escapeHtml(item.kind || "-")}</span> ${escapeHtml(item.title || item.name || "-")} <span class="muted mono">${escapeHtml(item.name || "")}</span></li>`).join("")}</ul>` : `<p class="muted">なし</p>`}
           </div>
         `;
+        updateVersionQrSection();
       }
 
       async function openVersionInfo({ force = false } = {}) {
@@ -1435,6 +1465,7 @@
         $("versionModal").setAttribute("aria-hidden", "false");
         if (!selectedPack) {
           $("versionInfoBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
+          updateVersionQrSection();
           return;
         }
         $("versionInfoBody").innerHTML = `<p class="muted">manifest を読み込んでいます...</p>`;
@@ -1454,6 +1485,47 @@
 
       function importUrlForPack(pack = selectedPack) {
         return pack?.manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(pack.manifestUrl)}` : "";
+      }
+
+      function importUrlForSelectedFile(pack = selectedPack) {
+        const jsonUrl = selectedFileJsonUrl(pack);
+        return jsonUrl ? `https://convly.jp/import?url=${encodeURIComponent(jsonUrl)}` : "";
+      }
+
+      function versionImportUrl() {
+        return versionQrMode === "file" ? importUrlForSelectedFile(selectedPack) : importUrlForPack(selectedPack);
+      }
+
+      function renderQrCode(container, text) {
+        if (!container) return;
+        container.innerHTML = "";
+        if (!text) return;
+        if (window.QRCode) new QRCode(container, { text, width: 180, height: 180 });
+      }
+
+      function updateVersionQrSection() {
+        const section = $("versionQrSection");
+        if (!section) return;
+        const buttons = $$("#versionQrMode [data-qr-mode]");
+        buttons.forEach((button) => button.classList.toggle("active", button.dataset.qrMode === versionQrMode));
+        const fileButton = buttons.find((button) => button.dataset.qrMode === "file");
+        if (fileButton) fileButton.disabled = !selectedPack;
+        if (!selectedPack) {
+          $("versionImportQrCode").innerHTML = "";
+          $("versionImportUrlText").textContent = "";
+          $("versionImportQrHint").textContent = "対象パックを選択してください。";
+          $("copyVersionImportUrlBtn").disabled = true;
+          return;
+        }
+        const importUrl = versionImportUrl();
+        $("versionImportUrlText").textContent = importUrl || "";
+        $("versionImportQrHint").textContent = importUrl
+          ? (versionQrMode === "file"
+            ? "このファイルのJSON URLをアプリに渡します。"
+            : "パック全体のmanifest URLをアプリに渡します。")
+          : "このファイルのJSON URLを組み立てられないため、QRを生成できません。";
+        $("copyVersionImportUrlBtn").disabled = !importUrl;
+        renderQrCode($("versionImportQrCode"), importUrl);
       }
 
       async function openImportQr({ refreshLatest = true } = {}) {
@@ -1527,7 +1599,7 @@
                   <p class="muted pack-option-detail" title="${escapeHtml(group.packs.map((pack) => `${pack.title || pack.packName} (${pack.kind})`).join(" / "))}">${group.packs.map((pack) => `${escapeHtml(pack.title || pack.packName)} (${escapeHtml(pack.kind)})`).join(" / ")}</p>
                 </div>
                 <div class="actions">
-                  ${group.packs.map((pack) => `<button type="button" class="${selectedPack?.url === pack.url ? "" : "secondary"}" data-pack-url="${escapeHtml(pack.url || "")}" data-pack-key="${escapeHtml(pack.contentId + "::" + pack.packName)}">${escapeHtml(pack.kind)}</button>`).join("")}
+                  ${group.packs.map((pack) => `<button type="button" class="${packIdentityMatches(pack, selectedPack, false) ? "" : "secondary"}" data-pack-url="${escapeHtml(pack.url || "")}" data-pack-key="${escapeHtml(pack.contentId + "::" + pack.packName)}">${escapeHtml(pack.kind)}</button>`).join("")}
                   <button type="button" class="danger-btn" data-delete-prefix="${escapeHtml(group.storagePrefix || "")}" data-delete-title="${escapeHtml(group.title)}">削除</button>
                 </div>
               </article>
@@ -1675,6 +1747,25 @@
         return base ? `${base}/${String(audioPath).replace(/^\/+/, "")}` : "";
       }
 
+      function selectedFileJsonUrl(pack = selectedPack) {
+        if (!pack) return "";
+        if (/^https?:\/\//i.test(pack.url || "")) return pack.url;
+        const fileName = String(pack.packName || "").replace(/^\/+/, "");
+        if (!fileName || isUnsafeRelativePath(fileName)) return "";
+        const manifestUrl = String(pack.manifestUrl || "");
+        if (/^https?:\/\//i.test(manifestUrl) && /\/manifest\.json(?:$|\?)/.test(manifestUrl)) {
+          return manifestUrl.replace(/\/manifest\.json($|\?)/, `/${encodeURIComponent(fileName)}$1`);
+        }
+        const base = assetBaseUrl(pack);
+        return base ? `${base}/${encodeURIComponent(fileName)}` : "";
+      }
+
+      function openSelectedFileJson() {
+        const url = selectedFileJsonUrl();
+        if (!url) return;
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+
       function packAudioKey(unitId, pack = selectedPack) {
         return `${pack?.url || `${pack?.contentId || ""}:${pack?.versionId || ""}:${pack?.packName || ""}`}::${unitId}`;
       }
@@ -1760,17 +1851,33 @@
           updateActionAvailability();
           return;
         }
-        selectedEstimate = await fetchEstimate(unitIds);
+        if (CREDIT_UI_ENABLED) {
+          selectedEstimate = await fetchEstimate(unitIds);
+        } else {
+          const units = selectedUnits();
+          selectedEstimate = {
+            units,
+            totalChars: units.reduce((total, unit) => total + Number(unit.charCount || 0), 0),
+            estimatedCredits: 0
+          };
+        }
         $("selectedUnitCount").textContent = String(unitIds.length);
         $("selectedChars").textContent = Number(selectedEstimate.totalChars || 0).toLocaleString("ja-JP");
         $("selectedCredits").textContent = Number(selectedEstimate.estimatedCredits || 0).toFixed(4);
         $("selectionBadge").textContent = `${unitIds.length}件選択中`;
-        const ratio = Math.min(1, (selectedEstimate.estimatedCredits || 0) / Math.max(creditBalance, 0.0001));
+        const ratio = CREDIT_UI_ENABLED ? Math.min(1, (selectedEstimate.estimatedCredits || 0) / Math.max(creditBalance, 0.0001)) : 0;
         $("creditMeter").style.width = `${ratio * 100}%`;
+        $("creditWarning").textContent = "";
         updateActionAvailability();
       }
 
       function saveCredits(value) {
+        if (!CREDIT_UI_ENABLED) {
+          creditBalance = INITIAL_CREDITS;
+          $("creditBalance").textContent = creditBalance.toFixed(4);
+          $("creditWarning").textContent = "";
+          return;
+        }
         creditBalance = Math.max(0, Number(value || 0));
         localStorage.setItem("sokqaCreditBalance", String(creditBalance));
         $("creditBalance").textContent = creditBalance.toFixed(4);
@@ -2085,16 +2192,9 @@
         const textSourceSnapshot = $("recordingTextSource").value;
         const voiceConfigSnapshot = selectedVoiceConfig();
         const unitIds = Array.from(selectedUnitIds);
-        const beforeEstimate = selectedEstimate;
         setBusy(true);
         try {
           const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot, voiceConfigSnapshot);
-          const successfulIds = new Set((data.audioUrls || []).map((item) => item.unitId));
-          if (!forceRerecord) {
-            const recordedChars = (beforeEstimate?.units || []).filter((unit) => successfulIds.has(unit.itemId)).reduce((total, unit) => total + unit.charCount, 0);
-            const rate = beforeEstimate?.totalChars ? (beforeEstimate.estimatedCredits || 0) / beforeEstimate.totalChars : 0;
-            saveCredits(creditBalance - recordedChars * rate);
-          }
           renderRecordingResult(data);
           await loadPacks({ keepSelection: false });
           const refreshed = latestMatchingPack(packSnapshot) || selectedPack;
@@ -2532,13 +2632,24 @@
       });
       $("openPack").addEventListener("click", openPackModal);
       $("openPackTop").addEventListener("click", openPackModal);
-      $("openPackFromRecord").addEventListener("click", openPackModal);
+      $("openPackFromRecord")?.addEventListener("click", openPackModal);
       $("closePack").addEventListener("click", closePackModal);
       $("packModal").addEventListener("click", (event) => { if (event.target.id === "packModal") closePackModal(); });
       $("openVersionInfo").addEventListener("click", () => openVersionInfo({ force: true }));
       $("closeVersionInfo").addEventListener("click", closeVersionModal);
       $("versionModal").addEventListener("click", (event) => { if (event.target.id === "versionModal") closeVersionModal(); });
-      $("openImportQr").addEventListener("click", () => openImportQr({ refreshLatest: true }));
+      $("versionQrMode").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-qr-mode]");
+        if (!button || button.disabled) return;
+        versionQrMode = button.dataset.qrMode || "pack";
+        updateVersionQrSection();
+      });
+      $("copyVersionImportUrlBtn").addEventListener("click", async () => {
+        const url = versionImportUrl();
+        if (url) await navigator.clipboard?.writeText(url);
+      });
+      if ($("openImportQr")) $("openImportQr").addEventListener("click", () => openImportQr({ refreshLatest: true }));
+      $("openSelectedJsonBtn").addEventListener("click", openSelectedFileJson);
       $("closeImportQr").addEventListener("click", closeImportQrModal);
       $("importQrModal").addEventListener("click", (event) => { if (event.target.id === "importQrModal") closeImportQrModal(); });
       $("clearPack").addEventListener("click", clearSelectedPack);

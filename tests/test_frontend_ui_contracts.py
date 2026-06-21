@@ -32,7 +32,7 @@ def test_pack_language_ui_exposes_supported_languages_and_custom_code() -> None:
     select_end = html.index("</select>", select_start)
     select_html = html[select_start:select_end]
 
-    for value in ["ja", "en", "zh", "ko", "es", "fr", "de", "it", "pt", "custom"]:
+    for value in ["ja", "en", "zh", "ko", "es", "fr", "de", "it", "pt", "id", "custom"]:
         assert f'value="{value}"' in select_html
     assert 'id="customLanguageCode"' in html
     assert "function languageValue()" in html

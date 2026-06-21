@@ -24,6 +24,7 @@ SUPPORTED_PACK_LANGUAGES = {
     "de": "de-DE",
     "it": "it-IT",
     "pt": "pt-PT",
+    "id": "id-ID",
 }
 
 

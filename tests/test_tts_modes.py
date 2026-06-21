@@ -238,6 +238,7 @@ def test_language_codes_are_normalized_and_speech_defaults_are_known() -> None:
     assert default_speech_language_code("zh") == "zh-CN"
     assert default_speech_language_code("ko") == "ko-KR"
     assert default_speech_language_code("pt") == "pt-PT"
+    assert default_speech_language_code("id") == "id-ID"
 
 
 def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch) -> None:
@@ -955,6 +956,52 @@ def test_llm_quiz_falls_back_to_rules_when_batch_response_omits_question(monkeyp
     assert "choicesText" not in questions[1]["tts"]
     assert "answerText" not in questions[1]["tts"]
     assert report.llmGeneratedIds == ["q-1", "q-2"]
+
+
+def test_llm_document_tts_collapses_duplicate_katakana_parenthetical(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_duplicate.json",
+        kind="document",
+        content={
+            "id": "pack_doc_duplicate",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "ESG確認",
+            "language": "ja",
+            "documents": [
+                {
+                    "id": "doc-1",
+                    "text": "Governance（ガバナンス）は重要です。Social（社会）も確認します。",
+                }
+            ],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "doc-1",
+                    "text": "ガバナンス（ガバナンス）は重要です。ソーシャル（社会）も確認します。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([file], [], mode="llm")
+    tts_text = files[0].content["documents"][0]["tts"]["text"]
+
+    assert "ガバナンス（ガバナンス）" not in tts_text
+    assert "ガバナンスは重要です。" in tts_text
+    assert "ソーシャル（社会）" in tts_text
+
+
+def test_tts_prompt_mentions_duplicate_katakana_parenthetical_rule() -> None:
+    assert "Governance（ガバナンス） should become ガバナンス" in _tts_reading_prompt("Governance（ガバナンス）", [])
+    assert "Governance（ガバナンス） should become ガバナンス" in _tts_reading_rules_block([])
 
 
 def test_rule_mode_applies_quiz_rules_and_keeps_choice_delimiters(monkeypatch) -> None:

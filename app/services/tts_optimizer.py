@@ -13,7 +13,7 @@ from app.schemas.sokqa import (
     TtsReportItem,
 )
 from app.services.gemini_client import GeminiClient
-from app.services.tts_text import normalize_tts_text, strip_choice_separator
+from app.services.tts_text import collapse_duplicate_katakana_parentheticals, normalize_tts_text, strip_choice_separator
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
 
@@ -62,6 +62,7 @@ def _apply_rule_replacements(value: str, rules: list[TtsRule]) -> str:
 
 def _speech_text(value: str, rules: list[TtsRule]) -> str:
     result = _apply_rule_replacements(value, rules)
+    result = collapse_duplicate_katakana_parentheticals(result)
     return normalize_tts_text(result)
 
 
@@ -77,7 +78,7 @@ def _language_script(language: str | None) -> str:
         return "cjk"
     if base in {"ko"}:
         return "hangul"
-    if base in {"en", "es", "fr", "de", "it", "pt"}:
+    if base in {"en", "es", "fr", "de", "it", "pt", "id"}:
         return "latin"
     if base in {"ru", "uk", "bg", "sr"}:
         return "cyrillic"
@@ -294,6 +295,7 @@ Rules:
 - A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
 - Do not read dots between digits as "ドット"; for example, 1.2 should be read like "いってんに".
 - If an unfamiliar dot-prefixed word or acronym appears, infer a natural katakana reading from the examples.
+- If a katakana reading and the immediately following parenthetical would become the same spoken word, keep it only once. For example, Governance（ガバナンス） should become ガバナンス, not ガバナンス（ガバナンス）.
 
 Contrast examples:
 - .gitignore -> ドット ギットイグノア
@@ -326,6 +328,7 @@ Rules:
 - A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
 - Do not read dots between digits as "ドット"; for example, 1.2 should be read like "いってんに".
 - If an unfamiliar dot-prefixed word or acronym appears, infer a natural katakana reading from the examples.
+- If a katakana reading and the immediately following parenthetical would become the same spoken word, keep it only once. For example, Governance（ガバナンス） should become ガバナンス, not ガバナンス（ガバナンス）.
 
 Contrast examples:
 - .gitignore -> ドット ギットイグノア

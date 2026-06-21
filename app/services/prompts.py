@@ -125,9 +125,9 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     root_id = document_pack_id(plan, document)
     global_tags = json.dumps(document_global_tags(plan, document), ensure_ascii=False)
     text_length_rule = (
-        "- Each text should be 3 to 6 Japanese sentences when needed for a flowing spoken explanation; connect it to the surrounding sections."
+        "- Each text should be 3 to 6 sentences in the pack language when needed for a flowing spoken explanation; connect it to the surrounding sections."
         if plan.structurePolicy == "listening"
-        else "- Each text should be 2 to 4 Japanese sentences for listening study."
+        else "- Each text should be 2 to 4 sentences in the pack language for listening study."
     )
     listening_rule = (
         "\n- For structurePolicy listening, avoid starting sections with a term name followed by its definition; write as an ongoing explanation with context and transitions."

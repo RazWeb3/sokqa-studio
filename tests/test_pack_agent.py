@@ -273,6 +273,49 @@ def test_same_content_id_generates_distinct_version_paths(monkeypatch) -> None:
     assert first.files[-1].url != second.files[-1].url
 
 
+def test_same_theme_generates_unique_pack_root_ids_with_manifest_integrity() -> None:
+    first_plan = plan_pack(
+        PlanPackRequest(
+            theme="Duplicate Theme",
+            targetUser="Learners",
+            generationUnit="pack",
+            docCount=1,
+            quizCount=1,
+            ttsReadingMode="none",
+        )
+    )
+    second_plan = plan_pack(
+        PlanPackRequest(
+            theme="Duplicate Theme",
+            targetUser="Learners",
+            generationUnit="pack",
+            docCount=1,
+            quizCount=1,
+            ttsReadingMode="none",
+        )
+    )
+
+    first = generate_pack(GeneratePackRequest(plan=first_plan, persist=False))
+    second = generate_pack(GeneratePackRequest(plan=second_plan, persist=False))
+
+    first_doc = next(file for file in first.files if file.kind == "document")
+    first_quiz = next(file for file in first.files if file.kind == "quiz")
+    second_doc = next(file for file in second.files if file.kind == "document")
+    second_quiz = next(file for file in second.files if file.kind == "quiz")
+
+    assert first_doc.content["id"].startswith(f"{first.manifest.contentId}_")
+    assert first_quiz.content["id"].startswith(f"{first.manifest.contentId}_")
+    assert second_doc.content["id"].startswith(f"{second.manifest.contentId}_")
+    assert second_quiz.content["id"].startswith(f"{second.manifest.contentId}_")
+    assert first_doc.content["id"] != second_doc.content["id"]
+    assert first_quiz.content["id"] != second_quiz.content["id"]
+    assert {item.name for item in first.manifest.items} == {file.name for file in first.files if file.kind in {"document", "quiz"}}
+    assert {item.logicalId for item in first.manifest.items} == {
+        first_doc.name.removesuffix(".json"),
+        first_quiz.name.removesuffix(".json"),
+    }
+
+
 def test_standard_plan_shape() -> None:
     response = client.post(
         "/plan-pack",

@@ -98,6 +98,8 @@ def test_blank_source_text_falls_back_to_theme_generation(monkeypatch) -> None:
     blank_content = with_blank_source["files"][0]["content"].copy()
     without_content.pop("assetBaseUrl", None)
     blank_content.pop("assetBaseUrl", None)
+    without_content.pop("id", None)
+    blank_content.pop("id", None)
     assert blank_content == without_content
 
 

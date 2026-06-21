@@ -69,6 +69,17 @@ def test_tts_payload_uses_single_mode_field() -> None:
     assert 'id="multilingualTtsOptions"' in html
 
 
+def test_recording_ui_sends_one_record_request_without_client_chunking() -> None:
+    html = _html()
+
+    assert "RECORDING_CHUNK_SIZE" not in html
+    assert "function chunkUnitIds" not in html
+    assert "Object.assign(targetSnapshot, data.target)" not in html
+    assert 'requestJson("/tts/record", {' in html
+    assert "unitIds," in html
+    assert "件をサーバーで録音しています" in html
+
+
 def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     html = _html()
 

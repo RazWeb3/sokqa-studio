@@ -33,6 +33,23 @@ from app.services.tts_estimation import RecordingTextSource, RecordingUnit, extr
 from app.services.tts_recorder import RecordingSummary, Synthesizer, clear_pack_audio_urls, record_generated_file_audio
 
 
+def _chunk_units(units: list[RecordingUnit], chunk_size: int) -> list[list[RecordingUnit]]:
+    return [units[index : index + chunk_size] for index in range(0, len(units), chunk_size)]
+
+
+def _merge_recording_summaries(summaries: list[RecordingSummary]) -> RecordingSummary:
+    results = [result for summary in summaries for result in summary.results]
+    failed_unit_ids = [unit_id for summary in summaries for unit_id in summary.failed_unit_ids]
+    return RecordingSummary(
+        total_units=sum(summary.total_units for summary in summaries),
+        skipped_units=sum(summary.skipped_units for summary in summaries),
+        success_count=sum(summary.success_count for summary in summaries),
+        failure_count=sum(summary.failure_count for summary in summaries),
+        failed_unit_ids=failed_unit_ids,
+        results=sorted(results, key=lambda result: result.unit_id),
+    )
+
+
 def estimate_recording(
     target: TtsRecordingTarget,
     unit_ids: list[str] | None = None,
@@ -58,8 +75,6 @@ def run_recording(
     synthesize_fn: Synthesizer | None = None,
 ) -> dict:
     max_units = get_settings().cloud_tts_recording_request_max_units
-    if len(unit_ids) > max_units:
-        raise ValueError(f"unitIds exceeds the per-request limit: {max_units}")
 
     loaded = load_target_pack(target)
     creator_id, content_id, _ = _identity_from_storage_prefix(loaded.storage_prefix)
@@ -83,20 +98,24 @@ def run_recording(
     kwargs = {"storage_client": storage}
     if synthesize_fn is not None:
         kwargs["synthesize_fn"] = synthesize_fn
-    summary = record_generated_file_audio(
-        loaded.file,
-        selected,
-        pack_root,
-        force_rerecord=force_rerecord,
-        language_code=language_code,
-        voice_name=voice_name,
-        speaking_rate=speaking_rate,
-        pitch=pitch,
-        persist_file=False,
-        store_audio=False,
-        audio_path_factory=audio_path_for_unit,
-        **kwargs,
-    )
+    summaries = [
+        record_generated_file_audio(
+            loaded.file,
+            chunk,
+            pack_root,
+            force_rerecord=force_rerecord,
+            language_code=language_code,
+            voice_name=voice_name,
+            speaking_rate=speaking_rate,
+            pitch=pitch,
+            persist_file=False,
+            store_audio=False,
+            audio_path_factory=audio_path_for_unit,
+            **kwargs,
+        )
+        for chunk in _chunk_units(selected, max_units)
+    ]
+    summary = _merge_recording_summaries(summaries)
     loaded.pack = _pack_from_file(loaded.file)
     successful_results = [result for result in summary.results if result.success and result.audio_path and result.audio_data]
     commit_result = None

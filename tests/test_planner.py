@@ -121,6 +121,25 @@ def test_structure_policy_and_material_mode_are_recorded_and_prompted(monkeypatc
     assert "structurePolicy listening" in prompt
     assert "materialMode strict" in prompt
     assert "Do not add facts, terms, examples, claims, or inferred details" in prompt
+    assert "connected narrative beats" in prompt
+    assert "not isolated term labels" in prompt
+
+
+def test_listening_planner_uses_smaller_narrative_section_counts(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="セキュリティ基礎",
+            targetUser="初学者",
+            scale="quick",
+            structurePolicy="listening",
+        )
+    )
+
+    assert plan.structurePolicy == "listening"
+    assert all(12 <= document.targetSectionCount <= 24 for document in plan.documents)
 
 
 def test_generation_unit_and_counts_shape_plan(monkeypatch) -> None:
@@ -169,6 +188,20 @@ def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
     assert plan.quizPacks[-1].title == "Git入門 総合確認（1〜4章: 全範囲）"
 
 
+def test_planner_sets_language_appropriate_course_global_tags() -> None:
+    ja_plan = planner.create_course_plan(
+        PlanPackRequest(theme="ITパスポート 経営戦略", targetUser="初学者", scale="quick")
+    )
+    en_plan = planner.create_course_plan(
+        PlanPackRequest(theme="Security Strategy", targetUser="Learners", scale="quick", language="en")
+    )
+
+    assert len(ja_plan.globalTags) <= 3
+    assert len(en_plan.globalTags) <= 3
+    assert any("ITパスポート" in tag or "経営戦略" in tag for tag in ja_plan.globalTags)
+    assert any("Security" in tag or "Strategy" in tag for tag in en_plan.globalTags)
+
+
 def test_planner_prompt_names_common_reading_pattern_categories() -> None:
     prompt = planner._planner_prompt(
         PlanPackRequest(
@@ -185,22 +218,41 @@ def test_planner_prompt_names_common_reading_pattern_categories() -> None:
     assert "API -> エーピーアイ" in prompt
     assert "git checkout -> ギット チェックアウト" in prompt
     assert "localStorage -> ローカルストレージ" in prompt
+    assert "source and reading must not be identical" in prompt
+    assert "Do not use already-natural katakana words as examples" in prompt
 
 
 def test_fallback_reading_patterns_include_dot_notation_for_git_theme() -> None:
-    patterns = planner._fallback_reading_patterns(
-        PlanPackRequest(
-            theme="Gitと環境変数",
-            targetUser="初学者",
-            scale="quick",
-        )
+    request = PlanPackRequest(
+        theme="Gitと環境変数",
+        targetUser="初学者",
+        scale="quick",
+        sourceText=".env と .gitignore を扱います。",
     )
+    patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
 
     dot_pattern = next(pattern for pattern in patterns if pattern.id == "dot_notation")
     assert dot_pattern.recommended is True
     assert ".git -> ドット ギット" in dot_pattern.examples
     assert ".env -> ドット イーエヌブイ" in dot_pattern.examples
     assert ".gitignore -> ドット ギットイグノア" in dot_pattern.examples
+
+
+def test_theme_unrelated_dot_and_command_patterns_are_not_recommended() -> None:
+    request = PlanPackRequest(
+        theme="ITパスポート試験対策",
+        targetUser="IT初心者の社会人",
+        scale="quick",
+    )
+    patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
+
+    alphabet = next(pattern for pattern in patterns if pattern.id == "alphabet_abbreviations")
+    dot_pattern = next(pattern for pattern in patterns if pattern.id == "dot_notation")
+    commands = next(pattern for pattern in patterns if pattern.id == "technical_commands")
+
+    assert alphabet.recommended is True
+    assert dot_pattern.recommended is False
+    assert commands.recommended is False
 
 
 def test_gemini_patterns_are_merged_with_dot_notation_fallback_when_missing() -> None:
@@ -250,3 +302,51 @@ def test_gemini_dot_pattern_does_not_duplicate_dot_fallback() -> None:
     dot_patterns = [pattern for pattern in patterns if planner._reading_pattern_signature(pattern) == "dot_notation"]
     assert len(dot_patterns) == 1
     assert len(patterns) <= planner.MAX_READING_PATTERN_COUNT
+
+
+def test_invalid_reading_pattern_examples_are_removed_and_recommended_is_downgraded() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "security_terms",
+                    "title": "IT用語の自然な読み上げ",
+                    "description": "専門用語を自然に読みます。",
+                    "examples": [
+                        "フィッシング -> フィッシング",
+                        "マルウェア -> マルウェア",
+                        "サブネットマスク -> サブネットマスク制",
+                        "broken example",
+                        "有線LAN -> ゆうせんラン",
+                    ],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(theme="セキュリティ", targetUser="初学者", scale="quick"),
+    )
+
+    security_pattern = next(pattern for pattern in patterns if pattern.id == "security_terms")
+    assert security_pattern.examples == ["有線LAN -> ゆうせんラン"]
+    assert security_pattern.recommended is True
+
+
+def test_reading_pattern_without_valid_examples_is_not_recommended() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "kana_only",
+                    "title": "カタカナ語",
+                    "description": "すでにカタカナの語を読みます。",
+                    "examples": ["フィッシング -> フィッシング", "マルウェア -> マルウェア", "not an arrow"],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(theme="セキュリティ", targetUser="初学者", scale="quick"),
+    )
+
+    kana_pattern = next(pattern for pattern in patterns if pattern.id == "kana_only")
+    assert kana_pattern.examples == []
+    assert kana_pattern.recommended is False

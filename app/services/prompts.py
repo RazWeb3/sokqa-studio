@@ -1,5 +1,9 @@
+import json
+
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack, SokqaDocumentPack
+from app.services.pack_ids import document_pack_id, quiz_pack_id
 from app.services.source_material import source_prompt_block
+from app.services.tagging import document_global_tags, quiz_global_tags
 
 
 def _selected_reading_patterns_block(plan: CoursePlan) -> str:
@@ -33,8 +37,10 @@ def _structure_policy_block(plan: CoursePlan) -> str:
     if plan.structurePolicy == "listening":
         return """
 Structure policy: listening
-- Make the generated content suitable for listening study.
-- Prefer short natural sentences with one idea per sentence.
+- Make the generated content suitable for listening study as a continuous spoken narrative.
+- Do not write glossary-style entries, term labels followed by short definitions, or bullet-like fragments.
+- Treat each documents[] item as one connected beat in the same explanation, not as an independent term definition.
+- Prefer short natural sentences with one idea per sentence, while linking each section to the previous and next section.
 - Minimize symbol-heavy notation, tables, and bullet-list-dependent explanations.
 - Use smooth spoken transitions so the content remains understandable without looking at the screen.
 """.rstrip()
@@ -116,6 +122,18 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     reading_policy_section = _selected_reading_patterns_block(plan)
     structure_policy = _structure_policy_block(plan)
     material_policy = _material_mode_block(plan)
+    root_id = document_pack_id(plan, document)
+    global_tags = json.dumps(document_global_tags(plan, document), ensure_ascii=False)
+    text_length_rule = (
+        "- Each text should be 3 to 6 Japanese sentences when needed for a flowing spoken explanation; connect it to the surrounding sections."
+        if plan.structurePolicy == "listening"
+        else "- Each text should be 2 to 4 Japanese sentences for listening study."
+    )
+    listening_rule = (
+        "\n- For structurePolicy listening, avoid starting sections with a term name followed by its definition; write as an ongoing explanation with context and transitions."
+        if plan.structurePolicy == "listening"
+        else ""
+    )
     return f"""Create one Sokqa document JSON.
 
 Rules:
@@ -123,17 +141,19 @@ Rules:
 - type must be "document".
 - schemaVersion must be 1.
 - language must be "{plan.language}".
-- Root id must be "{plan.id}_{document.id}".
+- Root id must be "{root_id}".
 - Root title must be "{document.title}".
 - Create exactly {document.targetSectionCount} items in documents[].
 - Each documents[] id must be "doc-1", "doc-2", "doc-3", and so on.
 - Each documents[] item must have text only.
 - Do not output tts in the first document generation step.
 - Do not output tags in document items.
+- globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
 - Do not add pronunciation-only parentheticals in body text; parentheses may be used only for meaning explanations, not readings.
 - Each text must be real explanatory learning content, not just a title or label.
-- Each text should be 2 to 4 Japanese sentences for listening study.
+- {text_length_rule[2:]}
+- The documents[] array should follow the document's key points in order.{listening_rule}
 - Do not copy existing learning materials verbatim.
 
 Course:
@@ -154,14 +174,14 @@ Document:
 
 Required JSON shape:
 {{
-  "id": "{plan.id}_{document.id}",
+  "id": "{root_id}",
   "type": "document",
   "schemaVersion": 1,
   "title": "{document.title}",
   "description": "{document.goal}",
   "language": "{plan.language}",
   "author": "{plan.author}",
-  "globalTags": ["{plan.id}", "{plan.difficulty}"],
+  "globalTags": {global_tags},
   "documents": [
     {{
       "id": "doc-1",
@@ -181,6 +201,8 @@ def quiz_generation_prompt(
     reading_policy_section = _selected_reading_patterns_block(plan)
     structure_policy = _structure_policy_block(plan)
     material_policy = _material_mode_block(plan)
+    root_id = quiz_pack_id(plan, quiz_pack)
+    global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
     integration_rules = ""
     if quiz_pack.purpose == "integrated_review":
         integration_rules = """
@@ -195,7 +217,7 @@ Rules:
 - type must be "quiz".
 - schemaVersion must be 1.
 - language must be "{plan.language}".
-- Root id must be "{plan.id}_{quiz_pack.id}".
+- Root id must be "{root_id}".
 - Root title must be "{quiz_pack.title}".
 - questions must have exactly 4 choices.
 - answerIndex must be an integer from 0 to 3.
@@ -207,6 +229,7 @@ Rules:
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
 - Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
 - Do not output tts in the first quiz generation step.
+- globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 - Do not add pronunciation-only parentheticals in question, choices, or explanation; parentheses may be used only for meaning explanations, not readings.
 - Every question must be grounded in the quiz context.
@@ -233,14 +256,14 @@ Quiz context:
 
 Required JSON shape:
 {{
-  "id": "{plan.id}_{quiz_pack.id}",
+  "id": "{root_id}",
   "type": "quiz",
   "schemaVersion": 1,
   "title": "{quiz_pack.title}",
   "description": "{plan.title}のドキュメント本文に基づく{quiz_pack.title}です。",
   "language": "{plan.language}",
   "author": "{plan.author}",
-  "globalTags": ["{plan.id}", "{quiz_pack.purpose}"],
+  "globalTags": {global_tags},
   "questions": [
     {{
       "id": "q-1",

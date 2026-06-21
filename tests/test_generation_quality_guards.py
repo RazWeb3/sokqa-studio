@@ -4,6 +4,8 @@ from app.schemas.common import ReadingPattern
 from app.schemas.request import GeneratePackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
 from app.services import pack_agent
+from app.services.document_generator import generate_mock_document_pack, normalize_document_content
+from app.services.tagging import document_global_tags, quiz_global_tags
 from app.services.pack_agent import generate_pack
 from app.services.prompts import document_generation_prompt, quiz_generation_prompt
 from app.services.quiz_generator import normalize_quiz_content
@@ -65,6 +67,135 @@ def test_generation_prompts_include_structure_and_material_policies() -> None:
         assert "Introduce terms only after their prerequisites" in prompt
         assert "Material mode: strict" in prompt
         assert "Do not add outside facts, terms, examples, claims, or inferred details" in prompt
+
+
+def test_listening_document_prompt_forbids_glossary_style_and_requires_flow() -> None:
+    plan = _plan()
+    plan.structurePolicy = "listening"
+
+    prompt = document_generation_prompt(plan, plan.documents[0])
+
+    assert "Structure policy: listening" in prompt
+    assert "continuous spoken narrative" in prompt
+    assert "Do not write glossary-style entries" in prompt
+    assert "not as an independent term definition" in prompt
+    assert "avoid starting sections with a term name followed by its definition" in prompt
+    assert "3 to 6 Japanese sentences" in prompt
+
+
+def test_standard_document_prompt_keeps_existing_balanced_structure() -> None:
+    plan = _plan()
+
+    prompt = document_generation_prompt(plan, plan.documents[0])
+
+    assert "Structure policy: standard" in prompt
+    assert "Use the existing balanced Sokqa course style" in prompt
+    assert "Each text should be 2 to 4 Japanese sentences" in prompt
+    assert "avoid starting sections with a term name followed by its definition" not in prompt
+
+
+def test_listening_mock_document_uses_connected_spoken_style() -> None:
+    plan = _plan()
+    plan.structurePolicy = "listening"
+    plan.documents[0].keyPoints = ["最初の考え方", "次のつながり"]
+    plan.documents[0].targetSectionCount = 2
+
+    pack = generate_mock_document_pack(plan, plan.documents[0])
+
+    assert "セクション1です" not in pack.documents[0].text
+    assert "流れ" in pack.documents[0].text or "順番" in pack.documents[0].text
+    assert "前の話を受けて" in pack.documents[1].text
+
+
+def test_generated_global_tags_follow_language_content_and_limit() -> None:
+    plan = _plan()
+    plan.language = "ja"
+    plan.shortTitle = "ITパスポート"
+    plan.title = "ITパスポート 経営戦略パック"
+    plan.globalTags = ["ITパスポート基礎", "ITパスポート試験"]
+    plan.documents[0].title = "ITパスポート 1. 経営戦略とマーケティング"
+    plan.documents[0].keyPoints = ["経営戦略", "マーケティング", "財務"]
+    plan.quizPacks[0].title = "ITパスポート 理解チェック1（1章: 経営戦略）"
+
+    doc_tags = document_global_tags(plan, plan.documents[0])
+    quiz_tags = quiz_global_tags(plan, plan.quizPacks[0])
+
+    assert len(doc_tags) <= 3
+    assert len(quiz_tags) <= 3
+    assert doc_tags == ["ITパスポート基礎", "ITパスポート試験"]
+    assert quiz_tags == ["ITパスポート基礎", "ITパスポート試験"]
+    assert "1." not in doc_tags
+    assert "1章" not in quiz_tags
+    assert "総合確認" not in quiz_tags
+
+
+def test_generated_global_tags_use_latin_language_fallback() -> None:
+    plan = _plan()
+    plan.language = "en"
+    plan.shortTitle = "Security"
+    plan.title = "Security Strategy Pack"
+    plan.globalTags = ["Security", "Strategy"]
+    plan.documents[0].title = "Security Strategy and Risk"
+    plan.documents[0].keyPoints = ["Risk management", "Incident response", "Governance"]
+
+    tags = document_global_tags(plan, plan.documents[0])
+
+    assert tags == ["Security", "Strategy"]
+    assert all(tag for tag in tags)
+
+
+def test_global_tags_drop_structural_words_and_do_not_pad() -> None:
+    plan = _plan()
+    plan.language = "ja"
+    plan.shortTitle = "ITパスポート基礎"
+    plan.title = "ITパスポート基礎 集中速習ガイド"
+    plan.globalTags = ["ITパスポート基礎", "総合確認", "1章", "1.", "ビジネス"]
+    plan.quizPacks[0].title = "ITパスポート基礎 総合確認（1章: ビジネス）"
+
+    tags = quiz_global_tags(plan, plan.quizPacks[0])
+
+    assert tags == ["ITパスポート基礎", "ビジネス"]
+
+
+def test_global_tags_fallback_to_meaningful_theme_when_plan_tags_are_empty() -> None:
+    plan = _plan()
+    plan.language = "ja"
+    plan.shortTitle = "ITパスポート試験"
+    plan.title = "確認"
+    plan.globalTags = ["1章", "総合確認"]
+    plan.documents[0].title = "第1章"
+    plan.documents[0].goal = "確認"
+    plan.documents[0].keyPoints = ["章"]
+
+    tags = document_global_tags(plan, plan.documents[0])
+
+    assert tags == ["ITパスポート試験"]
+
+
+def test_document_normalization_forces_unique_id_and_content_tags() -> None:
+    plan = _plan()
+    plan.contentId = "cnt_unique_doc"
+    plan.shortTitle = "ITパスポート"
+    plan.title = "ITパスポート 経営戦略パック"
+    plan.globalTags = ["ITパスポート", "経営戦略"]
+    plan.documents[0].title = "ITパスポート 1. 経営戦略"
+    plan.documents[0].keyPoints = ["経営戦略", "マーケティング", "財務"]
+
+    normalized = normalize_document_content(
+        {
+            "id": "old_doc_01",
+            "title": "古いタイトル",
+            "globalTags": ["it", "beginner", "extra", "too-many"],
+            "documents": [{"id": "doc-1", "text": "本文です。"}],
+        },
+        plan,
+        plan.documents[0],
+    )
+
+    assert normalized["id"] == "cnt_unique_doc_doc_01"
+    assert len(normalized["globalTags"]) <= 3
+    assert "it" not in normalized["globalTags"]
+    assert normalized["globalTags"] == ["ITパスポート", "経営戦略"]
 
 
 def test_quiz_prompt_uses_source_text_when_documents_are_absent() -> None:
@@ -279,8 +410,13 @@ def test_generate_pack_clears_selected_reading_patterns_outside_llm_mode(monkeyp
 
 def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
     plan = _plan()
+    plan.contentId = "cnt_unique_quiz"
+    plan.shortTitle = "ITパスポート"
+    plan.title = "ITパスポート 経営戦略パック"
     quiz_pack = plan.quizPacks[0]
     content = {
+        "id": "old_quiz_01",
+        "globalTags": ["it", "beginner", "extra", "too-many"],
         "questions": [
             {
                 "id": "q-1",
@@ -296,6 +432,9 @@ def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
 
     assert normalized["questions"][0]["answerIndex"] == 2
     assert isinstance(normalized["questions"][0]["answerIndex"], int)
+    assert normalized["id"] == "cnt_unique_quiz_quiz_01"
+    assert len(normalized["globalTags"]) <= 3
+    assert "it" not in normalized["globalTags"]
 
 
 def test_quiz_validator_logs_citation_style_without_invalidating(caplog) -> None:

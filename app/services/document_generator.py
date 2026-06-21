@@ -2,7 +2,9 @@ from app.schemas.sokqa import CoursePlan, PlanDocument, SokqaDocumentItem, Sokqa
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
+from app.services.pack_ids import document_pack_id
 from app.services.prompts import document_generation_prompt
+from app.services.tagging import document_global_tags
 from app.services.tts_text import normalize_tts_text
 
 
@@ -33,40 +35,55 @@ def generate_mock_document_pack(plan: CoursePlan, document: PlanDocument) -> Sok
         if source_excerpt and plan.sourceMode == "document_only":
             text = f"{source_excerpt[:240]}。"
         elif source_excerpt and plan.sourceMode == "document_reference":
-            text = (
-                f"{source_excerpt[:180]}。"
-                f"{point}について、{plan.targetUser}にも分かるように補足して整理します。"
-                f"{plan.title}では、資料の趣旨を土台にして学習しやすい順序で理解します。"
-            )
+            if plan.structurePolicy == "listening":
+                text = (
+                    f"まず資料の内容を手がかりに、{point}を流れの中で確認していきます。"
+                    f"{source_excerpt[:160]}。"
+                    f"ここでは細かな用語を並べるのではなく、前後の関係が耳で追えるように整理します。"
+                )
+            else:
+                text = (
+                    f"{source_excerpt[:180]}。"
+                    f"{point}について、{plan.targetUser}にも分かるように補足して整理します。"
+                    f"{plan.title}では、資料の趣旨を土台にして学習しやすい順序で理解します。"
+                )
         else:
-            text = (
-                f"{document.title}のセクション{index}です。"
-                f"{point}について、{plan.targetUser}にも分かるように短く確認します。"
-                f"{plan.title}では、用語の意味と実際の使われ方を結びつけて覚えることが大切です。"
-            )
+            if plan.structurePolicy == "listening":
+                previous_hint = "前の話を受けて、" if index > 1 else ""
+                text = (
+                    f"{previous_hint}{point}を、具体的な場面に結びつけて考えてみます。"
+                    f"いきなり定義を覚えるよりも、なぜそれが必要になるのかを順番にたどると理解しやすくなります。"
+                    f"この流れを押さえると、{plan.title}の次の説明も自然につながって聞こえます。"
+                )
+            else:
+                text = (
+                    f"{document.title}のセクション{index}です。"
+                    f"{point}について、{plan.targetUser}にも分かるように短く確認します。"
+                    f"{plan.title}では、用語の意味と実際の使われ方を結びつけて覚えることが大切です。"
+                )
         items.append(SokqaDocumentItem(id=f"doc-{index}", text=text))
 
     return SokqaDocumentPack(
-        id=f"{plan.id}_{document.id}",
+        id=document_pack_id(plan, document),
         title=document.title,
         description=document.goal,
         language=plan.language,
         author=plan.author,
-        globalTags=[plan.id, plan.difficulty],
+        globalTags=document_global_tags(plan, document),
         documents=items,
     )
 
 
 def normalize_document_content(content: dict, plan: CoursePlan, document: PlanDocument) -> dict:
     normalized = dict(content)
-    normalized.setdefault("id", f"{plan.id}_{document.id}")
+    normalized["id"] = document_pack_id(plan, document)
     normalized.setdefault("type", "document")
     normalized.setdefault("schemaVersion", 1)
     normalized.setdefault("title", document.title)
     normalized.setdefault("description", document.goal)
     normalized.setdefault("language", plan.language)
     normalized.setdefault("author", plan.author)
-    normalized.setdefault("globalTags", [plan.id, plan.difficulty])
+    normalized["globalTags"] = document_global_tags(plan, document)
 
     documents = normalized.get("documents")
     if documents is None:

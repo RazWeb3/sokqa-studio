@@ -428,9 +428,31 @@ def test_recording_then_reset_creates_consecutive_v2_revisions_and_keeps_old_aud
     assert listing["items"][0]["revision"] == 3
 
 
-def test_recording_endpoint_rejects_too_many_units(tmp_path, monkeypatch) -> None:
+def test_recording_endpoint_batches_units_internally_and_commits_once(tmp_path, monkeypatch) -> None:
     _, pack_name = _write_pack(tmp_path, monkeypatch)
     monkeypatch.setattr(get_settings(), "cloud_tts_recording_request_max_units", 1)
+    calls = []
+
+    def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
+        calls.append([unit.item_id for unit in units])
+        result = RecordingResult(
+            unit_id=units[0].item_id,
+            success=True,
+            audio_url=f"https://cdn.example.test/{storage_prefix}/audio/{units[0].item_id}.mp3",
+            audio_path=kwargs["audio_path_factory"](units[0]),
+            audio_data=b"mp3",
+            used_text_source=units[0].used_text_source,
+        )
+        return RecordingSummary(
+            total_units=len(units),
+            skipped_units=0,
+            success_count=1,
+            failure_count=0,
+            failed_unit_ids=[],
+            results=[result],
+        )
+
+    monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
 
     response = client.post(
         "/tts/record",
@@ -440,8 +462,15 @@ def test_recording_endpoint_rejects_too_many_units(tmp_path, monkeypatch) -> Non
         },
     )
 
-    assert response.status_code == 400
-    assert "per-request limit" in response.json()["detail"]
+    assert response.status_code == 200
+    data = response.json()
+    assert calls == [["q_q-1_choice_0"], ["q_q-1_choice_1"]]
+    assert data["summary"]["successCount"] == 2
+    assert data["versionId"] != "v20260607_120000"
+    manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["revision"] == 2
+    assert manifest["change"]["operation"] == "recording"
 
 
 def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatch) -> None:
@@ -459,7 +488,8 @@ def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatc
                     unit_id="q_q-1_choice_0",
                     success=True,
                     audio_url=f"https://cdn.example.test/{storage_prefix}/audio/q_q-1_choice_0.mp3",
-                    audio_path="audio/q_q-1_choice_0.mp3",
+                    audio_path=kwargs["audio_path_factory"](units[0]),
+                    audio_data=b"mp3",
                 ),
                 RecordingResult(unit_id="q_q-1_choice_1", success=False, error="synthetic failure"),
             ],
@@ -482,6 +512,42 @@ def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatc
     assert data["summary"]["failureCount"] == 1
     assert data["summary"]["failedUnitIds"] == ["q_q-1_choice_1"]
     assert data["summary"]["results"][1]["error"] == "synthetic failure"
+    manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["revision"] == 2
+
+
+def test_recording_endpoint_does_not_commit_when_no_units_succeed(tmp_path, monkeypatch) -> None:
+    _, pack_name = _write_pack(tmp_path, monkeypatch)
+
+    def fake_record_generated_file_audio(file, units, storage_prefix, **kwargs):
+        return RecordingSummary(
+            total_units=len(units),
+            skipped_units=0,
+            success_count=0,
+            failure_count=len(units),
+            failed_unit_ids=[unit.item_id for unit in units],
+            results=[RecordingResult(unit_id=unit.item_id, success=False, error="synthetic failure") for unit in units],
+        )
+
+    monkeypatch.setattr("app.services.tts_recording_api.record_generated_file_audio", fake_record_generated_file_audio)
+
+    response = client.post(
+        "/tts/record",
+        json={
+            "target": _target(pack_name),
+            "unitIds": ["q_q-1_choice_0", "q_q-1_choice_1"],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["versionId"] == "v20260607_120000"
+    assert data["target"]["versionId"] == "v20260607_120000"
+    assert data["summary"]["successCount"] == 0
+    assert data["summary"]["failureCount"] == 2
+    version_dir = tmp_path / "generated" / data["storagePrefix"] / "versions"
+    assert sorted(path.name for path in version_dir.iterdir()) == ["v20260607_120000"]
 
 
 def test_recording_endpoint_can_use_corrected_text_source(tmp_path, monkeypatch) -> None:

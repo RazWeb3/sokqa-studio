@@ -8,6 +8,7 @@ from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
 from app.services.pack_metadata import resolve_creator_id
 from app.services.source_material import normalize_source, source_prompt_block
+from app.services.tagging import course_global_tags
 from app.utils.ids import new_opaque_id, path_token, slugify
 
 
@@ -122,6 +123,8 @@ def _split_document_ids(document_ids: list[str], chunk_count: int) -> list[list[
 def _section_count(request: PlanPackRequest) -> int:
     if request.sectionsPerDocument:
         return request.sectionsPerDocument
+    if request.structurePolicy == "listening":
+        return 18
     return 40
 
 
@@ -156,6 +159,11 @@ def _requested_section_count(request: PlanPackRequest) -> str:
             f"{request.sectionsPerDocument} sections per document exactly. "
             "Every document.targetSectionCount must use this number."
         )
+    if request.structurePolicy == "listening":
+        return (
+            "Not specified. For listening-first content, propose a targetSectionCount from 12 to 24 for each chapter. "
+            "Use fewer, more connected narrative beats instead of many glossary-like micro sections."
+        )
     return (
         "Not specified. Propose a suitable targetSectionCount from 30 to 50 for each chapter. "
         "Optimize within this range per chapter; do not vary section count by scale."
@@ -187,12 +195,15 @@ def _planner_prompt(request: PlanPackRequest) -> str:
 - Also propose optional reading-pattern policies that may help TTS generation for this theme.
 - proposedReadingPatterns are selectable policies, not fixed word dictionaries. Do not mix them with ttsRules.
 - Each reading pattern should describe a general reading strategy, include 1 to 3 examples, and use a stable snake_case id.
+- Examples must be real transformations in "source -> reading" format: source and reading must not be identical, source and reading must not be empty, and do not append stray suffixes or unrelated characters.
+- Do not use already-natural katakana words as examples unless the source contains symbols, ASCII, kanji, or other notation that actually changes in the reading.
 - Consider these common categories and propose the ones that are relevant to the theme:
   - dot notation and symbol-heavy file/config names, e.g. ".git -> ドットギット", ".env -> ドットイーエヌブイ", ".gitignore -> ドットギットイグノア".
   - alphabet reading for abbreviations, e.g. "OS -> オーエス", "API -> エーピーアイ", "URL -> ユーアールエル".
   - commands and technical phrases, e.g. "git checkout -> ギット チェックアウト".
   - camelCase or delimiter-separated terms, e.g. "localStorage -> ローカルストレージ".
 - Prioritize categories that match the theme/source text. Do not force unrelated patterns just to fill the list.
+- Set recommended=true only when the notation is likely to appear in this theme, target user, source text, document titles, or key points. Set dot notation and command patterns to recommended=false unless dot files, commands, file names, or similar notation actually appear.
 - Examples must use the concrete "source -> reading" format so users can judge the pattern quickly.
 """.rstrip()
         if tts_mode == "llm"
@@ -224,7 +235,7 @@ Input:
 Rules:
 - The documents array is the most important output.
 - structurePolicy standard: use the existing balanced course structure.
-- structurePolicy listening: write the outline for listening-first content. Prefer one idea per section, short natural sentences, and avoid symbol-heavy or bullet-list-dependent structure.
+- structurePolicy listening: write the outline as connected narrative beats for listening-first content. Do not design glossary entries or term-by-term definition lists. Prefer fewer sections that flow from context to explanation to examples, with short natural sentences and minimal symbol-heavy or bullet-list-dependent structure.
 - structurePolicy sequential: organize from zero prerequisites to advanced use. Introduce terms only after their prerequisites and keep the learning path strictly incremental.
 - materialMode reference: reference material may be supplemented when needed.
 - materialMode strict: use only the supplied material. Do not add facts, terms, examples, claims, or inferred details that are absent from the material.
@@ -239,8 +250,9 @@ Rules:
 - If documentCount was not specified and scale is standard, return 6-10 documents.
 - If documentCount was not specified and scale is auto, there is no range constraint; propose the optimal chapter count for the theme and difficulty.
 - If sectionsPerDocument was specified, every targetSectionCount must exactly match it.
-- keyPoints should contain 3 to 6 concise items.
-- If sectionsPerDocument was not specified, targetSectionCount must be an integer from 30 to 50 for every document.
+- keyPoints should contain 3 to 6 concise items. For structurePolicy listening, keyPoints must be narrative beats in the order the spoken explanation should flow, not isolated term labels.
+- If sectionsPerDocument was not specified and structurePolicy is listening, targetSectionCount must be an integer from 12 to 24 for every document.
+- If sectionsPerDocument was not specified and structurePolicy is not listening, targetSectionCount must be an integer from 30 to 50 for every document.
 - targetSectionCount must be an integer from 1 to 120.
 {reading_pattern_rules}
 
@@ -369,6 +381,8 @@ def _sanitize_section_count(value: Any, request: PlanPackRequest) -> int:
         count = int(value)
     except (TypeError, ValueError):
         count = _section_count(request)
+    if request.structurePolicy == "listening":
+        return max(12, min(24, count))
     return max(30, min(50, count))
 
 
@@ -503,9 +517,35 @@ def _reading_pattern_signature(pattern: ReadingPattern) -> str:
     return re.sub(r"\s+", "", pattern.title).lower() or pattern.id
 
 
+def _reading_pattern_context(request: PlanPackRequest, documents: list[PlanDocument] | None = None) -> str:
+    document_text = ""
+    if documents:
+        document_text = " ".join(
+            " ".join([document.title, document.goal, *document.keyPoints])
+            for document in documents
+        )
+    return " ".join([request.theme, request.targetUser, request.sourceText or "", document_text]).lower()
+
+
+def _recommended_allowed_for_pattern(pattern: ReadingPattern, request: PlanPackRequest, documents: list[PlanDocument] | None = None) -> bool:
+    signature = _reading_pattern_signature(pattern)
+    context = _reading_pattern_context(request, documents)
+    if signature == "dot_notation":
+        return bool(re.search(r"(^|\s|\W)\.[a-z0-9_-]+", context)) or any(token in context for token in ["dotfile", "dot file", "ドットファイル", "ドット記法"])
+    if signature == "technical_commands":
+        return any(token in context for token in ["git ", "npm ", "pip ", "docker ", "checkout", "install", "commit", "コマンド", "cli"])
+    if signature == "camel_case_terms":
+        return bool(re.search(r"[a-z]+[A-Z][A-Za-z0-9]*", _reading_pattern_context(request, documents)))
+    if signature == "symbols_and_versions":
+        return bool(re.search(r"\bv?\d+\.\d+|[A-Za-z0-9]+/[A-Za-z0-9]+|バージョン|スラッシュ", context))
+    return True
+
+
 def _merge_reading_patterns(
     proposed: list[ReadingPattern],
     fallback: list[ReadingPattern],
+    request: PlanPackRequest | None = None,
+    documents: list[PlanDocument] | None = None,
     *,
     max_count: int = MAX_READING_PATTERN_COUNT,
 ) -> list[ReadingPattern]:
@@ -518,11 +558,58 @@ def _merge_reading_patterns(
         signature = _reading_pattern_signature(pattern)
         if pattern.id in seen_ids or title_key in seen_titles or signature in seen_signatures:
             continue
+        if request is not None and pattern.recommended and not _recommended_allowed_for_pattern(pattern, request, documents):
+            pattern = pattern.model_copy(update={"recommended": False})
         merged.append(pattern)
         seen_ids.add(pattern.id)
         seen_titles.add(title_key)
         seen_signatures.add(signature)
     return merged[:max_count]
+
+
+def _apply_recommended_guard(
+    patterns: list[ReadingPattern],
+    request: PlanPackRequest,
+    documents: list[PlanDocument] | None = None,
+) -> list[ReadingPattern]:
+    guarded: list[ReadingPattern] = []
+    for pattern in patterns:
+        if pattern.recommended and not _recommended_allowed_for_pattern(pattern, request, documents):
+            pattern = pattern.model_copy(update={"recommended": False})
+        guarded.append(pattern)
+    return guarded
+
+
+def _normalize_reading_example_part(value: str) -> str:
+    return re.sub(r"\s+", "", value).strip().lower()
+
+
+def _source_needs_reading_example(source: str) -> bool:
+    compact = re.sub(r"\s+", "", source)
+    if not compact:
+        return False
+    return bool(re.search(r"[A-Za-z0-9一-龯々〆ヵヶ\.／/\\_\-]", compact))
+
+
+def _valid_reading_examples(raw_examples: Any, *, max_examples: int = 3) -> list[str]:
+    if not isinstance(raw_examples, list):
+        return []
+    valid_examples: list[str] = []
+    for raw_example in raw_examples:
+        example = str(raw_example).strip()
+        if "->" not in example:
+            continue
+        source, reading = [part.strip() for part in example.split("->", 1)]
+        if not source or not reading:
+            continue
+        if _normalize_reading_example_part(source) == _normalize_reading_example_part(reading):
+            continue
+        if not _source_needs_reading_example(source):
+            continue
+        valid_examples.append(f"{source} -> {reading}")
+        if len(valid_examples) >= max_examples:
+            break
+    return valid_examples
 
 
 def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[ReadingPattern]:
@@ -544,17 +631,17 @@ def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanP
         if pattern_id in seen_ids:
             pattern_id = f"{pattern_id}_{index}"
         seen_ids.add(pattern_id)
-        examples = raw.get("examples") if isinstance(raw.get("examples"), list) else []
+        examples = _valid_reading_examples(raw.get("examples"))
         patterns.append(
             ReadingPattern(
                 id=pattern_id,
                 title=title,
                 description=description,
-                examples=[str(example).strip() for example in examples if str(example).strip()][:3],
-                recommended=bool(raw.get("recommended", False)),
+                examples=examples,
+                recommended=bool(raw.get("recommended", False)) if examples else False,
             )
         )
-    return _merge_reading_patterns(patterns, fallback_patterns)
+    return _merge_reading_patterns(patterns, fallback_patterns, request)
 
 
 def _key_points_signature(document: PlanDocument) -> tuple[str, ...]:
@@ -603,6 +690,7 @@ def _gemini_plan_parts(
     description = str(data.get("description") or "").strip() or None
     documents = _documents_from_planner_response(data, request)
     reading_patterns = _reading_patterns_from_planner_response(data, request)
+    reading_patterns = _apply_recommended_guard(reading_patterns, request, documents)
     errors = _validate_planned_documents(documents, request)
     if errors:
         raise ValueError("; ".join(errors))
@@ -628,10 +716,10 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
             description = planned_description or description
         except Exception:
             documents = _fallback_documents(request)
-            reading_patterns = _fallback_reading_patterns(request)
+            reading_patterns = _apply_recommended_guard(_fallback_reading_patterns(request), request, documents)
     else:
         documents = _fallback_documents(request)
-        reading_patterns = _fallback_reading_patterns(request)
+        reading_patterns = _apply_recommended_guard(_fallback_reading_patterns(request), request, documents)
 
     validation_errors = _validate_planned_documents(documents, request)
     if validation_errors:
@@ -643,7 +731,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     documents = _prefix_document_titles(documents, short_title)
     quiz_packs = _title_quiz_packs(_build_quiz_packs(request, [document.id for document in documents]), documents, short_title)
 
-    return CoursePlan(
+    plan = CoursePlan(
         id=pack_id,
         creatorId=resolve_creator_id(request.creatorId),
         creatorDisplayName=request.creatorDisplayName,
@@ -676,3 +764,4 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         ttsRules=tts_rules,
         proposedReadingPatterns=reading_patterns,
     )
+    return plan.model_copy(update={"globalTags": course_global_tags(plan)})

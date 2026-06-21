@@ -2,7 +2,9 @@ from app.schemas.sokqa import CoursePlan, PlanQuizPack, SokqaDocumentPack, Sokqa
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
+from app.services.pack_ids import quiz_pack_id
 from app.services.prompts import quiz_generation_prompt
+from app.services.tagging import quiz_global_tags
 
 
 def _source_snippets(document_packs: list[SokqaDocumentPack], plan: CoursePlan | None = None) -> list[str]:
@@ -69,26 +71,26 @@ def generate_mock_quiz_pack(
         )
 
     return SokqaQuizPack(
-        id=f"{plan.id}_{quiz_plan.id}",
+        id=quiz_pack_id(plan, quiz_plan),
         title=quiz_plan.title,
         description=f"{plan.title}のドキュメント本文に基づく{quiz_plan.title}です。",
         language=plan.language,
         author=plan.author,
-        globalTags=[plan.id, quiz_plan.purpose],
+        globalTags=quiz_global_tags(plan, quiz_plan),
         questions=questions,
     )
 
 
 def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizPack) -> dict:
     normalized = dict(content)
-    normalized.setdefault("id", f"{plan.id}_{quiz_plan.id}")
+    normalized["id"] = quiz_pack_id(plan, quiz_plan)
     normalized.setdefault("type", "quiz")
     normalized.setdefault("schemaVersion", 1)
     normalized.setdefault("title", quiz_plan.title)
     normalized.setdefault("description", f"{plan.title}のドキュメント本文に基づく{quiz_plan.title}です。")
     normalized.setdefault("language", plan.language)
     normalized.setdefault("author", plan.author)
-    normalized.setdefault("globalTags", [plan.id, quiz_plan.purpose])
+    normalized["globalTags"] = quiz_global_tags(plan, quiz_plan)
 
     fixed_questions = []
     for index, item in enumerate(normalized.get("questions") or [], start=1):

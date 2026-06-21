@@ -615,7 +615,6 @@
       const $ = (id) => document.getElementById(id);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
       const INITIAL_CREDITS = 1.0;
-      const RECORDING_CHUNK_SIZE = 20;
       const PACK_LANGUAGE_OPTIONS = [
         ["ja", "日本語 / ja"],
         ["en", "English / en"],
@@ -2019,12 +2018,6 @@
         updateQualityWorkflowUI();
       }
 
-      function chunkUnitIds(unitIds) {
-        const chunks = [];
-        for (let i = 0; i < unitIds.length; i += RECORDING_CHUNK_SIZE) chunks.push(unitIds.slice(i, i + RECORDING_CHUNK_SIZE));
-        return chunks;
-      }
-
       function emptyRecordingResult(forceRerecord, packSnapshot, textSource) {
         return { target: recordingTarget(packSnapshot), textSource, forceRerecord, summary: { totalUnits: 0, skippedUnits: 0, successCount: 0, failureCount: 0, failedUnitIds: [], results: [] }, audioUrls: [] };
       }
@@ -2044,27 +2037,20 @@
       }
 
       async function sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot, voiceConfigSnapshot) {
-        const chunks = chunkUnitIds(unitIds);
         const total = emptyRecordingResult(forceRerecord, packSnapshot, textSourceSnapshot);
-        let completed = 0;
-        for (let index = 0; index < chunks.length; index += 1) {
-          const chunk = chunks[index];
-          setProgress(forceRerecord ? "強制再録音" : "録音", `${completed}/${unitIds.length}完了`, `${index + 1}/${chunks.length}チャンク送信中`, completed / Math.max(1, unitIds.length));
-          const data = await requestJson("/tts/record", {
-            target: targetSnapshot,
-            unitIds: chunk,
-            textSource: textSourceSnapshot,
-            voiceName: voiceConfigSnapshot.voiceName,
-            languageCode: voiceConfigSnapshot.languageCode,
-            forceRerecord
-          });
-          mergeRecordingResult(total, data);
-          if (data.target) Object.assign(targetSnapshot, data.target);
-          rememberAudioUrlsFromRecording(data, packSnapshot);
-          completed += chunk.length;
-          renderRecordingResult(total);
-          setProgress(forceRerecord ? "強制再録音" : "録音", `${completed}/${unitIds.length}完了`, "録音を続行しています。", completed / Math.max(1, unitIds.length));
-        }
+        setProgress(forceRerecord ? "強制再録音" : "録音", "処理中", `${unitIds.length}件をサーバーで録音しています。`);
+        const data = await requestJson("/tts/record", {
+          target: targetSnapshot,
+          unitIds,
+          textSource: textSourceSnapshot,
+          voiceName: voiceConfigSnapshot.voiceName,
+          languageCode: voiceConfigSnapshot.languageCode,
+          forceRerecord
+        });
+        mergeRecordingResult(total, data);
+        rememberAudioUrlsFromRecording(data, packSnapshot);
+        renderRecordingResult(total);
+        setProgress(forceRerecord ? "強制再録音" : "録音", `${unitIds.length}/${unitIds.length}完了`, "録音結果を反映しています。", 1);
         return total;
       }
 

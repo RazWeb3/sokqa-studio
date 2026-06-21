@@ -78,6 +78,7 @@ class CoursePlan(BaseModel):
     plannerModel: str | None = None
     sourceText: str | None = None
     sourceMode: SourceMode | None = None
+    globalTags: list[str] = Field(default_factory=list)
     documents: list[PlanDocument]
     quizPacks: list[PlanQuizPack]
     ttsRules: list[TtsRule] = Field(default_factory=list)

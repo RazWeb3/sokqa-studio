@@ -1,3 +1,5 @@
+import random
+
 from app.schemas.sokqa import CoursePlan, PlanQuizPack, SokqaDocumentPack, SokqaQuestion, SokqaQuizPack
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
@@ -64,12 +66,13 @@ def generate_mock_quiz_pack(
     plan: CoursePlan,
     quiz_plan: PlanQuizPack,
     document_packs: list[SokqaDocumentPack],
+    seed: int | str | bytes | bytearray | None = None,
 ) -> SokqaQuizPack:
     snippets = _source_snippets(document_packs, plan)
     questions: list[SokqaQuestion] = []
-    for index in range(1, quiz_plan.questionCount + 1):
+    answer_targets = _shuffled_balanced_targets(quiz_plan.questionCount, 4, _randomizer(seed))
+    for index, answer_index in enumerate(answer_targets, start=1):
         source = snippets[(index - 1) % len(snippets)]
-        answer_index = (index - 1) % 4
         correct = f"{plan.title}の内容を、用語と使われ方を結びつけて理解する"
         distractors = [
             "本文にない細かな例外だけを暗記する",
@@ -100,7 +103,12 @@ def generate_mock_quiz_pack(
     )
 
 
-def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizPack) -> dict:
+def normalize_quiz_content(
+    content: dict,
+    plan: CoursePlan,
+    quiz_plan: PlanQuizPack,
+    seed: int | str | bytes | bytearray | None = None,
+) -> dict:
     normalized = dict(content)
     normalized["id"] = quiz_pack_id(plan, quiz_plan)
     normalized.setdefault("type", "quiz")
@@ -129,18 +137,74 @@ def normalize_quiz_content(content: dict, plan: CoursePlan, quiz_plan: PlanQuizP
         fixed_questions.append(fixed)
 
     if plan.answerPositionMode == "balanced":
-        _balance_answer_positions(fixed_questions)
+        _balance_answer_positions(fixed_questions, seed=seed)
     normalized["questions"] = fixed_questions
     return normalized
 
 
-def _balance_answer_positions(questions: list[dict]) -> None:
+def _randomizer(seed: int | str | bytes | bytearray | None = None):
+    return random.Random(seed) if seed is not None else random.SystemRandom()
+
+
+def _is_regular_cycle(targets: list[int], option_count: int) -> bool:
+    if option_count <= 1 or len(targets) < option_count * 2:
+        return False
+    return any(
+        all(target == (index + offset) % option_count for index, target in enumerate(targets))
+        for offset in range(option_count)
+    )
+
+
+def _shuffled_balanced_targets(count: int, option_count: int, rng) -> list[int]:
+    if count <= 0 or option_count <= 0:
+        return []
+
+    targets = [position for _ in range(count // option_count) for position in range(option_count)]
+    targets.extend(range(count % option_count))
+    if len(targets) <= 1:
+        return targets
+
+    best = targets.copy()
+    fewest_runs = len(targets)
+    for _ in range(100):
+        candidate = targets.copy()
+        rng.shuffle(candidate)
+        run_count = sum(
+            1
+            for index in range(2, len(candidate))
+            if candidate[index] == candidate[index - 1] == candidate[index - 2]
+        )
+        if run_count < fewest_runs:
+            best = candidate
+            fewest_runs = run_count
+        if run_count == 0 and not _is_regular_cycle(candidate, option_count):
+            return candidate
+    return best
+
+
+def _balance_answer_positions(
+    questions: list[dict],
+    seed: int | str | bytes | bytearray | None = None,
+) -> None:
+    rng = _randomizer(seed)
+    grouped_indexes: dict[int, list[int]] = {}
     for index, question in enumerate(questions):
         choices = question.get("choices")
         if not isinstance(choices, list) or not choices:
             continue
-        current = normalize_answer_index(question.get("answerIndex", 0))
-        target = index % min(4, len(choices))
+        grouped_indexes.setdefault(min(4, len(choices)), []).append(index)
+
+    targets_by_index: dict[int, int] = {}
+    for option_count, indexes in grouped_indexes.items():
+        for question_index, target in zip(indexes, _shuffled_balanced_targets(len(indexes), option_count, rng)):
+            targets_by_index[question_index] = target
+
+    for index, question in enumerate(questions):
+        choices = question.get("choices")
+        if not isinstance(choices, list) or not choices or index not in targets_by_index:
+            continue
+        current = min(len(choices) - 1, normalize_answer_index(question.get("answerIndex", 0)))
+        target = targets_by_index[index]
         if current == target:
             question["answerIndex"] = current
             continue

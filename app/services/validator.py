@@ -104,6 +104,15 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
                     message="answerIndex must not be identical for every question",
                 )
             )
+        if _has_regular_answer_index_cycle(pack):
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path="questions.answerIndex",
+                    message="answerIndex should not follow a fully predictable cycle",
+                    severity="warning",
+                )
+            )
 
         explanations = {question.explanation.strip() for question in pack.questions}
         if len(explanations) == 1 and len(pack.questions) > 1:
@@ -134,6 +143,17 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
             )
     errors.extend(quiz_citation_style_warnings(file_name, pack))
     return errors
+
+
+def _has_regular_answer_index_cycle(pack: SokqaQuizPack) -> bool:
+    indexes = [question.answerIndex for question in pack.questions]
+    option_count = 4
+    if len(indexes) < option_count * 2:
+        return False
+    return any(
+        all(answer_index == (index + offset) % option_count for index, answer_index in enumerate(indexes))
+        for offset in range(option_count)
+    )
 
 
 def quiz_citation_style_warnings(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:

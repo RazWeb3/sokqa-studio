@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 
 from app.schemas.common import ReadingPattern
 from app.schemas.request import GeneratePackRequest
@@ -8,7 +9,7 @@ from app.services.document_generator import generate_mock_document_pack, normali
 from app.services.tagging import document_global_tags, quiz_global_tags
 from app.services.pack_agent import generate_pack
 from app.services.prompts import document_generation_prompt, quiz_generation_prompt
-from app.services.quiz_generator import normalize_quiz_content
+from app.services.quiz_generator import generate_mock_quiz_pack, normalize_quiz_content
 from app.services.repairer import QUIZ_REPAIR_INSTRUCTIONS, repair_files
 from app.services.validator import validate_files
 
@@ -490,31 +491,43 @@ def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
 def test_normalize_quiz_content_balances_answer_positions() -> None:
     plan = _plan()
     plan.answerPositionMode = "balanced"
+    plan.quizPacks[0] = plan.quizPacks[0].model_copy(update={"questionCount": 30})
     quiz_pack = plan.quizPacks[0]
     content = {
         "questions": [
             {
-                "id": "q-1",
-                "question": "問1",
-                "choices": ["誤りA", "誤りB", "正解1", "誤りC"],
+                "id": f"q-{index}",
+                "question": f"問{index}",
+                "choices": [f"誤り{index}A", f"誤り{index}B", f"正解{index}", f"誤り{index}C"],
                 "answerIndex": 2,
-                "explanation": "正解1が正しいためです。",
-            },
-            {
-                "id": "q-2",
-                "question": "問2",
-                "choices": ["誤りA", "誤りB", "正解2", "誤りC"],
-                "answerIndex": 2,
-                "explanation": "正解2が正しいためです。",
-            },
+                "explanation": f"正解{index}が正しいためです。",
+            }
+            for index in range(1, 31)
         ]
     }
 
-    normalized = normalize_quiz_content(content, plan, quiz_pack)
+    normalized = normalize_quiz_content(content, plan, quiz_pack, seed=123)
+    answer_indexes = [question["answerIndex"] for question in normalized["questions"]]
+    answer_counts = Counter(answer_indexes)
 
-    assert [question["answerIndex"] for question in normalized["questions"]] == [0, 1]
-    assert normalized["questions"][0]["choices"][0] == "正解1"
-    assert normalized["questions"][1]["choices"][1] == "正解2"
+    assert answer_indexes == [1, 3, 3, 1, 3, 1, 3, 2, 0, 0, 3, 2, 1, 0, 2, 1, 1, 3, 1, 1, 3, 0, 2, 0, 2, 0, 2, 0, 2, 0]
+    assert answer_indexes != [index % 4 for index in range(30)]
+    assert max(answer_counts.values()) - min(answer_counts.values()) <= 1
+    assert all(question["choices"][question["answerIndex"]] == f"正解{index}" for index, question in enumerate(normalized["questions"], start=1))
+
+
+def test_mock_quiz_generation_uses_balanced_shuffled_answer_positions() -> None:
+    plan = _plan()
+    quiz_pack = plan.quizPacks[0].model_copy(update={"questionCount": 30})
+
+    pack = generate_mock_quiz_pack(plan, quiz_pack, [_source_pack()], seed=123)
+    answer_indexes = [question.answerIndex for question in pack.questions]
+    answer_counts = Counter(answer_indexes)
+
+    assert answer_indexes == [1, 3, 3, 1, 3, 1, 3, 2, 0, 0, 3, 2, 1, 0, 2, 1, 1, 3, 1, 1, 3, 0, 2, 0, 2, 0, 2, 0, 2, 0]
+    assert answer_indexes != [index % 4 for index in range(30)]
+    assert max(answer_counts.values()) - min(answer_counts.values()) <= 1
+    assert all(question.choices[question.answerIndex] == f"{plan.title}の内容を、用語と使われ方を結びつけて理解する" for question in pack.questions)
 
 
 def test_quiz_validator_logs_citation_style_without_invalidating(caplog) -> None:
@@ -570,6 +583,32 @@ def test_quiz_validator_does_not_log_for_direct_style(caplog) -> None:
 
     assert result.valid is True
     assert "quiz citation-style wording detected" not in caplog.text
+
+
+def test_quiz_validator_warns_for_regular_answer_index_cycle() -> None:
+    file = GeneratedFile(
+        name="quiz_01.json",
+        kind="quiz",
+        content={
+            "id": "quality_pack_quiz_01",
+            "title": "確認クイズ",
+            "questions": [
+                {
+                    "id": f"q-{index}",
+                    "question": f"理解確認{index}として適切なものはどれですか？",
+                    "choices": [f"正解{index}", f"誤り{index}A", f"誤り{index}B", f"誤り{index}C"],
+                    "answerIndex": index % 4,
+                    "explanation": f"正解{index}がこの問題の説明に合います。",
+                }
+                for index in range(8)
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    assert result.valid is True
+    assert any(error.severity == "warning" and "fully predictable cycle" in error.message for error in result.errors)
 
 
 def test_quiz_repair_instructions_include_answer_index_consistency() -> None:

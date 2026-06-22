@@ -20,6 +20,25 @@ def _source_snippets(document_packs: list[SokqaDocumentPack], plan: CoursePlan |
     return snippets or ["学習内容を確認します。"]
 
 
+def _language_base(language: str | None) -> str:
+    return (language or "ja").split("-")[0].lower()
+
+
+def quiz_description(plan: CoursePlan, quiz_plan: PlanQuizPack) -> str:
+    base = _language_base(plan.language)
+    if base == "ja":
+        return f"{plan.title}のドキュメント本文に基づく{quiz_plan.title}です。"
+    if base == "id":
+        return f"Kuis {quiz_plan.title} berdasarkan materi dokumen {plan.title}."
+    if base == "ko":
+        return f"{plan.title} 문서 내용을 바탕으로 한 {quiz_plan.title}입니다."
+    if base == "zh":
+        return f"基于 {plan.title} 文档内容的 {quiz_plan.title}。"
+    if base == "es":
+        return f"Cuestionario {quiz_plan.title} basado en los documentos de {plan.title}."
+    return f"{quiz_plan.title} based on the document content for {plan.title}."
+
+
 def generate_quiz_pack(
     plan: CoursePlan,
     quiz_plan: PlanQuizPack,
@@ -95,7 +114,7 @@ def generate_mock_quiz_pack(
     return SokqaQuizPack(
         id=quiz_pack_id(plan, quiz_plan),
         title=quiz_plan.title,
-        description=f"{plan.title}のドキュメント本文に基づく{quiz_plan.title}です。",
+        description=quiz_description(plan, quiz_plan),
         language=plan.language,
         author=plan.author,
         globalTags=quiz_global_tags(plan, quiz_plan),
@@ -114,7 +133,7 @@ def normalize_quiz_content(
     normalized.setdefault("type", "quiz")
     normalized.setdefault("schemaVersion", 1)
     normalized.setdefault("title", quiz_plan.title)
-    normalized.setdefault("description", f"{plan.title}のドキュメント本文に基づく{quiz_plan.title}です。")
+    normalized.setdefault("description", quiz_description(plan, quiz_plan))
     normalized.setdefault("language", plan.language)
     normalized.setdefault("author", plan.author)
     normalized["globalTags"] = quiz_global_tags(plan, quiz_plan)

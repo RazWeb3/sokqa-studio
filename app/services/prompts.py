@@ -286,6 +286,7 @@ Rules:
 - language must be "{plan.language}".
 - Root id must be "{root_id}".
 - Root title must be "{quiz_pack.title}".
+- Root description must be a short quiz description written in the pack language ({plan.language}).
 - questions must have exactly 4 choices.
 - answerIndex must be an integer from 0 to 3.
 - Output answerIndex as a JSON number, never as a string. Use 2, not "2".
@@ -330,7 +331,7 @@ Required JSON shape:
   "type": "quiz",
   "schemaVersion": 1,
   "title": "{quiz_pack.title}",
-  "description": "{plan.title}のドキュメント本文に基づく{quiz_pack.title}です。",
+  "description": "Short quiz description in {plan.language}.",
   "language": "{plan.language}",
   "author": "{plan.author}",
   "globalTags": {global_tags},

@@ -232,6 +232,19 @@ def test_quiz_prompt_generic_fallback_when_no_context_exists() -> None:
     assert "No generated documents or sourceText were provided" in prompt
 
 
+def test_quiz_prompt_requires_description_in_pack_language_without_japanese_template() -> None:
+    plan = _plan()
+    plan.language = "id"
+    plan.title = "Belajar Bahasa Jepang Dasar melalui Lirik Lagu Shoumen"
+    plan.quizPacks[0] = plan.quizPacks[0].model_copy(update={"title": "LaguShoumen Comprehension Check 1"})
+
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert 'Root description must be a short quiz description written in the pack language (id).' in prompt
+    assert '"description": "Short quiz description in id."' in prompt
+    assert "のドキュメント本文に基づく" not in prompt
+
+
 def test_strict_quiz_only_source_text_prompt_forbids_outside_information() -> None:
     plan = _plan()
     plan.generationUnit = "quiz"
@@ -488,6 +501,53 @@ def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
     assert "it" not in normalized["globalTags"]
 
 
+def test_normalize_quiz_content_uses_pack_language_description_fallback() -> None:
+    plan = _plan()
+    plan.language = "id"
+    plan.title = "Belajar Bahasa Jepang Dasar melalui Lirik Lagu Shoumen"
+    plan.quizPacks[0] = plan.quizPacks[0].model_copy(update={"title": "LaguShoumen Comprehension Check 1"})
+    quiz_pack = plan.quizPacks[0]
+    content = {
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "Pertanyaan?",
+                "choices": ["Benar", "Salah A", "Salah B", "Salah C"],
+                "answerIndex": 0,
+                "explanation": "Benar.",
+            }
+        ]
+    }
+
+    normalized = normalize_quiz_content(content, plan, quiz_pack)
+
+    assert normalized["description"] == "Kuis LaguShoumen Comprehension Check 1 berdasarkan materi dokumen Belajar Bahasa Jepang Dasar melalui Lirik Lagu Shoumen."
+    assert "のドキュメント本文に基づく" not in normalized["description"]
+    assert "です" not in normalized["description"]
+
+
+def test_normalize_quiz_content_preserves_existing_description() -> None:
+    plan = _plan()
+    plan.language = "id"
+    quiz_pack = plan.quizPacks[0]
+    content = {
+        "description": "Deskripsi manual tetap dipakai.",
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "Pertanyaan?",
+                "choices": ["Benar", "Salah A", "Salah B", "Salah C"],
+                "answerIndex": 0,
+                "explanation": "Benar.",
+            }
+        ]
+    }
+
+    normalized = normalize_quiz_content(content, plan, quiz_pack)
+
+    assert normalized["description"] == "Deskripsi manual tetap dipakai."
+
+
 def test_normalize_quiz_content_balances_answer_positions() -> None:
     plan = _plan()
     plan.answerPositionMode = "balanced"
@@ -528,6 +588,19 @@ def test_mock_quiz_generation_uses_balanced_shuffled_answer_positions() -> None:
     assert answer_indexes != [index % 4 for index in range(30)]
     assert max(answer_counts.values()) - min(answer_counts.values()) <= 1
     assert all(question.choices[question.answerIndex] == f"{plan.title}の内容を、用語と使われ方を結びつけて理解する" for question in pack.questions)
+
+
+def test_mock_quiz_generation_uses_pack_language_description() -> None:
+    plan = _plan()
+    plan.language = "id"
+    plan.title = "Belajar Bahasa Jepang Dasar melalui Lirik Lagu Shoumen"
+    quiz_pack = plan.quizPacks[0].model_copy(update={"title": "LaguShoumen Comprehension Check 1"})
+
+    pack = generate_mock_quiz_pack(plan, quiz_pack, [_source_pack()], seed=123)
+
+    assert pack.description == "Kuis LaguShoumen Comprehension Check 1 berdasarkan materi dokumen Belajar Bahasa Jepang Dasar melalui Lirik Lagu Shoumen."
+    assert "のドキュメント本文に基づく" not in pack.description
+    assert "です" not in pack.description
 
 
 def test_quiz_validator_logs_citation_style_without_invalidating(caplog) -> None:

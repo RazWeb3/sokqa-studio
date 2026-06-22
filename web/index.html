@@ -27,6 +27,7 @@
       }
 
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       html { background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.55; text-size-adjust: 100%; }
       body { margin: 0; min-width: 320px; background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,0) 320px), var(--bg); }
       button, input, select, textarea { font: inherit; }
@@ -138,7 +139,7 @@
       .pack-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       main { display: block; }
       .tab-panel[hidden] { display: none; }
-      .grid { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+      .grid { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 18px; align-items: start; }
       .generate-grid { align-items: start; }
       .generate-left, .generate-right { max-height: calc(100vh - 250px); overflow: auto; align-self: start; }
       .generate-left { position: sticky; top: 250px; }
@@ -155,6 +156,20 @@
       .segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
       .segmented button { min-height: 36px; background: transparent; color: var(--muted); border-color: transparent; border-radius: 7px; padding: 0 8px; font-size: 13px; }
       .segmented .active { background: white; color: var(--fg); border-color: var(--border); }
+      .scale-cards { grid-template-columns: 1fr; gap: 8px; padding: 7px; }
+      .scale-cards button {
+        min-height: 58px;
+        justify-content: flex-start;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 3px;
+        padding: 10px 12px;
+        text-align: left;
+        white-space: normal;
+        line-height: 1.25;
+      }
+      .scale-cards small { display: block; color: var(--muted); font-size: 12px; font-weight: 520; line-height: 1.35; }
+      .scale-cards .active small { color: var(--muted); }
       .json { min-height: 210px; font-family: var(--mono); font-size: 13px; line-height: 1.55; color: oklch(27% .03 235); background: oklch(98.8% .004 235); }
       .json-details { display: grid; gap: 10px; }
       .plan-preview { display: grid; gap: 14px; }
@@ -356,31 +371,62 @@
               <div class="panel-head"><div><h3>テーマから構成を作成</h3><p class="hint">生成だけで完結するライト層でも使えるよう、最初の入力は最小限にしています。</p></div></div>
               <div class="panel-body stack">
                 <label>テーマ<input id="theme" value="ITパスポート試験対策" maxlength="160" /></label>
-                <label>対象ユーザー<input id="targetUser" value="IT初心者の社会人" maxlength="160" /></label>
+                <section class="plan-card">
+                  <div class="issue-top"><div><h4>説明文</h4><p>出典を入れたい場合は手動入力に記載してください。</p></div></div>
+                  <label>説明文<select id="descriptionMode"><option value="auto" selected>自動でおまかせ</option><option value="manual">手動入力</option></select></label>
+                  <label id="manualDescriptionLine" hidden>手動説明文<textarea id="manualDescription" maxlength="500" placeholder="パックの説明文を入力"></textarea></label>
+                  <label class="checkline" id="descriptionDateLine"><input id="descriptionIncludeDate" type="checkbox" /> 生成日付を含める</label>
+                  <label class="checkline" id="descriptionAiLine"><input id="descriptionIncludeAiDisclaimer" type="checkbox" /> 生成内容の注意書きを含める</label>
+                </section>
+                <section class="plan-card">
+                  <div class="issue-top"><div><h4>グローバルタグ</h4><p>手動時は最大3つまで使用します。</p></div></div>
+                  <label>タグ設定<select id="globalTagsMode"><option value="auto" selected>自動でおまかせ</option><option value="manual">手動入力</option></select></label>
+                  <label id="manualGlobalTagsLine" hidden>手動タグ<input id="manualGlobalTags" placeholder="ITパスポート, 経営戦略 など" maxlength="160" /></label>
+                </section>
                 <div class="field-grid">
-                  <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
                   <label>パック言語<select id="language"><option value="ja" selected>日本語 / ja</option><option value="en">English / en</option><option value="zh">中文 / zh</option><option value="ko">한국어 / ko</option><option value="es">Español / es</option><option value="fr">Français / fr</option><option value="de">Deutsch / de</option><option value="it">Italiano / it</option><option value="pt">Português / pt</option><option value="id">Bahasa Indonesia / id</option><option value="custom">カスタム</option></select></label>
                 </div>
                 <label id="customLanguageLine" hidden>カスタム言語コード<input id="customLanguageCode" value="pt-BR" maxlength="20" placeholder="pt-BR / es-419 など" /></label>
+                <label>追加条件<textarea id="customInstructions" maxlength="2000" placeholder="例: 会話例を多めにする、専門用語は避ける、各章に実務例を入れる など"></textarea></label>
                 <div class="tight">
-                  <span class="muted">規模</span>
-                  <div class="segmented" id="scaleSegment">
-                    <button class="active" data-scale="quick" type="button">quick</button>
-                    <button data-scale="standard" type="button">standard</button>
-                    <button data-scale="auto" type="button">auto</button>
+                  <span class="muted">生成するもの</span>
+                  <input id="generationUnit" type="hidden" value="pack" />
+                  <div class="segmented" id="generationUnitSegment">
+                    <button class="active" data-generation-unit="pack" type="button">学習パック</button>
+                    <button data-generation-unit="document" type="button">ドキュメント</button>
+                    <button data-generation-unit="quiz" type="button">クイズ</button>
                   </div>
                 </div>
-                <label>構成方針<select id="structurePolicy"><option value="standard" selected>標準</option><option value="listening">聞き流し向け</option><option value="sequential">入門から順に</option></select></label>
-                <div class="field-grid">
-                  <label>生成単位<select id="generationUnit"><option value="pack" selected>ドキュメント＋クイズ</option><option value="document">ドキュメントのみ</option><option value="quiz">クイズのみ</option></select></label>
-                  <label>資料モード<select id="materialMode"><option value="reference" selected>参考資料として使う</option><option value="strict">資料準拠（コピー専用）</option></select></label>
+                <div class="tight" id="scaleControl">
+                  <span class="muted">規模</span>
+                  <div class="segmented scale-cards" id="scaleSegment">
+                    <button class="active" data-scale="quick" type="button">小規模<small>ドキュメント3＋クイズ1（30問）</small></button>
+                    <button data-scale="standard" type="button">中規模<small>ドキュメント6＋クイズ2</small></button>
+                    <button data-scale="large" type="button">大規模<small>ドキュメント9＋クイズ3（生成に時間がかかります）</small></button>
+                    <button data-scale="auto" type="button">おまかせ<small>内容量を自動調整</small></button>
+                  </div>
                 </div>
-                <div class="field-grid">
-                  <label>ドキュメント数<input id="docCount" type="number" min="0" max="20" placeholder="プランナー提案" /></label>
-                  <label>クイズ数<input id="quizCount" type="number" min="0" max="20" placeholder="プランナー提案" /></label>
+                <div class="field-grid" id="countControls" hidden>
+                  <label id="docCountLine">ドキュメント数<select id="docCount"><option selected>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option value="">おまかせ</option></select></label>
+                  <label id="sectionCountLine">セクション数<select id="sectionCount"><option selected>10</option><option>20</option><option>30</option><option>40</option><option value="">おまかせ（35〜50）</option></select></label>
+                  <label id="quizCountLine">クイズ数<select id="quizCount"><option selected>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select></label>
+                  <label id="questionCountLine">問題数<select id="questionCount"><option selected>10</option><option>20</option><option>30</option></select></label>
                 </div>
-                <label>読み上げ補正<select id="ttsReadingMode"><option value="none">なし</option><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（AI補正）</option><option value="multilingual">多言語（AI補正）</option></select></label>
-                <section class="plan-card">
+                <details id="sourceMaterialDetails" class="plan-card">
+                  <summary>元資料テキストと資料モード</summary>
+                  <div class="stack">
+                    <label>元資料テキスト<textarea id="sourceText" placeholder="社内資料や教材メモを貼り付けると、生成時に参照します。"></textarea></label>
+                    <label id="materialModeLine">資料モード<select id="materialMode"><option value="reference" selected>資料を参考に作る</option><option value="source_only">資料の内容のみで構成する</option><option value="strict">資料準拠（加工しない）</option></select></label>
+                  </div>
+                </details>
+                <label>構成方針<select id="structurePolicy"><option value="listening" selected>聞き流し向け</option><option value="standard">要点整理</option></select></label>
+                <div class="field-grid">
+                  <label>想定ユーザー<select id="targetUser"><option selected>初学者</option><option>小学生</option><option>中学生</option><option>高校生</option><option>大学生</option><option>資格学習者</option><option>社会人</option><option>実務担当者</option><option>上級者</option></select></label>
+                  <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
+                </div>
+                <input id="answerPositionMode" type="hidden" value="balanced" />
+                <label>読み上げ補正<select id="ttsReadingMode"><option value="none">なし</option><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（読み補正）</option><option value="multilingual">多言語（読み分け）</option></select></label>
+                <section class="plan-card" id="ttsDictionaryPanel">
                   <div class="issue-top">
                     <div>
                       <h4>共通TTS辞書</h4>
@@ -393,21 +439,20 @@
                 <details id="multilingualTtsOptions" class="plan-card" hidden>
                   <summary>多言語読み上げの詳細</summary>
                   <div class="stack">
-                    <p class="hint">多言語（AI補正）のときだけ送信します。選択した言語はインラインタグと文字化けガードの許可スクリプトに使います。</p>
+                    <p class="hint">※本文中に部分的に混在する学習対象言語や外国語を指定します。例: インドネシア語で日本語を学ぶ、英語で日本語を学ぶ、日本語で英語を学ぶなど、本文の一部だけ別言語になる場合に使用します。</p>
                     <div class="field-grid">
-                      <label>ドキュメント本文<select id="documentTextLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>ドキュメント本文<select id="documentTextLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>本文の言語<select id="documentTextLanguage" data-tts-language-select></select></label>
-                      <label>クイズ問題文<select id="questionLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>クイズ問題文<select id="questionLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>問題文の言語<select id="questionLanguage" data-tts-language-select></select></label>
                       <label>クイズ選択肢<select id="choicesLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>選択肢の言語<select id="choicesLanguage" data-tts-language-select></select></label>
-                      <label>クイズ解説<select id="explanationLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
+                      <label>クイズ解説<select id="explanationLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>解説の言語<select id="explanationLanguage" data-tts-language-select></select></label>
                     </div>
                   </div>
                 </details>
-                <label>元資料テキスト<textarea id="sourceText" placeholder="社内資料や教材メモを貼り付けると、生成時に参照します。"></textarea></label>
-                <label>資料の扱い<select id="sourceMode" disabled><option value="document_reference">資料を参考に</option><option value="document_only">資料のみ</option></select></label>
+                <input id="sourceMode" type="hidden" value="document_reference" />
                 <div class="actions"><button id="planBtn" type="button">プレビュー作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
                 <p id="status" class="muted"></p>
               </div>
@@ -651,6 +696,16 @@
         ["pt", "Português / pt"],
         ["id", "Bahasa Indonesia / id"],
       ];
+      const DEFAULT_TTS_LANGUAGE_SETTINGS = {
+        documentTextLanguageMode: "mixed",
+        documentTextLanguage: "ja",
+        questionLanguageMode: "mixed",
+        questionLanguage: "ja",
+        choicesLanguageMode: "auto",
+        choicesLanguage: "ja",
+        explanationLanguageMode: "mixed",
+        explanationLanguage: "ja",
+      };
 
       let currentPacks = [];
       let selectedPack = null;
@@ -804,24 +859,52 @@
         };
       }
 
+      const COUNT_LIMITS = {
+        docCount: { min: 1, max: 15 },
+        quizCount: { min: 1, max: 10 },
+        sectionCount: { min: 1, max: 50 },
+        questionCount: { min: 1, max: 30 },
+      };
+
       function optionalCountValue(id) {
         const raw = $(id).value.trim();
         if (!raw) return undefined;
         const value = Number(raw);
-        if (!Number.isInteger(value) || value < 0 || value > 20) throw new Error(`${id} は0〜20の整数で入力してください。`);
+        const limits = COUNT_LIMITS[id] || { min: 0, max: 20 };
+        if (!Number.isInteger(value) || value < limits.min || value > limits.max) throw new Error(`${id} は${limits.min}〜${limits.max}の整数で入力してください。`);
         return value;
       }
 
+      function manualGlobalTagsValue() {
+        return $("manualGlobalTags").value.split(/[,、\n]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 3);
+      }
+
       function generationControlsPayload() {
+        const unit = generationUnitValue();
         const payload = {
           structurePolicy: $("structurePolicy").value,
-          generationUnit: $("generationUnit").value,
+          generationUnit: unit,
           materialMode: $("materialMode").value,
+          customInstructions: $("customInstructions").value.trim(),
+          globalTagsMode: $("globalTagsMode").value,
+          descriptionMode: $("descriptionMode").value,
+          descriptionIncludeDate: $("descriptionIncludeDate").checked,
+          descriptionIncludeAiDisclaimer: $("descriptionIncludeAiDisclaimer").checked,
+          answerPositionMode: $("answerPositionMode").value,
         };
-        const docCount = optionalCountValue("docCount");
-        const quizCount = optionalCountValue("quizCount");
-        if (docCount !== undefined) payload.docCount = docCount;
-        if (quizCount !== undefined) payload.quizCount = quizCount;
+        if ($("globalTagsMode").value === "manual") payload.manualGlobalTags = manualGlobalTagsValue();
+        if ($("descriptionMode").value === "manual") payload.manualDescription = $("manualDescription").value.trim();
+        if (unit === "document") {
+          const docCount = optionalCountValue("docCount");
+          const sectionCount = optionalCountValue("sectionCount");
+          if (docCount !== undefined) payload.docCount = docCount;
+          if (sectionCount !== undefined) payload.sectionsPerDocument = sectionCount;
+        } else if (unit === "quiz") {
+          const quizCount = optionalCountValue("quizCount");
+          const questionCount = optionalCountValue("questionCount");
+          if (quizCount !== undefined) payload.quizCount = quizCount;
+          if (questionCount !== undefined) payload.questionCount = questionCount;
+        }
         return payload;
       }
 
@@ -833,11 +916,24 @@
 
       function applyGenerationControlsToPlan(plan) {
         if (!plan) return;
-        $("structurePolicy").value = plan.structurePolicy || "standard";
+        $("structurePolicy").value = plan.structurePolicy === "standard" ? "standard" : "listening";
         $("generationUnit").value = plan.generationUnit || "pack";
         $("materialMode").value = plan.materialMode || "reference";
-        $("docCount").value = plan.docCount ?? "";
-        $("quizCount").value = plan.quizCount ?? "";
+        $("customInstructions").value = plan.customInstructions || "";
+        $("docCount").value = plan.docCount ?? "1";
+        $("quizCount").value = plan.quizCount ?? "1";
+        $("sectionCount").value = plan.sectionsPerDocument ?? "10";
+        $("questionCount").value = plan.questionCount ?? "10";
+        $("globalTagsMode").value = plan.globalTagsMode || "auto";
+        $("manualGlobalTags").value = (plan.manualGlobalTags || plan.globalTags || []).join(", ");
+        $("descriptionMode").value = plan.descriptionMode || "auto";
+        $("manualDescription").value = plan.manualDescription || "";
+        $("descriptionIncludeDate").checked = Boolean(plan.descriptionIncludeDate);
+        $("descriptionIncludeAiDisclaimer").checked = Boolean(plan.descriptionIncludeAiDisclaimer);
+        $("answerPositionMode").value = "balanced";
+        syncGenerationUnitUi();
+        syncMaterialModeUi();
+        syncMetadataModeUi();
       }
 
       function applyTtsLanguageSettingsToControls(settings = {}) {
@@ -845,8 +941,8 @@
         ["documentText", "question", "choices", "explanation"].forEach((key) => {
           const mode = $(`${key}LanguageMode`);
           const language = $(`${key}Language`);
-          if (mode) mode.value = settings?.[`${key}LanguageMode`] || "auto";
-          if (language) language.value = settings?.[`${key}Language`] || "en";
+          if (mode) mode.value = settings?.[`${key}LanguageMode`] || DEFAULT_TTS_LANGUAGE_SETTINGS[`${key}LanguageMode`] || "auto";
+          if (language) language.value = settings?.[`${key}Language`] || DEFAULT_TTS_LANGUAGE_SETTINGS[`${key}Language`] || "ja";
         });
       }
 
@@ -933,7 +1029,7 @@
           ${showReadingPatterns ? `
             <section class="plan-card">
               <h4>読みパターン</h4>
-              <p>高精度（AI補正）で使う読み上げ方針を選びます。なし・標準（ルールのみ）・多言語（AI補正）では使用しません。</p>
+              <p>高精度（読み補正）で使う読み上げ方針を選びます。なし・標準（ルールのみ）・多言語（読み分け）では使用しません。</p>
               <div class="reading-patterns">
                 ${patterns.map((pattern) => `
                   <label class="pattern-option">
@@ -1004,13 +1100,23 @@
       }
 
       function syncTtsModeUi() {
-        $("multilingualTtsOptions").hidden = ttsModeValue() !== "multilingual";
+        const multilingual = ttsModeValue() === "multilingual";
+        $("multilingualTtsOptions").hidden = !multilingual;
+        $("ttsDictionaryPanel").hidden = multilingual;
         populateTtsLanguageSelects();
         syncReadingPatternMode();
       }
 
       function syncPackLanguageUi() {
         $("customLanguageLine").hidden = $("language").value !== "custom";
+      }
+
+      function syncMetadataModeUi() {
+        $("manualGlobalTagsLine").hidden = $("globalTagsMode").value !== "manual";
+        const manualDescription = $("descriptionMode").value === "manual";
+        $("manualDescriptionLine").hidden = !manualDescription;
+        $("descriptionDateLine").hidden = false;
+        $("descriptionAiLine").hidden = false;
       }
 
       function setProgress(title, value, text, ratio = null) {
@@ -1035,6 +1141,20 @@
         setProgress(title, "完了", text, 1);
       }
 
+      function apiErrorMessage(data, fallback) {
+        const detail = data?.detail;
+        if (!detail) return fallback || "リクエストに失敗しました。";
+        if (typeof detail === "string") return detail;
+        if (detail.message || detail.hint) {
+          return [detail.message, detail.hint].filter(Boolean).join("\n");
+        }
+        try {
+          return JSON.stringify(detail);
+        } catch (_error) {
+          return fallback || "リクエストに失敗しました。";
+        }
+      }
+
       async function requestJson(url, payload) {
         const response = await fetch(url, {
           method: "POST",
@@ -1042,7 +1162,7 @@
           body: JSON.stringify(payload)
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+        if (!response.ok) throw new Error(apiErrorMessage(data, response.statusText));
         return data;
       }
 
@@ -1053,14 +1173,14 @@
           body: JSON.stringify(payload)
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+        if (!response.ok) throw new Error(apiErrorMessage(data, response.statusText));
         return data;
       }
 
       async function requestGet(url) {
         const response = await fetch(url);
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+        if (!response.ok) throw new Error(apiErrorMessage(data, response.statusText));
         return data;
       }
 
@@ -1318,6 +1438,49 @@
         return $("ttsReadingMode").value || "llm";
       }
 
+      function generationUnitValue() {
+        return $("generationUnit").value || "pack";
+      }
+
+      function setGenerationUnit(value) {
+        $("generationUnit").value = value;
+        $$("#generationUnitSegment button").forEach((button) => {
+          button.classList.toggle("active", button.dataset.generationUnit === value);
+        });
+      }
+
+      function showLine(id, show) {
+        const element = $(id);
+        if (element) element.hidden = !show;
+      }
+
+      function syncGenerationUnitUi() {
+        const unit = generationUnitValue();
+        setGenerationUnit(unit);
+        $("scaleControl").hidden = unit !== "pack";
+        $("countControls").hidden = unit === "pack";
+        showLine("docCountLine", unit === "document");
+        showLine("sectionCountLine", unit === "document");
+        showLine("quizCountLine", unit === "quiz");
+        showLine("questionCountLine", unit === "quiz");
+        syncMaterialModeUi();
+      }
+
+      function syncMaterialModeUi() {
+        const hasSource = Boolean($("sourceText").value.trim());
+        const unit = generationUnitValue();
+        const materialMode = $("materialMode");
+        const strictOption = Array.from(materialMode.options).find((option) => option.value === "strict");
+        materialMode.disabled = !hasSource;
+        if (strictOption) strictOption.hidden = unit !== "document";
+        if (!hasSource) {
+          materialMode.value = "reference";
+        } else if (unit !== "document" && materialMode.value === "strict") {
+          materialMode.value = "source_only";
+        }
+        $("sourceMode").value = materialMode.value === "reference" ? "document_reference" : "document_only";
+      }
+
       function isTtsEnabled() {
         return ttsModeValue() !== "none";
       }
@@ -1331,7 +1494,9 @@
 
       function sourcePayload() {
         const sourceText = $("sourceText").value.trim();
-        return sourceText ? { sourceText, sourceMode: $("sourceMode").value } : {};
+        if (!sourceText) return {};
+        syncMaterialModeUi();
+        return { sourceText };
       }
 
       function recordingTarget(pack = selectedPack) {
@@ -2413,18 +2578,23 @@
         setBusy(true, "Planning...");
         setProgress("プレビュー作成", "Planning", "構成案を作成しています。");
         try {
+          const customInstructions = $("customInstructions").value.trim();
           const plan = await requestJson("/plan-pack", {
             theme: $("theme").value,
             targetUser: $("targetUser").value,
             difficulty: $("difficulty").value,
             scale: scaleValue(),
             language: languageValue(),
+            customInstructions,
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
             ...generationControlsPayload(),
             ...ttsPayload(),
             ...sourcePayload()
           });
+          if (customInstructions && !String(plan.customInstructions || "").trim()) {
+            plan.customInstructions = customInstructions;
+          }
           applyGenerationControlsToPlan(plan);
           initializeReadingPatternSelection(plan);
           setPlanJson(plan);
@@ -2433,6 +2603,7 @@
         } catch (error) {
           $("status").textContent = error.message;
           $("status").classList.add("error");
+          setProgress("プレビュー作成", "失敗", error.message, 1);
         } finally {
           setBusy(false);
         }
@@ -2448,6 +2619,7 @@
             plan,
             outputMode: "manifest",
             persist: true,
+            customInstructions: $("customInstructions").value.trim(),
             ...generationControlsPayload(),
             ...ttsPayload(),
             ...sourcePayload()
@@ -2463,6 +2635,13 @@
         } catch (error) {
           $("status").textContent = error.message;
           $("status").classList.add("error");
+          $("result").innerHTML = `
+            <div class="issue error">
+              <div class="issue-top"><span class="issue-title">生成を完了できませんでした</span><span class="badge danger">停止</span></div>
+              <p>${escapeHtml(error.message).replace(/\n/g, "<br>")}</p>
+            </div>
+          `;
+          setProgress("生成", "失敗", error.message, 1);
         } finally {
           setBusy(false);
         }
@@ -2563,10 +2742,17 @@
       $$("#scaleSegment button").forEach((button) => button.addEventListener("click", () => {
         $$("#scaleSegment button").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
+        handleGenerationControlChange();
+      }));
+      $$("#generationUnitSegment button").forEach((button) => button.addEventListener("click", () => {
+        setGenerationUnit(button.dataset.generationUnit || "pack");
+        syncGenerationUnitUi();
+        handleGenerationControlChange();
       }));
       $("language").addEventListener("change", syncPackLanguageUi);
       $("ttsReadingMode").addEventListener("change", syncTtsModeUi);
-      ["structurePolicy", "generationUnit", "materialMode", "docCount", "quizCount"].forEach((id) => $(id).addEventListener("change", () => {
+      function handleGenerationControlChange() {
+        syncGenerationUnitUi();
         let plan;
         try { plan = readPlanJson(); } catch (_error) { plan = null; }
         if (plan) {
@@ -2574,6 +2760,10 @@
           setPlanJson(plan);
           renderPlanPreview(plan);
         }
+      }
+      ["structurePolicy", "materialMode", "customInstructions", "docCount", "quizCount", "sectionCount", "questionCount", "globalTagsMode", "manualGlobalTags", "descriptionMode", "manualDescription", "descriptionIncludeDate", "descriptionIncludeAiDisclaimer"].forEach((id) => $(id).addEventListener("change", () => {
+        syncMetadataModeUi();
+        handleGenerationControlChange();
       }));
       $$("[data-tts-language-mode], [data-tts-language-select]").forEach((input) => input.addEventListener("change", () => {
         let plan;
@@ -2589,7 +2779,11 @@
         updateActionAvailability();
         renderPlanPreviewFromJson();
       });
-      $("sourceText").addEventListener("input", syncInputState);
+      $("sourceText").addEventListener("input", () => {
+        syncInputState();
+        syncMaterialModeUi();
+        handleGenerationControlChange();
+      });
       $("reviseBtn").addEventListener("click", reviseTts);
       $("exportJsonZipBtn").addEventListener("click", exportJsonZip);
       $("openDictionaryRulesBtn").addEventListener("click", openDictionaryRulesModal);
@@ -2706,6 +2900,9 @@
       $("resetCreditsBtn").addEventListener("click", () => saveCredits(INITIAL_CREDITS));
 
       syncInputState();
+      syncGenerationUnitUi();
+      syncMaterialModeUi();
+      syncMetadataModeUi();
       syncPackLanguageUi();
       populateTtsLanguageSelects();
       syncTtsModeUi();

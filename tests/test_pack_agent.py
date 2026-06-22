@@ -19,19 +19,23 @@ def _kind_count(items: list[dict], kind: str) -> int:
 def _assert_partitioned_quiz_packs(plan: dict, expected_count: int, expected_questions: int) -> None:
     document_ids = [document["id"] for document in plan["documents"]]
     quiz_packs = plan["quizPacks"]
-    range_packs = quiz_packs[:-1]
-    integrated_pack = quiz_packs[-1]
 
     assert len(quiz_packs) == expected_count
     assert [pack["questionCount"] for pack in quiz_packs] == [expected_questions] * expected_count
-    assert "総合確認" in integrated_pack["title"]
-    assert integrated_pack["purpose"] == "integrated_review"
-    assert integrated_pack["sourceDocumentIds"] == document_ids
+    if expected_count >= 3:
+        range_packs = quiz_packs[:-1]
+        integrated_pack = quiz_packs[-1]
+        assert "総合確認" in integrated_pack["title"]
+        assert integrated_pack["purpose"] == "integrated_review"
+        assert integrated_pack["sourceDocumentIds"] == document_ids
+    else:
+        range_packs = quiz_packs
 
     range_ids = []
     for pack in range_packs:
         assert pack["sourceDocumentIds"]
-        assert pack["sourceDocumentIds"] != document_ids
+        if expected_count >= 3:
+            assert pack["sourceDocumentIds"] != document_ids
         range_ids.extend(pack["sourceDocumentIds"])
     assert range_ids == document_ids
     assert len(range_ids) == len(set(range_ids))
@@ -56,11 +60,12 @@ def test_quick_plan_and_generate() -> None:
     plan = plan_response.json()
     document_count = len(plan["documents"])
     quiz_count = len(plan["quizPacks"])
-    assert 3 <= document_count <= 5
-    assert all(30 <= document["targetSectionCount"] <= 50 for document in plan["documents"])
+    assert document_count == 3
+    assert all(35 <= document["targetSectionCount"] <= 50 for document in plan["documents"])
     assert plan["scale"] == "quick"
     assert "quality" not in plan
-    _assert_partitioned_quiz_packs(plan, expected_count=3, expected_questions=20)
+    assert len(plan["quizPacks"]) == 1
+    assert plan["quizPacks"][0]["questionCount"] == 30
 
     generate_response = client.post(
         "/generate-pack",
@@ -137,7 +142,59 @@ def test_quiz_only_generation_uses_source_text_as_mock_context() -> None:
 
     assert "二要素認証と長いパスワード" in first_explanation
     assert generated.plan.sourceMode == "document_only"
+    assert generated.plan.materialMode == "source_only"
+
+
+def test_strict_document_generation_copies_source_without_document_llm(monkeypatch) -> None:
+    source_text = "\n\n".join([f"原文段落{i}" for i in range(1, 43)])
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="資料準拠",
+            targetUser="読者",
+            generationUnit="document",
+            docCount=1,
+            sectionsPerDocument=42,
+            sourceText=source_text,
+            materialMode="strict",
+            ttsReadingMode="none",
+        )
+    )
+
+    def fail_document_generation(*_args, **_kwargs):
+        raise AssertionError("strict source copy must not call document LLM generation")
+
+    monkeypatch.setattr("app.services.pack_agent.generate_document_pack", fail_document_generation)
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    document_file = next(file for file in generated.files if file.kind == "document")
+    texts = [item["text"] for item in document_file.content["documents"]]
+
     assert generated.plan.materialMode == "strict"
+    assert generated.plan.sourceMode == "document_only"
+    assert texts == [f"原文段落{i}" for i in range(1, 43)]
+
+
+def test_strict_document_generation_accepts_short_source_and_preserves_paragraph_text() -> None:
+    source_text = "  第一段落の本文です。\n改行は本文内に残します。  \n\n第二段落の本文です。"
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="短い資料",
+            targetUser="読者",
+            generationUnit="document",
+            docCount=1,
+            sectionsPerDocument=42,
+            sourceText=source_text,
+            materialMode="strict",
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    document_file = next(file for file in generated.files if file.kind == "document")
+    texts = [item["text"] for item in document_file.content["documents"]]
+
+    assert generated.validation.valid is True
+    assert len(texts) == 2
+    assert texts == ["第一段落の本文です。\n改行は本文内に残します。", "第二段落の本文です。"]
 
 
 def test_generate_request_can_override_generation_counts() -> None:
@@ -327,11 +384,11 @@ def test_standard_plan_shape() -> None:
     )
     assert response.status_code == 200
     plan = response.json()
-    assert 6 <= len(plan["documents"]) <= 10
-    assert all(30 <= document["targetSectionCount"] <= 50 for document in plan["documents"])
+    assert len(plan["documents"]) == 6
+    assert all(35 <= document["targetSectionCount"] <= 50 for document in plan["documents"])
     assert plan["scale"] == "standard"
     assert "quality" not in plan
-    _assert_partitioned_quiz_packs(plan, expected_count=3, expected_questions=30)
+    _assert_partitioned_quiz_packs(plan, expected_count=2, expected_questions=30)
 
 
 def test_plan_and_v2_manifest_ignore_removed_quality_field() -> None:
@@ -436,12 +493,11 @@ def test_auto_quiz_pack_count_for_seven_to_ten_documents() -> None:
     )
     assert response.status_code == 200
     plan = response.json()
-    _assert_partitioned_quiz_packs(plan, expected_count=4, expected_questions=30)
+    _assert_partitioned_quiz_packs(plan, expected_count=3, expected_questions=30)
     titles = [pack["title"] for pack in plan["quizPacks"]]
-    assert titles[0].startswith("ITパスポート試験対策 理解チェック1（1〜3章")
-    assert titles[1].startswith("ITパスポート試験対策 理解チェック2（4〜5章")
-    assert titles[2].startswith("ITパスポート試験対策 理解チェック3（6〜7章")
-    assert titles[3] == "ITパスポート試験対策 総合確認（1〜7章: 全範囲）"
+    assert titles[0].startswith("ITパスポート試験対策 理解チェック1（1〜4章")
+    assert titles[1].startswith("ITパスポート試験対策 理解チェック2（5〜7章")
+    assert titles[2] == "ITパスポート試験対策 総合確認（1〜7章: 全範囲）"
 
 
 def test_auto_quiz_pack_count_for_eleven_or_more_documents() -> None:

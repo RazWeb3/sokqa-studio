@@ -4,15 +4,15 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
-Scale = Literal["quick", "standard", "auto"]
+Scale = Literal["quick", "standard", "auto", "large"]
 Difficulty = Literal["beginner", "standard", "advanced"]
 QuizPurpose = Literal["key_concepts", "application", "integrated_review", "custom"]
 TtsReadingMode = Literal["none", "rule", "llm", "multilingual"]
 TtsLanguageMode = Literal["auto", "mixed", "select"]
 SourceMode = Literal["document_only", "document_reference"]
-StructurePolicy = Literal["standard", "listening", "sequential"]
+StructurePolicy = Literal["standard", "listening"]
 GenerationUnit = Literal["document", "quiz", "pack"]
-MaterialMode = Literal["reference", "strict"]
+MaterialMode = Literal["reference", "source_only", "strict"]
 
 SUPPORTED_PACK_LANGUAGES = {
     "ja": "ja-JP",
@@ -55,6 +55,32 @@ def normalize_tts_reading_mode(value):
     return value
 
 
+def normalize_material_mode(value):
+    if value in (None, ""):
+        return None
+    if value == "document_reference":
+        return "reference"
+    if value == "document_only":
+        return "source_only"
+    return value
+
+
+def normalize_structure_policy(value):
+    if value in (None, ""):
+        return "standard"
+    if value == "sequential":
+        return "standard"
+    return value
+
+
+def source_mode_for_material_mode(material_mode: str | None, source_mode: SourceMode | None = None) -> SourceMode | None:
+    if material_mode == "reference":
+        return "document_reference"
+    if material_mode in {"source_only", "strict"}:
+        return "document_only"
+    return source_mode
+
+
 class TtsRule(BaseModel):
     source: str = Field(..., min_length=1, max_length=80)
     reading: str = Field(..., min_length=1, max_length=120)
@@ -62,13 +88,13 @@ class TtsRule(BaseModel):
 
 
 class TtsLanguageSettings(BaseModel):
-    documentTextLanguageMode: TtsLanguageMode = "auto"
+    documentTextLanguageMode: TtsLanguageMode = "mixed"
     documentTextLanguage: str | None = None
-    questionLanguageMode: TtsLanguageMode = "auto"
+    questionLanguageMode: TtsLanguageMode = "mixed"
     questionLanguage: str | None = None
     choicesLanguageMode: TtsLanguageMode = "auto"
     choicesLanguage: str | None = None
-    explanationLanguageMode: TtsLanguageMode = "auto"
+    explanationLanguageMode: TtsLanguageMode = "mixed"
     explanationLanguage: str | None = None
 
     @field_validator(

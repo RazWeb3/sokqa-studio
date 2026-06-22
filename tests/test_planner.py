@@ -114,18 +114,43 @@ def test_structure_policy_and_material_mode_are_recorded_and_prompted(monkeypatc
     plan = planner.create_course_plan(request)
 
     assert plan.structurePolicy == "listening"
-    assert plan.materialMode == "strict"
+    assert plan.materialMode == "source_only"
     assert plan.sourceMode == "document_only"
 
     prompt = planner._planner_prompt(request)
     assert "structurePolicy listening" in prompt
+    assert "materialMode source_only" in planner._planner_prompt(request.model_copy(update={"materialMode": "source_only"}))
     assert "materialMode strict" in prompt
     assert "Do not add facts, terms, examples, claims, or inferred details" in prompt
     assert "connected narrative beats" in prompt
     assert "not isolated term labels" in prompt
 
 
-def test_listening_planner_uses_smaller_narrative_section_counts(monkeypatch) -> None:
+def test_custom_instructions_are_recorded_and_prompted(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    request = PlanPackRequest(
+        theme="接客英語",
+        targetUser="初学者",
+        scale="quick",
+        customInstructions="会話例を多めにし、ホテル受付の場面を中心にする。",
+    )
+    plan = planner.create_course_plan(request)
+    prompt = planner._planner_prompt(request)
+
+    assert plan.customInstructions == "会話例を多めにし、ホテル受付の場面を中心にする。"
+    assert "additional conditions: 会話例を多めにし、ホテル受付の場面を中心にする。" in prompt
+    assert "Respect the user's additional conditions" in prompt
+
+
+def test_legacy_sequential_structure_policy_falls_back_to_standard() -> None:
+    request = PlanPackRequest(theme="Git", targetUser="初学者", structurePolicy="sequential")
+
+    assert request.structurePolicy == "standard"
+
+
+def test_listening_planner_uses_default_section_count_range(monkeypatch) -> None:
     settings = planner.get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
@@ -139,7 +164,7 @@ def test_listening_planner_uses_smaller_narrative_section_counts(monkeypatch) ->
     )
 
     assert plan.structurePolicy == "listening"
-    assert all(12 <= document.targetSectionCount <= 24 for document in plan.documents)
+    assert all(35 <= document.targetSectionCount <= 50 for document in plan.documents)
 
 
 def test_generation_unit_and_counts_shape_plan(monkeypatch) -> None:
@@ -166,6 +191,50 @@ def test_generation_unit_and_counts_shape_plan(monkeypatch) -> None:
     assert len(mixed.quizPacks) == 1
 
 
+def test_large_scale_and_manual_metadata_controls(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="簿記",
+            targetUser="資格学習者",
+            scale="large",
+            globalTagsMode="manual",
+            manualGlobalTags=["簿記", "仕訳", "試験対策", "余分"],
+            descriptionMode="manual",
+            manualDescription="手動の説明です。",
+            descriptionIncludeDate=True,
+            descriptionIncludeAiDisclaimer=True,
+        )
+    )
+
+    assert len(plan.documents) == 9
+    assert len(plan.quizPacks) == 3
+    assert plan.globalTags == ["簿記", "仕訳", "試験対策"]
+    assert "手動の説明です。" in plan.description
+    assert "生成日:" in plan.description
+    assert "この内容はAIが生成したものです" in plan.description
+
+
+def test_auto_description_options_are_appended(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="情報倫理",
+            targetUser="社会人",
+            scale="quick",
+            descriptionIncludeDate=True,
+            descriptionIncludeAiDisclaimer=True,
+        )
+    )
+
+    assert "生成日:" in plan.description
+    assert "この内容はAIが生成したものです" in plan.description
+
+
 def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
     plan = planner.create_course_plan(
         PlanPackRequest(
@@ -183,9 +252,8 @@ def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
         "Git入門 3. Git入門の重要領域 3",
         "Git入門 4. Git入門の重要領域 4",
     ]
-    assert plan.quizPacks[0].title.startswith("Git入門 理解チェック1（1〜2章:")
-    assert plan.quizPacks[1].title.startswith("Git入門 理解チェック2（3〜4章:")
-    assert plan.quizPacks[-1].title == "Git入門 総合確認（1〜4章: 全範囲）"
+    assert len(plan.quizPacks) == 1
+    assert plan.quizPacks[0].title == "Git入門 総合確認（1〜4章: 全範囲）"
 
 
 def test_planner_sets_language_appropriate_course_global_tags() -> None:

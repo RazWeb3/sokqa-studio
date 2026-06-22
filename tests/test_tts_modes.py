@@ -129,6 +129,34 @@ def _plain_quiz_file() -> GeneratedFile:
     )
 
 
+def _indonesian_quiz_file() -> GeneratedFile:
+    return GeneratedFile(
+        name="quiz_id.json",
+        kind="quiz",
+        content={
+            "id": "pack_quiz_id",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "Salam Quiz",
+            "language": "id",
+            "questions": [
+                {
+                    "id": "q-id",
+                    "question": "Salam pagi yang tepat adalah apa?",
+                    "choices": [
+                        "おはよう",
+                        "おはようございます",
+                        "おじゃまします",
+                        "はじめまして",
+                    ],
+                    "answerIndex": 1,
+                    "explanation": "おはようございます は salam pagi yang sopan.",
+                }
+            ],
+        },
+    )
+
+
 def _plain_doc_file() -> GeneratedFile:
     return GeneratedFile(
         name="doc_plain.json",
@@ -828,6 +856,122 @@ def test_multilingual_prompt_includes_field_language_policy(monkeypatch) -> None
     assert "explanationText: read this field in ko (ko-KR)" in prompt
 
 
+def test_multilingual_select_non_default_choice_language_prefixes_each_choice_without_closing_default(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert 'scenario default language is "id"' in prompt
+        assert "choiceTexts: read this field in ja (ja-JP)" in prompt
+        return {
+            "items": [
+                {
+                    "id": "q-id",
+                    "questionText": "Salam pagi yang tepat adalah apa?",
+                    "choices": [
+                        {"index": 0, "text": "おはよう[id-ID]"},
+                        {"index": 1, "text": "[ja-JP]おはようございます[id-ID]"},
+                        {"index": 2, "text": "おじゃまします"},
+                        {"index": 3, "text": "はじめまして"},
+                    ],
+                    "explanationText": "おはようございます は salam pagi yang sopan.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    language_settings = TtsLanguageSettings(choicesLanguageMode="select", choicesLanguage="ja")
+
+    files, _ = optimize_generated_files_with_report([_indonesian_quiz_file()], [], mode="multilingual", language_settings=language_settings)
+    question = files[0].content["questions"][0]
+    choice_texts = question["tts"]["choiceTexts"]
+
+    assert choice_texts == ["[ja-JP]おはよう", "[ja-JP]おはようございます", "[ja-JP]おじゃまします", "[ja-JP]はじめまして"]
+    assert all(not value.endswith("[id-ID]") for value in choice_texts)
+    assert len(choice_texts) == len(question["choices"])
+    assert all(choice_texts)
+    assert question["answerIndex"] == 1
+    assert question["choices"] == ["おはよう", "おはようございます", "おじゃまします", "はじめまして"]
+
+
+def test_multilingual_select_default_choice_language_omits_tags(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    file = _indonesian_quiz_file()
+    file.content["questions"][0]["choices"] = [
+        "Teman akrab atau keluarga",
+        "Guru di sekolah",
+        "Atasan di kantor",
+        "Orang yang baru pertama kali ditemui",
+    ]
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-id",
+                    "questionText": "Salam pagi yang tepat adalah apa?",
+                    "choices": [
+                        {"index": 0, "text": "[id-ID]Teman akrab atau keluarga"},
+                        {"index": 1, "text": "[id-ID]Guru di sekolah"},
+                        {"index": 2, "text": "[id-ID]Atasan di kantor"},
+                        {"index": 3, "text": "[id-ID]Orang yang baru pertama kali ditemui"},
+                    ],
+                    "explanationText": "Penjelasan.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    language_settings = TtsLanguageSettings(choicesLanguageMode="select", choicesLanguage="id")
+
+    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual", language_settings=language_settings)
+
+    assert "choiceTexts" not in files[0].content["questions"][0].get("tts", {})
+
+
+def test_multilingual_mixed_choices_keep_only_needed_default_return_tags(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    file = _indonesian_quiz_file()
+    file.content["questions"][0]["choices"] = [
+        "Sedikit membungkukkan badan atau おじぎ sebagai tanda hormat",
+        "Guru di sekolah",
+        "Atasan di kantor",
+        "Orang yang baru pertama kali ditemui",
+    ]
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert "choiceTexts: mixed-language field" in prompt
+        return {
+            "items": [
+                {
+                    "id": "q-id",
+                    "questionText": "Salam pagi yang tepat adalah apa?",
+                    "choices": [
+                        {"index": 0, "text": "[id-ID]Sedikit membungkukkan badan atau [ja-JP]おじぎ[id-ID] sebagai tanda hormat[id-ID]"},
+                        {"index": 1, "text": ""},
+                        {"index": 2, "text": "Atasan di kantor"},
+                        {"index": 3, "text": "Orang yang baru pertama kali ditemui"},
+                    ],
+                    "explanationText": "Penjelasan.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    language_settings = TtsLanguageSettings(choicesLanguageMode="mixed", choicesLanguage="ja")
+
+    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual", language_settings=language_settings)
+    choice_texts = files[0].content["questions"][0]["tts"]["choiceTexts"]
+
+    assert choice_texts[0] == "Sedikit membungkukkan badan atau [ja-JP]おじぎ[id-ID] sebagai tanda hormat"
+    assert len(choice_texts) == 4
+    assert all(choice_texts)
+
+
 def test_multilingual_document_allows_selected_korean_script(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
@@ -855,6 +999,47 @@ def test_multilingual_document_allows_selected_korean_script(monkeypatch) -> Non
     tts = files[0].content["documents"][0]["tts"]
 
     assert tts["text"] == "[ko-KR]안녕하세요를 확인합니다."
+    assert not any(issue.issueType == "unexpected_script" for issue in report.issues)
+
+
+def test_multilingual_document_mixed_normalizes_language_tags(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_multilingual_id_ja.json",
+        kind="document",
+        content={
+            "id": "pack_doc_multilingual_id_ja",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "Salam Jepang",
+            "language": "id",
+            "documents": [{"id": "doc-1", "text": "Bahasa Jepang memiliki salam おはよう pada pagi hari."}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        assert 'scenario default language is "id"' in prompt
+        assert "document text: mixed-language field" in prompt
+        assert "Do not output XML tags" in prompt
+        return {
+            "items": [
+                {
+                    "id": "doc-1",
+                    "text": '<lang xml:lang="id-ID">Bahasa Jepang memiliki salam <lang xml:lang="ja-JP">おはよう</lang><lang xml:lang="id-ID"> pada pagi hari.</lang>',
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    language_settings = TtsLanguageSettings(documentTextLanguageMode="mixed", documentTextLanguage="ja")
+
+    files, report = optimize_generated_files_with_report([file], [], mode="multilingual", language_settings=language_settings)
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "Bahasa Jepang memiliki salam [ja-JP]おはよう[id-ID] pada pagi hari."
+    assert "<lang" not in tts["text"]
+    assert "</lang>" not in tts["text"]
     assert not any(issue.issueType == "unexpected_script" for issue in report.issues)
 
 

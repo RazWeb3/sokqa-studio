@@ -14,7 +14,10 @@ from app.schemas.common import (
     TtsLanguageSettings,
     TtsReadingMode,
     TtsRule,
+    normalize_material_mode,
+    normalize_structure_policy,
     normalize_tts_reading_mode,
+    source_mode_for_material_mode,
     validate_language_code,
 )
 from app.schemas.pack_v2 import PackManifestV2
@@ -37,14 +40,14 @@ class PlanDocument(BaseModel):
     title: str
     goal: str
     keyPoints: list[str] = Field(default_factory=list)
-    targetSectionCount: int = Field(default=8, ge=1, le=120)
+    targetSectionCount: int = Field(default=42, ge=1, le=50)
 
 
 class PlanQuizPack(BaseModel):
     id: str
     title: str
     purpose: QuizPurpose
-    questionCount: int = Field(..., ge=1, le=100)
+    questionCount: int = Field(..., ge=1, le=30)
     difficulty: Difficulty = "standard"
     sourceDocumentIds: list[str] = Field(default_factory=list)
 
@@ -59,6 +62,7 @@ class CoursePlan(BaseModel):
     title: str
     description: str
     language: str = "ja"
+    customInstructions: str | None = Field(default=None, max_length=2000)
     targetUser: str
     difficulty: Difficulty
     scale: Scale | None = None
@@ -67,10 +71,12 @@ class CoursePlan(BaseModel):
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
     ttsLanguageSettings: TtsLanguageSettings | None = None
-    structurePolicy: StructurePolicy = "standard"
+    structurePolicy: StructurePolicy = "listening"
     generationUnit: GenerationUnit = "pack"
-    docCount: int | None = Field(default=None, ge=0, le=20)
-    quizCount: int | None = Field(default=None, ge=0, le=20)
+    docCount: int | None = Field(default=None, ge=0, le=15)
+    quizCount: int | None = Field(default=None, ge=0, le=10)
+    questionCount: int | None = Field(default=None, ge=1, le=30)
+    sectionsPerDocument: int | None = Field(default=None, ge=1, le=50)
     materialMode: MaterialMode = "reference"
     model: str | None = None
     docModel: str | None = None
@@ -84,11 +90,28 @@ class CoursePlan(BaseModel):
     ttsRules: list[TtsRule] = Field(default_factory=list)
     proposedReadingPatterns: list[ReadingPattern] = Field(default_factory=list)
     selectedReadingPatternIds: list[str] = Field(default_factory=list)
+    globalTagsMode: Literal["auto", "manual"] = "auto"
+    manualGlobalTags: list[str] = Field(default_factory=list)
+    descriptionMode: Literal["auto", "manual"] = "auto"
+    manualDescription: str | None = None
+    descriptionIncludeDate: bool = False
+    descriptionIncludeAiDisclaimer: bool = False
+    answerPositionMode: Literal["auto", "balanced"] = "balanced"
 
     @field_validator("ttsReadingMode", mode="before")
     @classmethod
     def normalize_legacy_tts_reading_mode(cls, value):
         return normalize_tts_reading_mode(value)
+
+    @field_validator("materialMode", mode="before")
+    @classmethod
+    def normalize_legacy_material_mode(cls, value):
+        return normalize_material_mode(value) or "reference"
+
+    @field_validator("structurePolicy", mode="before")
+    @classmethod
+    def normalize_legacy_structure_policy(cls, value):
+        return normalize_structure_policy(value)
 
     @field_validator("language", mode="before")
     @classmethod
@@ -99,6 +122,11 @@ class CoursePlan(BaseModel):
     def normalize_tts_disabled_mode(self):
         if not self.enableTtsOptimize:
             self.ttsReadingMode = "none"
+        if self.sourceText and self.sourceMode and self.materialMode == "reference":
+            mapped = normalize_material_mode(self.sourceMode)
+            if mapped:
+                self.materialMode = mapped
+        self.sourceMode = source_mode_for_material_mode(self.materialMode, self.sourceMode) if self.sourceText else None
         return self
 
 

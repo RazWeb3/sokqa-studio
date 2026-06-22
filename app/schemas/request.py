@@ -1,6 +1,7 @@
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import (
     Difficulty,
@@ -12,7 +13,10 @@ from app.schemas.common import (
     TtsLanguageSettings,
     TtsReadingMode,
     TtsRule,
+    normalize_material_mode,
+    normalize_structure_policy,
     normalize_tts_reading_mode,
+    source_mode_for_material_mode,
     validate_language_code,
 )
 from app.schemas.pack_v2 import PackManifestV2
@@ -23,7 +27,7 @@ class QuizPackSpec(BaseModel):
     id: str = Field(..., min_length=1, max_length=80)
     title: str = Field(..., min_length=1, max_length=120)
     purpose: str
-    questionCount: int = Field(..., ge=1, le=100)
+    questionCount: int = Field(..., ge=1, le=30)
     difficulty: Difficulty = "standard"
 
 
@@ -136,6 +140,7 @@ class PlanPackRequest(BaseModel):
     difficulty: Difficulty = "beginner"
     scale: Scale = "quick"
     language: str = Field(default="ja", min_length=2, max_length=20)
+    customInstructions: str | None = Field(default=None, max_length=2000)
     creatorId: str | None = Field(default=None, min_length=1, max_length=120)
     creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
     contentId: str | None = Field(default=None, min_length=1, max_length=160)
@@ -144,21 +149,37 @@ class PlanPackRequest(BaseModel):
     enableTtsOptimize: bool = True
     ttsReadingMode: TtsReadingMode | None = None
     ttsLanguageSettings: TtsLanguageSettings | None = None
-    structurePolicy: StructurePolicy = "standard"
+    structurePolicy: StructurePolicy = "listening"
     generationUnit: GenerationUnit = "pack"
-    docCount: int | None = Field(default=None, ge=0, le=20)
-    quizCount: int | None = Field(default=None, ge=0, le=20)
+    docCount: int | None = Field(default=None, ge=0, le=15)
+    quizCount: int | None = Field(default=None, ge=0, le=10)
+    questionCount: int | None = Field(default=None, ge=1, le=30)
     materialMode: MaterialMode = "reference"
     model: str | None = Field(default=None, min_length=1, max_length=120)
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)
     plannerModel: str | None = Field(default=None, min_length=1, max_length=120)
-    documentCount: int | None = Field(default=None, ge=1, le=20)
-    sectionsPerDocument: int | None = Field(default=None, ge=1, le=100)
+    documentCount: int | None = Field(default=None, ge=1, le=15)
+    sectionsPerDocument: int | None = Field(default=None, ge=1, le=50)
     quizPacks: list[QuizPackSpec] | None = None
     userTtsRules: list[TtsRule] = Field(default_factory=list)
     sourceText: str | None = Field(default=None, max_length=50000)
     sourceMode: SourceMode | None = None
+    globalTagsMode: Literal["auto", "manual"] = "auto"
+    manualGlobalTags: list[str] = Field(default_factory=list)
+    descriptionMode: Literal["auto", "manual"] = "auto"
+    manualDescription: str | None = Field(default=None, max_length=500)
+    descriptionIncludeDate: bool = False
+    descriptionIncludeAiDisclaimer: bool = False
+    answerPositionMode: Literal["auto", "balanced"] = "balanced"
+
+    @field_validator("customInstructions")
+    @classmethod
+    def blank_custom_instructions_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
     @field_validator("sourceText")
     @classmethod
@@ -173,10 +194,53 @@ class PlanPackRequest(BaseModel):
     def normalize_legacy_tts_reading_mode(cls, value):
         return normalize_tts_reading_mode(value)
 
+    @field_validator("materialMode", mode="before")
+    @classmethod
+    def normalize_legacy_material_mode(cls, value):
+        return normalize_material_mode(value) or "reference"
+
+    @field_validator("structurePolicy", mode="before")
+    @classmethod
+    def normalize_legacy_structure_policy(cls, value):
+        return normalize_structure_policy(value)
+
     @field_validator("language", mode="before")
     @classmethod
     def normalize_language_code(cls, value):
         return validate_language_code(value)
+
+    @field_validator("manualGlobalTags", mode="before")
+    @classmethod
+    def normalize_manual_global_tags(cls, value):
+        if value in (None, ""):
+            return []
+        if isinstance(value, str):
+            value = re.split(r"[,、\n]", value)
+        if not isinstance(value, list):
+            return []
+        tags = []
+        seen = set()
+        for item in value:
+            tag = str(item).strip()
+            if not tag:
+                continue
+            key = tag.casefold()
+            if key in seen:
+                continue
+            tags.append(tag[:40])
+            seen.add(key)
+            if len(tags) >= 3:
+                break
+        return tags
+
+    @model_validator(mode="after")
+    def map_legacy_source_mode(self):
+        if self.sourceText and self.sourceMode and self.materialMode == "reference":
+            mapped = normalize_material_mode(self.sourceMode)
+            if mapped:
+                self.materialMode = mapped
+        self.sourceMode = source_mode_for_material_mode(self.materialMode, self.sourceMode) if self.sourceText else None
+        return self
 
 
 class GeneratePackRequest(BaseModel):
@@ -239,12 +303,15 @@ class GeneratePackRequest(BaseModel):
     creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
     contentId: str | None = Field(default=None, min_length=1, max_length=160)
     slug: str | None = Field(default=None, min_length=1, max_length=160)
+    customInstructions: str | None = Field(default=None, max_length=2000)
     ttsReadingMode: TtsReadingMode | None = None
     ttsLanguageSettings: TtsLanguageSettings | None = None
     structurePolicy: StructurePolicy | None = None
     generationUnit: GenerationUnit | None = None
-    docCount: int | None = Field(default=None, ge=0, le=20)
-    quizCount: int | None = Field(default=None, ge=0, le=20)
+    docCount: int | None = Field(default=None, ge=0, le=15)
+    quizCount: int | None = Field(default=None, ge=0, le=10)
+    questionCount: int | None = Field(default=None, ge=1, le=30)
+    sectionsPerDocument: int | None = Field(default=None, ge=1, le=50)
     materialMode: MaterialMode | None = None
     sourceText: str | None = Field(default=None, max_length=50000)
     sourceMode: SourceMode | None = None
@@ -252,6 +319,14 @@ class GeneratePackRequest(BaseModel):
     docModel: str | None = Field(default=None, min_length=1, max_length=120)
     quizModel: str | None = Field(default=None, min_length=1, max_length=120)
     plannerModel: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("customInstructions")
+    @classmethod
+    def blank_generate_custom_instructions_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
     @field_validator("sourceText")
     @classmethod
@@ -265,6 +340,21 @@ class GeneratePackRequest(BaseModel):
     @classmethod
     def normalize_legacy_tts_reading_mode(cls, value):
         return normalize_tts_reading_mode(value)
+
+    @field_validator("materialMode", mode="before")
+    @classmethod
+    def normalize_legacy_material_mode(cls, value):
+        return normalize_material_mode(value)
+
+    @model_validator(mode="after")
+    def map_legacy_source_mode(self):
+        if self.sourceText and self.sourceMode and self.materialMode is None:
+            self.materialMode = normalize_material_mode(self.sourceMode)
+        if self.sourceText and self.materialMode is not None:
+            self.sourceMode = source_mode_for_material_mode(self.materialMode, self.sourceMode)
+        if not self.sourceText:
+            self.sourceMode = None
+        return self
 
 
 class ValidatePackRequest(BaseModel):

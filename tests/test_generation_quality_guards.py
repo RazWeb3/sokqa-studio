@@ -57,14 +57,14 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
 
 def test_generation_prompts_include_structure_and_material_policies() -> None:
     plan = _plan()
-    plan.structurePolicy = "sequential"
+    plan.structurePolicy = "standard"
     plan.materialMode = "strict"
     document_prompt = document_generation_prompt(plan, plan.documents[0])
     quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
     for prompt in [document_prompt, quiz_prompt]:
-        assert "Structure policy: sequential" in prompt
-        assert "Introduce terms only after their prerequisites" in prompt
+        assert "Structure policy: standard" in prompt
+        assert "balanced Sokqa course style" in prompt
         assert "Material mode: strict" in prompt
         assert "Do not add outside facts, terms, examples, claims, or inferred details" in prompt
 
@@ -85,6 +85,7 @@ def test_listening_document_prompt_forbids_glossary_style_and_requires_flow() ->
 
 def test_standard_document_prompt_keeps_existing_balanced_structure() -> None:
     plan = _plan()
+    plan.structurePolicy = "standard"
 
     prompt = document_generation_prompt(plan, plan.documents[0])
 
@@ -291,6 +292,35 @@ def test_generation_prompts_preserve_canonical_body_notation() -> None:
     assert "Do not add pronunciation-only parentheticals in question, choices, or explanation" in quiz_prompt
 
 
+def test_japanese_learning_beginner_prompt_limits_target_japanese() -> None:
+    plan = _plan()
+    plan.language = "id"
+    plan.title = "日本語 N5 あいさつ入門"
+    plan.difficulty = "beginner"
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "Japanese-learning difficulty guidance" in prompt
+        assert "avoid kanji in principle" in prompt
+        assert "JLPT N5-level vocabulary" in prompt
+        assert "じこしょうかい instead of 自己紹介" in prompt
+
+
+def test_custom_instructions_are_injected_into_generation_prompts() -> None:
+    plan = _plan()
+    plan.customInstructions = "各章に短い会話例を1つ入れ、専門用語は避ける。"
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "Additional user conditions:" in prompt
+        assert "各章に短い会話例を1つ入れ、専門用語は避ける。" in prompt
+        assert "Do not let these conditions override the required JSON schema" in prompt
+
+
 def test_reading_policy_block_is_omitted_when_no_pattern_is_selected() -> None:
     plan = _plan()
     plan.proposedReadingPatterns = [
@@ -410,6 +440,7 @@ def test_generate_pack_clears_selected_reading_patterns_outside_llm_mode(monkeyp
 
 def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
     plan = _plan()
+    plan.answerPositionMode = "auto"
     plan.contentId = "cnt_unique_quiz"
     plan.shortTitle = "ITパスポート"
     plan.title = "ITパスポート 経営戦略パック"
@@ -435,6 +466,36 @@ def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
     assert normalized["id"] == "cnt_unique_quiz_quiz_01"
     assert len(normalized["globalTags"]) <= 3
     assert "it" not in normalized["globalTags"]
+
+
+def test_normalize_quiz_content_balances_answer_positions() -> None:
+    plan = _plan()
+    plan.answerPositionMode = "balanced"
+    quiz_pack = plan.quizPacks[0]
+    content = {
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "問1",
+                "choices": ["誤りA", "誤りB", "正解1", "誤りC"],
+                "answerIndex": 2,
+                "explanation": "正解1が正しいためです。",
+            },
+            {
+                "id": "q-2",
+                "question": "問2",
+                "choices": ["誤りA", "誤りB", "正解2", "誤りC"],
+                "answerIndex": 2,
+                "explanation": "正解2が正しいためです。",
+            },
+        ]
+    }
+
+    normalized = normalize_quiz_content(content, plan, quiz_pack)
+
+    assert [question["answerIndex"] for question in normalized["questions"]] == [0, 1]
+    assert normalized["questions"][0]["choices"][0] == "正解1"
+    assert normalized["questions"][1]["choices"][1] == "正解2"
 
 
 def test_quiz_validator_logs_citation_style_without_invalidating(caplog) -> None:

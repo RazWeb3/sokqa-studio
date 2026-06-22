@@ -19,9 +19,9 @@ def test_tts_mode_ui_exposes_four_modes_but_not_auto() -> None:
     assert 'value="rule"' in select_html
     assert "標準（ルールのみ）" in select_html
     assert 'value="llm"' in select_html
-    assert "高精度（AI補正）" in select_html
+    assert "高精度（読み補正）" in select_html
     assert 'value="multilingual"' in select_html
-    assert "多言語（AI補正）" in select_html
+    assert "多言語（読み分け）" in select_html
     assert 'value="auto"' not in select_html
     assert 'id="ttsSwitch"' not in html
 
@@ -56,7 +56,7 @@ def test_reading_patterns_are_sent_only_for_high_precision_llm_mode() -> None:
     assert "if (!usesReadingPatterns()) return new Set();" in html
     assert "const showReadingPatterns = usesReadingPatterns() && patterns.length;" in html
     assert 'plan.selectedReadingPatternIds = [];' in html
-    assert "多言語（AI補正）では使用しません" in html
+    assert "多言語（読み分け）では使用しません" in html
 
 
 def test_tts_payload_uses_single_mode_field() -> None:
@@ -96,25 +96,98 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
         assert f'id="{element_id}"' in html
     assert 'if (ttsModeValue() === "multilingual") plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();' in html
     assert 'else delete plan.ttsLanguageSettings;' in html
-    assert '$("multilingualTtsOptions").hidden = ttsModeValue() !== "multilingual";' in html
+    assert '$("multilingualTtsOptions").hidden = !multilingual;' in html
+    assert '$("ttsDictionaryPanel").hidden = multilingual;' in html
+    document_select = html[html.index('<select id="documentTextLanguageMode"'):html.index("</select>", html.index('<select id="documentTextLanguageMode"'))]
+    assert 'value="mixed" selected' in document_select
+    assert 'value="select"' in document_select
+    assert '※本文中に部分的に混在する学習対象言語や外国語を指定します。' in html
+    assert 'documentTextLanguageMode: "mixed"' in html
+    assert 'questionLanguageMode: "mixed"' in html
+    assert 'choicesLanguageMode: "auto"' in html
+    assert 'explanationLanguageMode: "mixed"' in html
 
 
 def test_generation_policy_unit_and_material_controls_are_available_and_sent() -> None:
     html = _html()
 
-    for element_id in ["structurePolicy", "generationUnit", "docCount", "quizCount", "materialMode"]:
+    for element_id in ["structurePolicy", "generationUnit", "docCount", "quizCount", "materialMode", "customInstructions"]:
         assert f'id="{element_id}"' in html
     assert 'value="standard"' in html
     assert 'value="listening"' in html
-    assert 'value="sequential"' in html
-    assert 'value="document"' in html
-    assert 'value="quiz"' in html
-    assert 'value="pack"' in html
+    assert 'value="sequential"' not in html
+    assert 'data-generation-unit="document"' in html
+    assert 'data-generation-unit="quiz"' in html
+    assert 'data-generation-unit="pack"' in html
+    assert "学習パック" in html
+    assert "ドキュメント</button>" in html
+    assert "クイズ</button>" in html
+    assert 'data-scale="auto"' in html
+    assert 'data-scale="quick"' in html
+    assert 'data-scale="standard"' in html
+    assert 'data-scale="large"' in html
+    assert 'class="segmented scale-cards" id="scaleSegment"' in html
+    assert html.index('data-scale="quick"') < html.index('data-scale="standard"') < html.index('data-scale="large"') < html.index('data-scale="auto"')
+    assert "おまかせ<small>内容量を自動調整</small>" in html
+    assert "小規模<small>ドキュメント3＋クイズ1（30問）</small>" in html
+    assert "中規模<small>ドキュメント6＋クイズ2</small>" in html
+    assert "大規模<small>ドキュメント9＋クイズ3（生成に時間がかかります）</small>" in html
     assert 'value="reference"' in html
+    assert 'value="source_only"' in html
     assert 'value="strict"' in html
+    assert 'id="sourceMaterialDetails"' in html
+    assert 'id="countControls" hidden' in html
+    assert '<label id="docCountLine">ドキュメント数<select id="docCount"><option selected>1</option>' in html
+    assert '<option value="">おまかせ</option></select></label>' in html
+    assert 'id="sectionCount"' in html
+    assert 'id="questionCount"' in html
+    assert '<option selected>10</option>' in html
+    assert '<option>20</option>' in html
+    assert '<label id="quizCountLine">クイズ数<select id="quizCount"><option selected>1</option>' in html
+    assert '<option selected>30</option>' not in html
+    assert 'id="answerPositionMode" type="hidden" value="balanced"' in html
+    assert '$("countControls").hidden = unit === "pack";' in html
     assert "function generationControlsPayload()" in html
     assert "...generationControlsPayload()," in html
     assert "syncGenerationControlsToPlan(plan)" in html
+    assert html.index('id="language"') < html.index('id="customInstructions"') < html.index('id="generationUnit"')
+    assert "追加条件" in html
+    assert 'customInstructions: $("customInstructions").value.trim()' in html
+    assert 'const customInstructions = $("customInstructions").value.trim();' in html
+    assert 'if (customInstructions && !String(plan.customInstructions || "").trim())' in html
+    assert "plan.customInstructions = customInstructions;" in html
+
+
+def test_language_selection_does_not_override_tts_mode() -> None:
+    html = _html()
+
+    assert "function syncPackLanguageUi()" in html
+    assert 'id="language"' in html
+    assert "$(\"ttsReadingMode\").value = defaultTtsModeForLanguage" not in html
+    assert "function defaultTtsModeForLanguage" not in html
+
+
+def test_generation_form_metadata_controls_are_available() -> None:
+    html = _html()
+
+    assert "[hidden] { display: none !important; }" in html
+    for label in ["初学者", "小学生", "中学生", "高校生", "大学生", "資格学習者", "社会人", "実務担当者", "上級者"]:
+        assert f"<option>{label}</option>" in html or f"<option selected>{label}</option>" in html
+    for element_id in [
+        "globalTagsMode",
+        "manualGlobalTags",
+        "descriptionMode",
+        "manualDescription",
+        "descriptionIncludeDate",
+        "descriptionIncludeAiDisclaimer",
+        "ttsDictionaryPanel",
+        "multilingualTtsOptions",
+    ]:
+        assert f'id="{element_id}"' in html
+    assert '$("ttsDictionaryPanel").hidden = multilingual;' in html
+    assert '$("multilingualTtsOptions").hidden = !multilingual;' in html
+    assert '$("descriptionDateLine").hidden = false;' in html
+    assert '$("descriptionAiLine").hidden = false;' in html
 
 
 def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:

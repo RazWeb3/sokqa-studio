@@ -15,6 +15,7 @@ def _generate_with_source(source_text: str | None, source_mode: str | None = Non
         "documentCount": 1,
         "sectionsPerDocument": 1,
         "includeTts": False,
+        "structurePolicy": "standard",
     }
     if source_text is not None:
         payload["sourceText"] = source_text

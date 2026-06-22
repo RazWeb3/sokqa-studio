@@ -162,6 +162,7 @@ def _guard_llm_text(
 ) -> str | None:
     if not value:
         return value
+    value = _normalize_language_tag_markup(value)
     if not allow_language_tags:
         value = re.sub(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]", "", value)
     snippet = _unexpected_script_snippet(value, allowed_scripts)
@@ -237,6 +238,8 @@ def _guard_llm_quiz_tts(
                 allow_language_tags=allow_language_tags,
                 allowed_scripts=_allowed_scripts(pack_language, language_settings, "choices", allow_language_tags),
             ) or ""
+            if allow_language_tags and not choice_texts[index]:
+                choice_texts[index] = question.choices[index] if index < len(question.choices) else ""
         if not any(choice_texts):
             choice_texts = None
     if not question_text and not explanation_text and not choice_texts:
@@ -349,11 +352,107 @@ Language tag rules:
 """.strip()
     return f"""
 Language tag rules:
+- Use Sokqa bracket tags such as [ja-JP] or [en-US]. Do not output XML tags such as <lang xml:lang="ja-JP"> and do not output closing tags such as </lang>.
 - The scenario default language is "{language}" and its speech code is "{speech_code}". Default-language text should not start with a language tag.
-- Add a tag such as [ja-JP] or [en-US] only when a span switches to a non-default language.
-- Add the default-language tag only when returning from a non-default language to the default language.
-- A text item may end while still in a non-default language; the next item starts in the default language automatically.
+- Add a tag only when a span switches to a non-default language.
+- Add the default-language tag only when returning from a non-default language to the default language within the same text item.
+- A text item may end while still in a non-default language; the next item starts in the default language automatically, so do not append a default-language tag at the end just to close the item.
 """.strip()
+
+
+LANGUAGE_TAG_RE = re.compile(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]")
+XML_LANGUAGE_TAG_RE = re.compile(r"<lang\s+xml:lang=[\"']([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)[\"']\s*>", re.IGNORECASE)
+XML_LANGUAGE_CLOSE_RE = re.compile(r"</lang\s*>|\[/lang\]", re.IGNORECASE)
+
+
+def _normalize_language_tag_markup(value: str) -> str:
+    value = XML_LANGUAGE_TAG_RE.sub(lambda match: f"[{default_speech_language_code(match.group(1))}]", value)
+    return XML_LANGUAGE_CLOSE_RE.sub("", value)
+
+
+def _language_tag(language: str | None) -> str:
+    return f"[{default_speech_language_code(language)}]"
+
+
+def _strip_language_tags(value: str) -> str:
+    value = _normalize_language_tag_markup(value)
+    return LANGUAGE_TAG_RE.sub("", value)
+
+
+def _strip_edge_default_tags(value: str, default_language: str) -> str:
+    value = _normalize_language_tag_markup(value)
+    tag = re.escape(_language_tag(default_language))
+    value = re.sub(rf"^(?:{tag})+", "", value)
+    value = re.sub(rf"(?:{tag})+$", "", value)
+    return value
+
+
+def _field_language_mode(settings: TtsLanguageSettings | None, field_key: str) -> tuple[str, str | None]:
+    if not settings:
+        return "auto", None
+    return getattr(settings, f"{field_key}LanguageMode", "auto"), getattr(settings, f"{field_key}Language", None)
+
+
+def _choice_language_mode(settings: TtsLanguageSettings | None) -> tuple[str, str | None]:
+    return _field_language_mode(settings, "choices")
+
+
+def _apply_field_language_tags(
+    source_text: str,
+    reading_text: str,
+    *,
+    field_key: str,
+    default_language: str,
+    allow_language_tags: bool,
+    language_settings: TtsLanguageSettings | None,
+) -> str:
+    text = _normalize_language_tag_markup(str(reading_text or source_text))
+    if not allow_language_tags:
+        return _strip_language_tags(text)
+    mode, selected_language = _field_language_mode(language_settings, field_key)
+    default_base = _base_language(default_language)
+    selected_base = _base_language(selected_language) if selected_language else None
+    selected_tag = _language_tag(selected_language) if selected_language else ""
+    if mode == "select" and selected_language:
+        if selected_base == default_base:
+            return _strip_language_tags(text)
+        text = _strip_edge_default_tags(text, default_language)
+        text = re.sub(rf"^(?:{re.escape(selected_tag)})+", "", text)
+        return f"{selected_tag}{text or source_text}"
+    return _strip_edge_default_tags(text, default_language) or source_text
+
+
+def _apply_choice_language_tags(
+    choices: list[str],
+    choice_readings: list[str],
+    *,
+    default_language: str,
+    allow_language_tags: bool,
+    language_settings: TtsLanguageSettings | None,
+) -> list[str]:
+    if not allow_language_tags:
+        return choice_readings
+    mode, selected_language = _choice_language_mode(language_settings)
+    default_base = _base_language(default_language)
+    selected_base = _base_language(selected_language) if selected_language else None
+    selected_tag = _language_tag(selected_language) if selected_language else ""
+    normalized: list[str] = []
+    for index, source in enumerate(choices):
+        reading = choice_readings[index] if index < len(choice_readings) else source
+        text = strip_choice_separator(_normalize_language_tag_markup(str(reading or source)))
+        if mode == "select" and selected_language:
+            if selected_base == default_base:
+                text = _strip_language_tags(text)
+            else:
+                text = _strip_edge_default_tags(text, default_language)
+                text = re.sub(rf"^(?:{re.escape(selected_tag)})+", "", text)
+                text = f"{selected_tag}{text or source}"
+        elif mode == "mixed":
+            text = _strip_edge_default_tags(text, default_language)
+            if not text:
+                text = source
+        normalized.append(text or source)
+    return normalized
 
 
 def _field_language_instruction(label: str, field_key: str, settings: TtsLanguageSettings | None) -> str:
@@ -362,11 +461,21 @@ def _field_language_instruction(label: str, field_key: str, settings: TtsLanguag
     mode = getattr(settings, f"{field_key}LanguageMode", "auto")
     selected_language = getattr(settings, f"{field_key}Language", None)
     if mode == "select" and selected_language:
-        return f"- {label}: read this field in {selected_language} ({default_speech_language_code(selected_language)}). Use an inline language tag if needed."
+        return (
+            f"- {label}: read this field in {selected_language} ({default_speech_language_code(selected_language)}). "
+            "If this differs from the default language, put that language tag at the start of the field only; do not append a default-language tag at the end."
+        )
     if mode == "mixed":
         if selected_language:
-            return f"- {label}: mixed-language field. Use inline tags for non-default spans, especially {selected_language} ({default_speech_language_code(selected_language)})."
-        return f"- {label}: mixed-language field. Use inline tags for clear non-default spans."
+            return (
+                f"- {label}: mixed-language field. Write explanatory text in the default pack language. "
+                f"When the learning target language or another non-default span appears, output that span in {selected_language} ({default_speech_language_code(selected_language)}) "
+                f"with an inline tag, especially {selected_language} ({default_speech_language_code(selected_language)}), then add the default-language tag only where the same field returns to the default language."
+            )
+        return (
+            f"- {label}: mixed-language field. Write explanatory text in the default pack language. "
+            "Use inline tags only for clear learning-target or other non-default spans, and add the default-language tag only when returning to the default language."
+        )
     return f"- {label}: auto-detect. Add inline tags only when the text clearly contains a non-default language."
 
 
@@ -515,13 +624,13 @@ def _quiz_question_char_count(question) -> int:
     return len(question.id) + len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
 
 
-def _sparse_choice_texts(question, choice_readings: list[str]) -> list[str] | None:
+def _sparse_choice_texts(question, choice_readings: list[str], *, keep_all: bool = False) -> list[str] | None:
     choice_texts: list[str] = []
     for index, choice in enumerate(question.choices):
         reading = choice_readings[index] if index < len(choice_readings) else choice
         speech = normalize_tts_text(strip_choice_separator(reading))
         source = normalize_tts_text(strip_choice_separator(choice))
-        choice_texts.append("" if speech == source else speech)
+        choice_texts.append((speech or source) if keep_all else ("" if speech == source else speech))
     return choice_texts if any(choice_texts) else None
 
 
@@ -531,7 +640,23 @@ def _optional_speech_text(source_text: str, reading_text: str, rules: list[TtsRu
     return None if speech == source else speech
 
 
-def _document_tts_from_reading(source_text: str, reading_text: str, rules: list[TtsRule]) -> DocumentTts | None:
+def _document_tts_from_reading(
+    source_text: str,
+    reading_text: str,
+    rules: list[TtsRule],
+    *,
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> DocumentTts | None:
+    reading_text = _apply_field_language_tags(
+        source_text,
+        reading_text,
+        field_key="documentText",
+        default_language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+    )
     speech = _optional_speech_text(source_text, reading_text, rules)
     return DocumentTts(text=speech) if speech else None
 
@@ -542,9 +667,41 @@ def _quiz_tts_from_readings(
     choice_readings: list[str],
     explanation_text: str,
     rules: list[TtsRule],
+    *,
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
 ) -> QuizTts | None:
+    question_text = _apply_field_language_tags(
+        question.question,
+        question_text,
+        field_key="question",
+        default_language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+    )
+    explanation_text = _apply_field_language_tags(
+        question.explanation,
+        explanation_text,
+        field_key="explanation",
+        default_language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+    )
     question_text_output = _optional_speech_text(question.question, question_text, rules)
-    choice_texts_output = _sparse_choice_texts(question, choice_readings)
+    choice_readings = _apply_choice_language_tags(
+        question.choices,
+        choice_readings,
+        default_language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+    )
+    choice_mode, selected_language = _choice_language_mode(language_settings)
+    keep_all_choices = allow_language_tags and (
+        choice_mode == "mixed"
+        or (choice_mode == "select" and selected_language and _base_language(selected_language) != _base_language(language))
+    )
+    choice_texts_output = _sparse_choice_texts(question, choice_readings, keep_all=keep_all_choices)
     explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules)
     if not question_text_output and not choice_texts_output and not explanation_text_output:
         return None
@@ -578,7 +735,16 @@ def _gemini_quiz_question_tts(
         question_text = _gemini_speech_text(question.question, rules)
         explanation_text = _gemini_speech_text(question.explanation, rules)
         choice_readings = [_gemini_speech_text(choice, rules) for choice in question.choices]
-        return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
+        return _quiz_tts_from_readings(
+            question,
+            question_text,
+            choice_readings,
+            explanation_text,
+            rules,
+            language=language,
+            allow_language_tags=allow_language_tags,
+            language_settings=language_settings,
+        )
 
     data = GeminiClient().generate_json(
         _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules, language, allow_language_tags, language_settings)
@@ -605,7 +771,16 @@ def _gemini_quiz_question_tts(
     if not isinstance(explanation_text, str) or not explanation_text.strip():
         explanation_text = question.explanation
 
-    return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
+    return _quiz_tts_from_readings(
+        question,
+        question_text,
+        choice_readings,
+        explanation_text,
+        rules,
+        language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+    )
 
 
 def _tts_batch_quiz_prompt(
@@ -663,7 +838,15 @@ Return this shape:
 """.strip()
 
 
-def _quiz_tts_from_item(question, item: dict, rules: list[TtsRule]) -> QuizTts | None:
+def _quiz_tts_from_item(
+    question,
+    item: dict,
+    rules: list[TtsRule],
+    *,
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+) -> QuizTts | None:
     question_text = item.get("questionText", "")
     explanation_text = item.get("explanationText", "")
     choices = item.get("choices", [])
@@ -686,7 +869,16 @@ def _quiz_tts_from_item(question, item: dict, rules: list[TtsRule]) -> QuizTts |
     if not isinstance(explanation_text, str) or not explanation_text.strip():
         explanation_text = question.explanation
 
-    return _quiz_tts_from_readings(question, question_text, choice_readings, explanation_text, rules)
+    return _quiz_tts_from_readings(
+        question,
+        question_text,
+        choice_readings,
+        explanation_text,
+        rules,
+        language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+    )
 
 
 def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_BATCH_CHARS):
@@ -721,7 +913,14 @@ def _gemini_quiz_tts_map(
             question_id = str(item.get("id", ""))
             question = source_by_id.get(question_id)
             if question is not None:
-                readings[question_id] = _quiz_tts_from_item(question, item, rules)
+                readings[question_id] = _quiz_tts_from_item(
+                    question,
+                    item,
+                    rules,
+                    language=language,
+                    allow_language_tags=allow_language_tags,
+                    language_settings=language_settings,
+                )
         for question in chunk:
             readings.setdefault(question.id, _rule_quiz_question_tts(question, rules))
     return readings
@@ -930,7 +1129,14 @@ def optimize_document_pack(
                 )
             else:
                 speech = rule_speech
-            item.tts = _document_tts_from_reading(item.text, speech, rules)
+            item.tts = _document_tts_from_reading(
+                item.text,
+                speech,
+                rules,
+                language=pack.language,
+                allow_language_tags=active_mode == "multilingual",
+                language_settings=language_settings,
+            )
         else:
             item.tts = None
     return pack

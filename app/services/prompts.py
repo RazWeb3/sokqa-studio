@@ -44,14 +44,6 @@ Structure policy: listening
 - Minimize symbol-heavy notation, tables, and bullet-list-dependent explanations.
 - Use smooth spoken transitions so the content remains understandable without looking at the screen.
 """.rstrip()
-    if plan.structurePolicy == "sequential":
-        return """
-Structure policy: sequential
-- Assume zero prerequisite knowledge and build concepts step by step.
-- Introduce terms only after their prerequisites have been explained.
-- Keep the learning path incremental from basics to applied use.
-- Avoid jumping ahead to advanced terms before the learner has the necessary foundation.
-""".rstrip()
     return """
 Structure policy: standard
 - Use the existing balanced Sokqa course style.
@@ -63,14 +55,72 @@ def _material_mode_block(plan: CoursePlan) -> str:
     if plan.materialMode == "strict":
         return """
 Material mode: strict
-- Generate only from the provided reference material.
+- The document text is expected to be copied mechanically from the provided material when possible.
 - Do not add outside facts, terms, examples, claims, or inferred details.
-- If the material does not contain enough information, keep the output narrower rather than supplementing it.
+- If this prompt is used as a fallback, use only the provided material and keep the output narrower rather than supplementing it.
+""".rstrip()
+    if plan.materialMode == "source_only":
+        return """
+Material mode: source_only
+- Use only the provided reference material as the factual source.
+- You may organize and rewrite the material into clear learning content, but do not add outside facts, terms, examples, claims, or inferred details.
 """.rstrip()
     return """
 Material mode: reference
 - Use reference material as the foundation when provided.
 - You may supplement only as needed to make the material natural and useful.
+""".rstrip()
+
+
+def _is_japanese_learning_plan(plan: CoursePlan) -> bool:
+    parts = [
+        plan.title,
+        plan.description,
+        plan.shortTitle or "",
+        plan.targetUser,
+        *[document.title for document in plan.documents],
+        *[document.goal for document in plan.documents],
+        *[point for document in plan.documents for point in document.keyPoints],
+    ]
+    text = " ".join(str(part) for part in parts if part).lower()
+    markers = ["日本語", "にほんご", "japanese", "jlpt", "n5", "n4", "ひらがな", "カタカナ"]
+    return plan.language != "ja" and any(marker in text for marker in markers)
+
+
+def _japanese_learning_difficulty_block(plan: CoursePlan) -> str:
+    if not _is_japanese_learning_plan(plan):
+        return ""
+    if plan.difficulty == "beginner":
+        guidance = """
+- For learner-facing Japanese examples and target-language spans, avoid kanji in principle.
+- Prefer hiragana and katakana, and use only JLPT N5-level vocabulary.
+- Examples: use じこしょうかい instead of 自己紹介, あいさつ instead of 挨拶, and はじめて あう instead of 初対面.
+""".rstrip()
+    elif plan.difficulty == "advanced":
+        guidance = """
+- Learner-facing Japanese examples may use natural Japanese without kanji restrictions.
+- Keep the surrounding explanation in the pack language unless a Japanese span is intentionally shown as learning content.
+""".rstrip()
+    else:
+        guidance = """
+- Learner-facing Japanese examples may use kanji up to roughly JLPT N4 level.
+- Add readings or simpler phrasing when needed for accessibility.
+""".rstrip()
+    return f"""
+Japanese-learning difficulty guidance:
+{guidance}
+""".rstrip()
+
+
+def _custom_instructions_block(plan: CoursePlan) -> str:
+    instructions = (plan.customInstructions or "").strip()
+    if not instructions:
+        return ""
+    return f"""
+Additional user conditions:
+- Respect these user-provided conditions when creating learner-facing content.
+- Do not let these conditions override the required JSON schema, materialMode restrictions, TTS separation rules, or output field contracts.
+{instructions}
 """.rstrip()
 
 
@@ -91,7 +141,7 @@ Generated document context:
 
     source_text = (plan.sourceText or "").strip()
     if source_text:
-        if plan.materialMode == "strict":
+        if plan.materialMode in {"source_only", "strict"}:
             source_instruction = (
                 "Use only this sourceText as quiz context. Do not add outside facts, terms, examples, "
                 "claims, or inferred details that are absent from it."
@@ -122,6 +172,8 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     reading_policy_section = _selected_reading_patterns_block(plan)
     structure_policy = _structure_policy_block(plan)
     material_policy = _material_mode_block(plan)
+    japanese_learning_policy = _japanese_learning_difficulty_block(plan)
+    custom_instructions = _custom_instructions_block(plan)
     root_id = document_pack_id(plan, document)
     global_tags = json.dumps(document_global_tags(plan, document), ensure_ascii=False)
     text_length_rule = (
@@ -162,6 +214,8 @@ Course:
 - difficulty: {plan.difficulty}
 {structure_policy}
 {material_policy}
+{japanese_learning_policy}
+{custom_instructions}
 {reading_policy_section}
 {source_section}
 
@@ -201,6 +255,8 @@ def quiz_generation_prompt(
     reading_policy_section = _selected_reading_patterns_block(plan)
     structure_policy = _structure_policy_block(plan)
     material_policy = _material_mode_block(plan)
+    japanese_learning_policy = _japanese_learning_difficulty_block(plan)
+    custom_instructions = _custom_instructions_block(plan)
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
     integration_rules = ""
@@ -243,6 +299,8 @@ Course:
 - target user: {plan.targetUser}
 {structure_policy}
 {material_policy}
+{japanese_learning_policy}
+{custom_instructions}
 {reading_policy_section}
 
 Quiz pack:

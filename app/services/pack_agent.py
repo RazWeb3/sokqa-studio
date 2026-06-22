@@ -2,10 +2,10 @@ import logging
 
 from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
-from app.schemas.common import normalize_tts_reading_mode
+from app.schemas.common import normalize_tts_reading_mode, source_mode_for_material_mode
 from app.schemas.sokqa import CoursePlan, GeneratePackResponse, GeneratedFile
 from app.config import get_settings
-from app.services.document_generator import generate_document_pack
+from app.services.document_generator import generate_document_pack, generate_strict_source_document_pack
 from app.services.exporter import build_generated_files
 from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
@@ -144,12 +144,14 @@ def _resolve_selected_reading_patterns(plan):
 
 def _apply_generation_controls(plan: CoursePlan, request: GeneratePackRequest) -> CoursePlan:
     updates = {}
-    for key in ["structurePolicy", "generationUnit", "docCount", "quizCount", "materialMode"]:
+    for key in ["structurePolicy", "generationUnit", "docCount", "quizCount", "questionCount", "sectionsPerDocument", "materialMode", "customInstructions"]:
         value = getattr(request, key, None)
         if value is not None:
             updates[key] = value
     if updates:
         plan = plan.model_copy(update=updates)
+    if plan.materialMode == "strict" and plan.generationUnit != "document":
+        plan = plan.model_copy(update={"materialMode": "source_only"})
 
     doc_count = plan.docCount
     quiz_count = plan.quizCount
@@ -164,6 +166,16 @@ def _apply_generation_controls(plan: CoursePlan, request: GeneratePackRequest) -
         documents = documents[:doc_count]
     if quiz_count is not None:
         quiz_packs = quiz_packs[:quiz_count]
+    if plan.sectionsPerDocument is not None:
+        documents = [
+            document.model_copy(update={"targetSectionCount": plan.sectionsPerDocument})
+            for document in documents
+        ]
+    if plan.questionCount is not None:
+        quiz_packs = [
+            quiz_pack.model_copy(update={"questionCount": plan.questionCount})
+            for quiz_pack in quiz_packs
+        ]
     return plan.model_copy(update={"docCount": doc_count, "quizCount": quiz_count, "documents": documents, "quizPacks": quiz_packs})
 
 
@@ -215,8 +227,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         request.sourceMode if request.sourceMode is not None else plan.sourceMode,
     )
     plan = _apply_generation_controls(plan, request)
-    if plan.materialMode == "strict" and source_text:
-        source_mode = "document_only"
+    source_mode = source_mode_for_material_mode(plan.materialMode, source_mode) if source_text else None
     plan.sourceText = source_text
     plan.sourceMode = source_mode
     if request.ttsLanguageSettings is not None:
@@ -230,8 +241,12 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs.append(f"Model document: {models.document}")
     logs.append(f"Model quiz: {models.quiz}")
 
-    logs.append("Generating Documents")
-    document_packs = [generate_document_pack(plan, document, model=models.document) for document in plan.documents]
+    if plan.materialMode == "strict" and source_text:
+        logs.append("Generating Documents from source material (strict)")
+        document_packs = [generate_strict_source_document_pack(plan, document) for document in plan.documents]
+    else:
+        logs.append("Generating Documents")
+        document_packs = [generate_document_pack(plan, document, model=models.document) for document in plan.documents]
     logs.extend(event.message for event in pop_generation_events())
 
     logs.append("Generating Quizzes from Documents")

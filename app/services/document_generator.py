@@ -2,6 +2,7 @@ from app.schemas.sokqa import CoursePlan, PlanDocument, SokqaDocumentItem, Sokqa
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
+from app.services.llm_json import LlmJsonParseContext
 from app.services.pack_ids import document_pack_id
 from app.services.prompts import document_generation_prompt
 from app.services.tagging import document_global_tags
@@ -59,6 +60,19 @@ def generate_document_pack(plan: CoursePlan, document: PlanDocument, model: str 
             content = GeminiClient().generate_json(
                 document_generation_prompt(plan, document),
                 model=model or settings.document_model,
+                parse_context=LlmJsonParseContext(
+                    generation_unit="doc",
+                    model=model or settings.document_model,
+                    theme=plan.title,
+                    doc_id=document.id,
+                    title=document.title,
+                    source_text=plan.sourceText,
+                    additional_instructions=plan.customInstructions,
+                    tts_reading_mode=plan.ttsReadingMode,
+                    language=plan.language,
+                    difficulty=plan.difficulty,
+                    scale=plan.scale,
+                ),
             )
             content = normalize_document_content(content, plan, document)
             pack = SokqaDocumentPack.model_validate(content)

@@ -1,9 +1,8 @@
-import json
 import logging
-import re
 from typing import Any
 
 from app.config import get_settings
+from app.services.llm_json import LlmJsonParseContext, parse_llm_json_or_raise
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,13 @@ class GeminiClient:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def generate_json(self, prompt: str, model: str | None = None, temperature: float | None = None) -> dict[str, Any]:
+    def generate_json(
+        self,
+        prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
+        parse_context: LlmJsonParseContext | None = None,
+    ) -> dict[str, Any]:
         if self.settings.gemini_provider == "mock":
             raise RuntimeError("GEMINI_PROVIDER=mock; use deterministic local generators.")
 
@@ -60,7 +65,11 @@ class GeminiClient:
                 _finish_reason(response),
                 text[:500],
             )
-        return parse_json_response(text)
+        context = parse_context or LlmJsonParseContext()
+        context.model = context.model or request["model"]
+        parsed, method = parse_llm_json_or_raise(text, context)
+        logger.debug("Gemini JSON parsed. model=%s method=%s", request["model"], method)
+        return parsed
 
     def test_connection(self) -> dict[str, Any]:
         return self.generate_json(
@@ -70,11 +79,8 @@ class GeminiClient:
 
 
 def parse_json_response(text: str) -> dict[str, Any]:
-    cleaned = text.strip()
-    fence_match = re.search(r"```(?:json)?\s*(.*?)```", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    if fence_match:
-        cleaned = fence_match.group(1).strip()
-    return json.loads(cleaned)
+    parsed, _method = parse_llm_json_or_raise(text)
+    return parsed
 
 
 def _finish_reason(response: Any) -> Any:

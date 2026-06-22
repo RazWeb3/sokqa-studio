@@ -316,9 +316,28 @@ def test_custom_instructions_are_injected_into_generation_prompts() -> None:
     quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
     for prompt in [document_prompt, quiz_prompt]:
-        assert "Additional user conditions:" in prompt
+        assert "# 生成ルール" in prompt
         assert "各章に短い会話例を1つ入れ、専門用語は避ける。" in prompt
         assert "Do not let these conditions override the required JSON schema" in prompt
+
+
+def test_source_text_and_additional_instructions_are_separated_in_prompt() -> None:
+    plan = _plan()
+    plan.customInstructions = "専門用語を避ける。" * 80
+    plan.sourceText = "引用資料の行です。\n" * 80
+    plan.sourceMode = "document_reference"
+
+    prompt = document_generation_prompt(plan, plan.documents[0])
+
+    assert "# 生成ルール" in prompt
+    assert "# 参照素材" in prompt
+    assert prompt.index("# 生成ルール") < prompt.index("# 参照素材")
+    assert "以下は必ず守る制約です。出力本文には含めないでください。" in prompt
+    assert "以下は教材作成のための素材です。必要部分のみ参照してください。" in prompt
+    assert "出力は必ずJSONのみ" in prompt
+    assert "コードブロックは禁止" in prompt
+    assert "JSON内の文字列は必ずエスケープする" in prompt
+    assert "歌詞全文を転載しないでください" in prompt
 
 
 def test_reading_policy_block_is_omitted_when_no_pattern_is_selected() -> None:

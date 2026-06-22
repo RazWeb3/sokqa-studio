@@ -117,11 +117,21 @@ def _custom_instructions_block(plan: CoursePlan) -> str:
     if not instructions:
         return ""
     return f"""
-Additional user conditions:
+# 生成ルール
+以下は必ず守る制約です。出力本文には含めないでください。
 - Respect these user-provided conditions when creating learner-facing content.
 - Do not let these conditions override the required JSON schema, materialMode restrictions, TTS separation rules, or output field contracts.
 {instructions}
 """.rstrip()
+
+
+def _json_output_rules_block() -> str:
+    return """
+JSON output rules:
+- 出力は必ずJSONのみ。
+- Markdown、説明文、コードブロックは禁止。
+- JSON内の文字列は必ずエスケープする。
+""".strip()
 
 
 def _quiz_context_block(plan: CoursePlan, source_documents: list[SokqaDocumentPack]) -> str:
@@ -207,6 +217,7 @@ Rules:
 - {text_length_rule[2:]}
 - The documents[] array should follow the document's key points in order.{listening_rule}
 - Do not copy existing learning materials verbatim.
+{_json_output_rules_block()}
 
 Course:
 - title: {plan.title}
@@ -292,6 +303,7 @@ Rules:
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
 - Do not copy existing exam questions verbatim.
+{_json_output_rules_block()}
 {integration_rules}
 
 Course:

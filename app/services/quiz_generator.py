@@ -2,6 +2,7 @@ from app.schemas.sokqa import CoursePlan, PlanQuizPack, SokqaDocumentPack, Sokqa
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
+from app.services.llm_json import LlmJsonParseContext
 from app.services.pack_ids import quiz_pack_id
 from app.services.prompts import quiz_generation_prompt
 from app.services.tagging import quiz_global_tags
@@ -29,6 +30,19 @@ def generate_quiz_pack(
             content = GeminiClient().generate_json(
                 quiz_generation_prompt(plan, quiz_plan, document_packs),
                 model=model or settings.quiz_model,
+                parse_context=LlmJsonParseContext(
+                    generation_unit="quiz",
+                    model=model or settings.quiz_model,
+                    theme=plan.title,
+                    quiz_id=quiz_plan.id,
+                    title=quiz_plan.title,
+                    source_text=plan.sourceText,
+                    additional_instructions=plan.customInstructions,
+                    tts_reading_mode=plan.ttsReadingMode,
+                    language=plan.language,
+                    difficulty=plan.difficulty,
+                    scale=plan.scale,
+                ),
             )
             content = normalize_quiz_content(content, plan, quiz_plan)
             pack = SokqaQuizPack.model_validate(content)

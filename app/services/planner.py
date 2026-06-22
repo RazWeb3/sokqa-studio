@@ -7,6 +7,7 @@ from app.schemas.common import ReadingPattern, normalize_tts_reading_mode, sourc
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
+from app.services.llm_json import LlmJsonParseContext
 from app.services.pack_metadata import resolve_creator_id
 from app.services.source_material import normalize_source, source_prompt_block
 from app.services.tagging import course_global_tags
@@ -260,8 +261,10 @@ def _planner_prompt(request: PlanPackRequest) -> str:
 - Return proposedReadingPatterns as an empty array.
 """.rstrip()
     )
+    additional_conditions = request.customInstructions or "none"
     return f"""
 Return strict JSON only. Do not use markdown fences.
+出力は必ずJSONのみ。Markdown、説明文、コードブロックは禁止。JSON内の文字列は必ずエスケープする。
 
 Design a Sokqa CoursePlan outline for a learning pack.
 The user will review and edit this outline before generation, so focus on a concrete, useful chapter plan.
@@ -272,7 +275,6 @@ Input:
 - difficulty: {request.difficulty}
 - scale: {request.scale}
 - language: {request.language}
-- additional conditions: {request.customInstructions or "none"}
 - structurePolicy: {request.structurePolicy}
 - generationUnit: {request.generationUnit}
 - requested quizCount: {request.quizCount if request.quizCount is not None else "planner/default"}
@@ -280,6 +282,11 @@ Input:
 - materialMode: {request.materialMode}
 - requested documentCount: {_requested_document_count(request)}
 - requested sectionsPerDocument: {_requested_section_count(request)}
+
+# 生成ルール
+以下は必ず守る制約です。出力本文には含めないでください。
+additional conditions: {additional_conditions}
+{additional_conditions}
 {source_section}
 
 Rules:
@@ -737,7 +744,22 @@ def _validate_planned_documents(documents: list[PlanDocument], request: PlanPack
 def _gemini_plan_parts(
     request: PlanPackRequest, model: str | None
 ) -> tuple[str | None, str | None, str, list[PlanDocument], list[ReadingPattern]]:
-    data = GeminiClient().generate_json(_planner_prompt(request), model=model)
+    data = GeminiClient().generate_json(
+        _planner_prompt(request),
+        model=model,
+        parse_context=LlmJsonParseContext(
+            generation_unit="plan",
+            model=model or get_settings().planner_model,
+            theme=request.theme,
+            title=request.theme,
+            source_text=request.sourceText,
+            additional_instructions=request.customInstructions,
+            tts_reading_mode=_effective_request_tts_mode(request),
+            language=request.language,
+            difficulty=request.difficulty,
+            scale=request.scale,
+        ),
+    )
     title = str(data.get("title") or "").strip() or None
     short_title = _short_title_from_planner_response(data, request)
     description = str(data.get("description") or "").strip() or None

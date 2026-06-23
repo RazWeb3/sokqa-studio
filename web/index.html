@@ -50,7 +50,8 @@
       }
       button:hover, a.button:hover { transform: translateY(-1px); }
       button:active, a.button:active { transform: translateY(0); }
-      button:disabled { opacity: 0.55; cursor: wait; transform: none; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+      button.is-loading:disabled { cursor: wait; }
       button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
         outline: 3px solid color-mix(in oklch, var(--accent) 25%, transparent);
         outline-offset: 2px;
@@ -168,8 +169,13 @@
         white-space: normal;
         line-height: 1.25;
       }
+      .scale-cards button { color: var(--fg); font-size: 14px; font-weight: 760; }
       .scale-cards small { display: block; color: var(--muted); font-size: 12px; font-weight: 520; line-height: 1.35; }
-      .scale-cards .active small { color: var(--muted); }
+      .scale-cards .active {
+        border-color: color-mix(in oklch, var(--accent) 34%, var(--border));
+        box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent);
+      }
+      .scale-cards .active small { color: color-mix(in oklch, var(--accent-ink) 62%, var(--muted)); }
       .json { min-height: 210px; font-family: var(--mono); font-size: 13px; line-height: 1.55; color: oklch(27% .03 235); background: oklch(98.8% .004 235); }
       .json-details { display: grid; gap: 10px; }
       .plan-preview { display: grid; gap: 14px; }
@@ -178,8 +184,8 @@
       .plan-card p { margin: 0; color: var(--muted); font-size: 13px; }
       .plan-meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
       .plan-meta { min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); }
-      .plan-meta span { display: block; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-      .plan-meta strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 13px; }
+      .plan-meta span { display: block; color: color-mix(in oklch, var(--fg) 68%, var(--muted)); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 760; }
+      .plan-meta strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 13px; color: var(--fg); }
       .plan-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
       .plan-list li { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); }
       .plan-list strong { font-size: 14px; }
@@ -227,7 +233,9 @@
       .quality-save { position: static; }
       .issues { display: grid; gap: 10px; }
       .issue { border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: white; display: grid; gap: 8px; }
-      .issue.warning { border-color: color-mix(in oklch, var(--warn) 36%, var(--border)); background: color-mix(in oklch, var(--warn) 8%, white); }
+      .issue.warning, .issue.warn { border-color: color-mix(in oklch, var(--warn) 36%, var(--border)); background: color-mix(in oklch, var(--warn) 8%, white); }
+      .issue.error { color: var(--fg); border-color: color-mix(in oklch, var(--danger) 38%, var(--border)); background: color-mix(in oklch, var(--danger) 8%, white); }
+      .issue.error .issue-title { color: color-mix(in oklch, var(--danger) 78%, black); }
       .issue-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
       .issue-title { font-weight: 680; font-size: 14px; }
       .excerpt { padding: 9px 10px; border-radius: 8px; background: var(--soft); color: var(--muted); font-size: 13px; border: 1px solid var(--border); overflow-wrap: anywhere; }
@@ -241,6 +249,7 @@
       .record .step-num { display: none; }
       .record-units .panel-body { overflow: visible; padding-right: 18px; }
       .credit-ui[hidden] { display: none !important; }
+      .source-summary { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
       .step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
       .step-num { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-family: var(--mono); font-weight: 750; background: color-mix(in oklch, var(--accent) 10%, white); color: var(--accent-ink); }
       .units { display: grid; gap: 8px; margin-top: 10px; }
@@ -272,12 +281,14 @@
       .muted { color: var(--muted); }
       .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
       .error { color: color-mix(in oklch, var(--danger) 80%, black); }
+      #status:empty { display: none; }
+      #status.issue { color: var(--fg); margin: 0; }
       .toast {
         position: fixed;
-        right: 22px;
-        bottom: 22px;
+        right: 72px;
+        bottom: 28px;
         width: min(430px, calc(100vw - 28px));
-        z-index: 60;
+        z-index: 55;
         border: 1px solid color-mix(in oklch, var(--accent) 26%, var(--border));
         border-radius: 12px;
         background: rgba(255,255,255,.96);
@@ -320,6 +331,8 @@
         .unit { grid-template-columns: auto minmax(0, 1fr); }
         .unit-actions { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; }
         button, a.button { width: 100%; }
+        .segmented button { width: auto; }
+        .toast { right: 14px; bottom: 14px; }
       }
     </style>
   </head>
@@ -370,7 +383,7 @@
             <section class="panel generate-left">
               <div class="panel-head"><div><h3>テーマから構成を作成</h3><p class="hint">生成だけで完結するライト層でも使えるよう、最初の入力は最小限にしています。</p></div></div>
               <div class="panel-body stack">
-                <label>テーマ<input id="theme" value="ITパスポート試験対策" maxlength="160" /></label>
+                <label>テーマ<input id="theme" value="" maxlength="160" placeholder="例: ITパスポート / 基本情報技術者" /></label>
                 <section class="plan-card">
                   <div class="issue-top"><div><h4>説明文</h4><p>出典を入れたい場合は手動入力に記載してください。</p></div></div>
                   <label>説明文<select id="descriptionMode"><option value="auto" selected>自動でおまかせ</option><option value="manual">手動入力</option></select></label>
@@ -408,13 +421,14 @@
                 </div>
                 <div class="field-grid" id="countControls" hidden>
                   <label id="docCountLine">ドキュメント数<select id="docCount"><option selected>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option value="">おまかせ</option></select></label>
-                  <label id="sectionCountLine">セクション数<select id="sectionCount"><option selected>10</option><option>20</option><option>30</option><option>40</option><option value="">おまかせ（35〜50）</option></select></label>
+                  <label id="sectionCountLine">セクション数<select id="sectionCount"><option selected>10</option><option>20</option><option>30</option><option>40</option><option value="">おまかせ(35〜50)</option></select></label>
                   <label id="quizCountLine">クイズ数<select id="quizCount"><option selected>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select></label>
                   <label id="questionCountLine">問題数<select id="questionCount"><option selected>10</option><option>20</option><option>30</option></select></label>
                 </div>
                 <details id="sourceMaterialDetails" class="plan-card">
-                  <summary>元資料テキストと資料モード</summary>
+                  <summary><span class="source-summary">元資料テキストと資料モード <span class="badge" id="sourceStateBadge">資料なし</span><span class="badge info" id="sourceModeBadge">参考</span></span></summary>
                   <div class="stack">
+                    <p class="hint" id="sourceModeNotice"></p>
                     <label>元資料テキスト<textarea id="sourceText" placeholder="社内資料や教材メモを貼り付けると、生成時に参照します。"></textarea></label>
                     <label id="materialModeLine">資料モード<select id="materialMode"><option value="reference" selected>資料を参考に作る</option><option value="source_only">資料の内容のみで構成する</option><option value="strict">資料準拠（加工しない）</option></select></label>
                   </div>
@@ -741,6 +755,48 @@
         return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
       }
 
+      const LABELS = {
+        scale: { quick: "小規模", standard: "中規模", large: "大規模", auto: "おまかせ" },
+        structurePolicy: { listening: "聞き流し向け", standard: "要点整理" },
+        generationUnit: { pack: "学習パック", document: "ドキュメント", quiz: "クイズ" },
+        materialMode: { reference: "資料を参考に作る", source_only: "資料内容に基づく構成", strict: "資料準拠" },
+        answerPositionMode: { balanced: "バランス配置" },
+      };
+
+      function labelFor(group, value, fallback = "-") {
+        return LABELS[group]?.[value] || value || fallback;
+      }
+
+      function setStatusMessage(message = "", { error = false } = {}) {
+        const status = $("status");
+        status.className = error ? "issue error" : "muted";
+        status.textContent = message;
+      }
+
+      function renderIssue(title, message, { badge = "停止", tone = "danger" } = {}) {
+        return `
+          <div class="issue error">
+            <div class="issue-top"><span class="issue-title">${escapeHtml(title)}</span><span class="badge ${escapeHtml(tone)}">${escapeHtml(badge)}</span></div>
+            <p>${escapeHtml(message).replace(/\n/g, "<br>")}</p>
+          </div>
+        `;
+      }
+
+      function showResultError(title, message) {
+        setStatusMessage(message, { error: true });
+        $("result").innerHTML = renderIssue(title, message);
+      }
+
+      function currentPlanFromJson() {
+        const text = $("planJson").value.trim();
+        if (!text) return null;
+        try {
+          return JSON.parse(text);
+        } catch (_error) {
+          return null;
+        }
+      }
+
       function normalizeRule(rule) {
         const source = String(rule?.source || "").trim();
         const reading = String(rule?.reading || "").trim();
@@ -1000,10 +1056,11 @@
             <div class="plan-meta-grid">
               <div class="plan-meta"><span>対象</span><strong>${escapeHtml(plan.targetUser || "-")}</strong></div>
               <div class="plan-meta"><span>難易度</span><strong>${escapeHtml(plan.difficulty || "-")}</strong></div>
-              <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(plan.scale || "-")} / ${escapeHtml(plan.language || "-")}</strong></div>
-              <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(plan.structurePolicy || "standard")}</strong></div>
-              <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(plan.generationUnit || "pack")}</strong></div>
-              <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(plan.materialMode || "reference")}</strong></div>
+              <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(labelFor("scale", plan.scale, "-"))} / ${escapeHtml(plan.language || "-")}</strong></div>
+              <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(labelFor("structurePolicy", plan.structurePolicy || "standard"))}</strong></div>
+              <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(labelFor("generationUnit", plan.generationUnit || "pack"))}</strong></div>
+              <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(labelFor("materialMode", plan.materialMode || "reference"))}</strong></div>
+              <div class="plan-meta"><span>正解位置</span><strong>${escapeHtml(labelFor("answerPositionMode", plan.answerPositionMode || "balanced"))}</strong></div>
               ${showStrictStats ? `<div class="plan-meta"><span>strict推定</span><strong>${escapeHtml(strictFileCount || "-")}ファイル / ${escapeHtml(strictSectionCount || "-")}セクション</strong></div>` : ""}
             </div>
             ${showStrictStats && plan.strictSourceLimitExceeded ? `
@@ -1245,14 +1302,30 @@
         }
       }
 
+      function focusFirstModalControl(modal) {
+        const target = modal?.querySelector("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])");
+        target?.focus();
+      }
+
+      function openModal(id) {
+        const modal = $(id);
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden", "false");
+        requestAnimationFrame(() => focusFirstModalControl(modal));
+      }
+
+      function closeModal(id) {
+        const modal = $(id);
+        modal.classList.remove("open");
+        modal.setAttribute("aria-hidden", "true");
+      }
+
       function openDictionaryRulesModal() {
-        $("dictionaryRulesModal").classList.add("open");
-        $("dictionaryRulesModal").setAttribute("aria-hidden", "false");
+        openModal("dictionaryRulesModal");
       }
 
       function closeDictionaryRulesModal() {
-        $("dictionaryRulesModal").classList.remove("open");
-        $("dictionaryRulesModal").setAttribute("aria-hidden", "true");
+        closeModal("dictionaryRulesModal");
       }
 
       function promoteTemporaryRulesToDictionary() {
@@ -1407,19 +1480,40 @@
 
       function setBusy(flag, message = "") {
         isBusy = flag;
-        $("status").textContent = message;
+        setStatusMessage(message);
         [
           "planBtn", "generateBtn", "reviseBtn", "textCheckBtn", "textFixBtn", "applyTextFixBtn",
           "saveTextFixBtn", "skipTextWorkflowBtn", "ttsCheckBtn", "ttsFixBtn", "saveTtsFixBtn",
           "recordSelectedBtn", "forceRecordSelectedBtn", "resetSelectedRecordingBtn", "resetAllRecordingBtn",
           "loadPacksBtn", "importPackBtn", "openImportQr", "exportJsonZipBtn", "openSelectedJsonBtn"
-        ].forEach((id) => { const el = $(id); if (el) el.disabled = flag || el.dataset.forceDisabled === "true"; });
+        ].forEach((id) => {
+          const el = $(id);
+          if (!el) return;
+          el.disabled = flag || el.dataset.forceDisabled === "true";
+          el.classList.toggle("is-loading", flag);
+        });
         updateActionAvailability();
       }
 
       function updateActionAvailability() {
         const appliedTtsFixCount = lastTtsFixResult?.appliedFixes?.length || 0;
-        $("generateBtn").disabled = isBusy || !$("planJson").value.trim();
+        const planText = $("planJson").value.trim();
+        const plan = currentPlanFromJson();
+        const strictBlocked = Boolean(plan?.strictSourceLimitExceeded);
+        const generateDisabledReason = isBusy
+          ? ""
+          : !planText
+            ? "先にプランを作成してください。"
+            : strictBlocked
+              ? "資料準拠の推定ファイル数が上限を超えています。資料を分割してから生成してください。"
+              : "";
+        const generateBtn = $("generateBtn");
+        generateBtn.disabled = isBusy || Boolean(generateDisabledReason);
+        generateBtn.classList.toggle("is-loading", isBusy);
+        const previousGenerateReason = generateBtn.dataset.disabledReason || "";
+        generateBtn.dataset.disabledReason = generateDisabledReason;
+        if (!isBusy && generateDisabledReason) setStatusMessage(generateDisabledReason);
+        else if (!isBusy && previousGenerateReason && $("status").textContent === previousGenerateReason) setStatusMessage("");
         $("textFixBtn").disabled = isBusy || !lastTextCheckResult;
         $("applyTextFixBtn").disabled = isBusy || !(lastTextFixResult?.pendingFixes || []).length;
         $("saveTextFixBtn").disabled = isBusy || !selectedPack || !lastTextApplyResult || !lastTextFixResult || textWorkflowSaved;
@@ -1482,6 +1576,7 @@
         const unit = generationUnitValue();
         const materialMode = $("materialMode");
         const strictOption = Array.from(materialMode.options).find((option) => option.value === "strict");
+        const previousMode = materialMode.value;
         materialMode.disabled = !hasSource;
         if (strictOption) strictOption.hidden = unit !== "document";
         if (!hasSource) {
@@ -1490,6 +1585,11 @@
           materialMode.value = "source_only";
         }
         $("sourceMode").value = materialMode.value === "reference" ? "document_reference" : "document_only";
+        setBadge("sourceStateBadge", hasSource ? "資料あり" : "資料なし", hasSource ? "source" : "");
+        setBadge("sourceModeBadge", labelFor("materialMode", materialMode.value, "参考"), materialMode.value === "strict" ? "danger" : "info");
+        $("sourceModeNotice").textContent = previousMode === "strict" && materialMode.value === "source_only" && unit !== "document"
+          ? "クイズ/パックでは資料準拠を使用できないため「資料内容に基づく構成」へ切替えました。"
+          : "";
       }
 
       function isTtsEnabled() {
@@ -1527,23 +1627,19 @@
       }
 
       function openPackModal() {
-        $("packModal").classList.add("open");
-        $("packModal").setAttribute("aria-hidden", "false");
+        openModal("packModal");
       }
 
       function closePackModal() {
-        $("packModal").classList.remove("open");
-        $("packModal").setAttribute("aria-hidden", "true");
+        closeModal("packModal");
       }
 
       function closeVersionModal() {
-        $("versionModal").classList.remove("open");
-        $("versionModal").setAttribute("aria-hidden", "true");
+        closeModal("versionModal");
       }
 
       function closeImportQrModal() {
-        $("importQrModal").classList.remove("open");
-        $("importQrModal").setAttribute("aria-hidden", "true");
+        closeModal("importQrModal");
       }
 
       function manifestCacheKey(pack = selectedPack) {
@@ -1637,8 +1733,7 @@
       }
 
       async function openVersionInfo({ force = false } = {}) {
-        $("versionModal").classList.add("open");
-        $("versionModal").setAttribute("aria-hidden", "false");
+        openModal("versionModal");
         if (!selectedPack) {
           $("versionInfoBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
           updateVersionQrSection();
@@ -1705,8 +1800,7 @@
       }
 
       async function openImportQr({ refreshLatest = true } = {}) {
-        $("importQrModal").classList.add("open");
-        $("importQrModal").setAttribute("aria-hidden", "false");
+        openModal("importQrModal");
         if (!selectedPack) {
           $("importQrBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;
           return;
@@ -2432,7 +2526,12 @@
       function speakText(text) {
         if (!("speechSynthesis" in window)) return;
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
+        const sanitizedText = String(text || "")
+          .replace(/\[[a-z]{2,3}(?:-[A-Z]{2}|\-\d{3})?\]/g, " ")
+          .replace(/[{}\[\]<>|^~`]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const utterance = new SpeechSynthesisUtterance(sanitizedText || String(text || ""));
         utterance.rate = Number($("playbackRateSelect").value || 1);
         window.speechSynthesis.speak(utterance);
       }
@@ -2589,9 +2688,11 @@
         setBusy(true, "Planning...");
         setProgress("プレビュー作成", "Planning", "構成案を作成しています。");
         try {
+          const theme = $("theme").value.trim();
+          if (!theme) throw new Error("テーマを入力してください。例: ITパスポート / 基本情報技術者");
           const customInstructions = $("customInstructions").value.trim();
           const plan = await requestJson("/plan-pack", {
-            theme: $("theme").value,
+            theme,
             targetUser: $("targetUser").value,
             difficulty: $("difficulty").value,
             scale: scaleValue(),
@@ -2612,8 +2713,7 @@
           renderPlanPreview(plan);
           finishProgress("プレビュー作成", "構成案を作成しました。");
         } catch (error) {
-          $("status").textContent = error.message;
-          $("status").classList.add("error");
+          showResultError("構成プレビューを作成できませんでした", error.message);
           setProgress("プレビュー作成", "失敗", error.message, 1);
         } finally {
           setBusy(false);
@@ -2626,6 +2726,7 @@
         try {
           const plan = writeSelectedReadingPatternsToPlanJson();
           if (!plan) throw new Error("先に構成プレビューを作成してください。");
+          if (plan.strictSourceLimitExceeded) throw new Error("資料準拠の推定ファイル数が上限を超えています。資料を分割してから生成してください。");
           const generated = await requestJson("/generate-pack", {
             plan,
             outputMode: "manifest",
@@ -2644,14 +2745,7 @@
           setBadge("qualityBadge", "未チェック", "warn");
           finishProgress("生成", "生成済みパックを対象に設定しました。");
         } catch (error) {
-          $("status").textContent = error.message;
-          $("status").classList.add("error");
-          $("result").innerHTML = `
-            <div class="issue error">
-              <div class="issue-top"><span class="issue-title">生成を完了できませんでした</span><span class="badge danger">停止</span></div>
-              <p>${escapeHtml(error.message).replace(/\n/g, "<br>")}</p>
-            </div>
-          `;
+          showResultError("生成を完了できませんでした", error.message);
           setProgress("生成", "失敗", error.message, 1);
         } finally {
           setBusy(false);
@@ -2679,7 +2773,7 @@
           await refreshVersionInfoIfOpen();
           finishProgress("読み置き換え", `revision ${revised.manifest?.revision || "-"} に保存しました。`);
         } catch (error) {
-          $("status").textContent = error.message;
+          showResultError("読み置き換えを完了できませんでした", error.message);
           setProgress("読み置き換え", "失敗", error.message, 1);
         } finally {
           setBusy(false);
@@ -2747,6 +2841,14 @@
             renderDictionaryRules();
           }
         }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if ($("dictionaryRulesModal").classList.contains("open")) closeDictionaryRulesModal();
+        else if ($("importQrModal").classList.contains("open")) closeImportQrModal();
+        else if ($("versionModal").classList.contains("open")) closeVersionModal();
+        else if ($("packModal").classList.contains("open")) closePackModal();
       });
 
       $$(".tab").forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.tab)));

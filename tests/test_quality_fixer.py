@@ -296,6 +296,70 @@ def test_quality_fix_save_tts_fix_clears_audio_and_preserves_display_text(tmp_pa
     assert (old_dir / "objects" / "audio" / "av_doc_01__doc-1.mp3").exists()
 
 
+def test_quality_fix_save_mixed_text_and_tts_changes_in_one_revision(tmp_path, monkeypatch) -> None:
+    target = _write_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    root = tmp_path / "generated" / prefix
+    manifest_path = root / "versions" / target["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    doc_item = next(item for item in manifest["items"] if item["name"] == "doc_01.json")
+    doc_path = root / doc_item["url"].split(f"{prefix}/", 1)[1]
+    original_doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    original_doc["documents"].append(
+        {
+            "id": "doc-2",
+            "text": "ITILを説明します。",
+            "tts": {"text": "ITILを説明します。", "audioPath": "objects/audio/av_doc_01__doc-2.mp3"},
+        }
+    )
+    doc_path.write_text(json.dumps(original_doc, ensure_ascii=False), encoding="utf-8")
+    (root / "objects" / "audio" / "av_doc_01__doc-2.mp3").write_bytes(b"mp3")
+
+    changed_doc = json.loads(json.dumps(original_doc, ensure_ascii=False))
+    changed_doc["documents"][0]["text"] = "SQLとJSONを説明します。重要です。"
+    changed_doc["documents"][1]["tts"]["text"] = "アイティルを説明します。"
+
+    response = client.post(
+        "/quality/save-version",
+        json={
+            "target": target,
+            "files": [{"name": "doc_01.json", "kind": "document", "content": changed_doc}],
+            "appliedFixes": [
+                {
+                    "id": "auto-doc-2",
+                    "category": "reading",
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-2", "field": "text"},
+                    "field": "tts.text",
+                    "before": "ITILを説明します。",
+                    "after": "アイティルを説明します。",
+                    "sourceIssue": "略語が誤読される可能性があります。",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["newVersionId"] != target["versionId"]
+    saved_manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["newVersionId"] / "manifest.json"
+    saved_manifest = json.loads(saved_manifest_path.read_text(encoding="utf-8"))
+    assert saved_manifest["revision"] == 2
+    assert saved_manifest["change"]["operation"] == "text_fix"
+    assert saved_manifest["change"]["reRecordNeededUnits"] == [
+        {"fileName": "doc_01.json", "unitId": "doc-1", "reason": "text_changed"},
+        {"fileName": "doc_01.json", "unitId": "doc-2", "reason": "tts_changed"},
+    ]
+    saved_doc_item = next(item for item in saved_manifest["items"] if item["name"] == "doc_01.json")
+    saved_doc = json.loads(
+        (tmp_path / "generated" / data["storagePrefix"] / saved_doc_item["url"].split(f"{data['storagePrefix']}/", 1)[1]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "tts" not in saved_doc["documents"][0]
+    assert saved_doc["documents"][1]["tts"] == {"text": "アイティルを説明します。"}
+    assert (root / "objects" / "audio" / "av_doc_01__doc-2.mp3").exists()
+
+
 def test_quality_fix_invalid_llm_response_is_error(tmp_path, monkeypatch) -> None:
     target = _write_version(tmp_path, monkeypatch)
     settings = get_settings()

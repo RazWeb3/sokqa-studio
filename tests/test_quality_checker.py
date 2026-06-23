@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.pack_paths import pack_root_prefix
-from app.services.quality_checker import TTS_QUALITY_CATEGORIES, _generate_json_with_retry, _quality_response_from_data
+from app.services.quality_checker import TTS_QUALITY_CATEGORIES, _generate_json_with_retry, _quality_prompt, _quality_response_from_data
 from main import app
 
 
@@ -93,6 +93,38 @@ def test_text_quality_check_mock_provider_returns_text_issues(tmp_path, monkeypa
     assert data["fileName"] == "doc_01.json"
     assert {issue["category"] for issue in data["issues"]} == {"factual", "style", "leak"}
     assert all(issue["location"]["fileName"] == "doc_01.json" for issue in data["issues"])
+
+
+def test_text_quality_prompt_limits_targets_and_excludes_tts_fields() -> None:
+    prompt, truncated = _quality_prompt(
+        "sample_quiz.json",
+        {
+            "type": "quiz",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "問題文",
+                    "choices": ["A", "B", "C", "D"],
+                    "explanation": "解説",
+                    "tts": {
+                        "questionText": "TTS専用",
+                        "choiceTexts": ["TTS A", "TTS B", "TTS C", "TTS D"],
+                        "explanationText": "TTS解説",
+                    },
+                }
+            ],
+        },
+        50,
+        mode="text",
+    )
+
+    assert truncated is False
+    assert "document.documents[].text" in prompt
+    assert "quiz.questions[].question" in prompt
+    assert "quiz.questions[].choices[]" in prompt
+    assert "quiz.questions[].explanation" in prompt
+    assert "Ignore all tts fields" in prompt
+    assert "tts.questionText" in prompt
 
 
 def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatch) -> None:

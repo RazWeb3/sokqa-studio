@@ -485,8 +485,11 @@
                   <div class="condition-suggestions" id="conditionSuggestions"></div>
                   <p id="conditionSuggestionsStatus" class="muted"></p>
                 </section>
-                <div class="actions"><button id="planBtn" type="button">プランを作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
+                <div class="actions"><button id="planBtn" type="button">プランを作成</button></div>
                 <p id="status" class="muted"></p>
+                <label class="checkline"><input id="autoQualityFixAfterGenerate" type="checkbox" /> 生成後に自動品質チェック・修正提案を行う</label>
+                <p class="hint">時間がかかります。修正は選択後に適用します。</p>
+                <div class="actions"><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
               </div>
             </section>
 
@@ -770,6 +773,7 @@
       let planConditionSuggestions = [];
       let temporaryTtsRules = [{ source: "日本橋", reading: "にほんばし" }];
       let dictionaryTtsRules = [];
+      let batchQualityState = null;
 
       function escapeHtml(value) {
         return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -2275,6 +2279,281 @@
         `).join("");
       }
 
+      function generatedQualityTargets(generated) {
+        const contentId = generated?.manifest?.contentId || "";
+        const versionId = generated?.manifest?.versionId || "";
+        return currentPacks.filter((pack) =>
+          pack.contentId === contentId
+          && pack.versionId === versionId
+          && ["document", "quiz"].includes(pack.kind)
+          && pack.packName
+        );
+      }
+
+      function isAutoQualityFixEnabled() {
+        return Boolean($("autoQualityFixAfterGenerate")?.checked);
+      }
+
+      function renderAutoTextQualityStatus(html) {
+        const target = $("autoTextQualityResult");
+        if (target) target.innerHTML = html;
+      }
+
+      function batchFixKey(type, fileName, id) {
+        return `${type}::${fileName}::${id}`;
+      }
+
+      function splitBatchFixKey(value) {
+        const [type, fileName, ...rest] = String(value || "").split("::");
+        return { type, fileName, id: rest.join("::") };
+      }
+
+      function unitKey(fileName, unitId) {
+        return `${fileName}::${unitId || ""}`;
+      }
+
+      function batchQualityCounts(state = batchQualityState) {
+        const textCount = state?.textFixes?.length || 0;
+        const ttsCount = state?.ttsFixes?.length || 0;
+        return { textCount, ttsCount, total: textCount + ttsCount };
+      }
+
+      function renderBatchQualityResult(state = batchQualityState) {
+        if (!state) return;
+        const { textCount, ttsCount, total } = batchQualityCounts(state);
+        if (!total) {
+          renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック結果</strong><span>修正候補 0件</span></div>`);
+          return;
+        }
+        renderAutoTextQualityStatus(`
+          <div class="applied warn"><strong>品質チェック結果</strong><span>修正候補 ${total}件</span><span>Text ${textCount}件 / TTS ${ttsCount}件</span></div>
+          <div class="issues">
+            ${state.textFixes.map(({ fileName, fix }) => `
+              <article class="issue warning">
+                <label class="checkline"><input type="checkbox" checked data-batch-fix value="${escapeHtml(batchFixKey("text", fileName, fix.id))}" /><span><span class="badge warn">Text</span> <strong>${escapeHtml(fileName)} / ${escapeHtml(fix.location?.unitId || "-")}</strong></span></label>
+                <div class="excerpt">${escapeHtml(fix.before || "")}</div>
+                <p>→ ${escapeHtml(fix.suggestedAfter || "")}</p>
+              </article>
+            `).join("")}
+            ${state.ttsFixes.map(({ fileName, fix }) => `
+              <article class="issue">
+                <label class="checkline"><input type="checkbox" checked data-batch-fix value="${escapeHtml(batchFixKey("tts", fileName, fix.id))}" /><span><span class="badge info">TTS</span> <strong>${escapeHtml(fileName)} / ${escapeHtml(fix.location?.unitId || "-")}</strong></span></label>
+                <div class="excerpt">${escapeHtml(fix.before || "")}</div>
+                <p>→ ${escapeHtml(fix.after || "")}</p>
+              </article>
+            `).join("")}
+          </div>
+          <div class="actions"><button id="applyBatchQualityFixBtn" type="button">選択した修正を適用</button></div>
+        `);
+        $("applyBatchQualityFixBtn")?.addEventListener("click", applySelectedBatchQualityFixes);
+        $$("[data-batch-fix]").forEach((input) => input.addEventListener("change", updateBatchQualityApplyAvailability));
+        updateBatchQualityApplyAvailability();
+      }
+
+      function selectedBatchFixKeys() {
+        return $$("[data-batch-fix]:checked").map((input) => splitBatchFixKey(input.value));
+      }
+
+      function updateBatchQualityApplyAvailability() {
+        const button = $("applyBatchQualityFixBtn");
+        if (button) button.disabled = isBusy || selectedBatchFixKeys().length === 0;
+      }
+
+      function findUnit(content, unitId) {
+        const items = content?.type === "document" ? content.documents : content?.questions;
+        return (items || []).find((item) => item?.id === unitId) || null;
+      }
+
+      function applyTtsFixToJson(content, fix) {
+        const unit = findUnit(content, fix.location?.unitId);
+        if (!unit) return false;
+        unit.tts = unit.tts && typeof unit.tts === "object" ? unit.tts : {};
+        const field = fix.field || fix.location?.field || "";
+        if (content.type === "document") {
+          unit.tts.text = fix.after;
+          return true;
+        }
+        if (field.includes("choiceTexts")) {
+          const index = Number((field.match(/\d+/) || [])[0]);
+          if (!Number.isInteger(index)) return false;
+          const choices = unit.choices || [];
+          const current = Array.isArray(unit.tts.choiceTexts) ? unit.tts.choiceTexts : [];
+          unit.tts.choiceTexts = Array.from({ length: choices.length }, (_item, itemIndex) => current[itemIndex] || "");
+          unit.tts.choiceTexts[index] = fix.after;
+          return true;
+        }
+        if (field.includes("explanation")) {
+          unit.tts.explanationText = fix.after;
+          return true;
+        }
+        unit.tts.questionText = fix.after;
+        return true;
+      }
+
+      function issueForTtsFix(record, fix) {
+        const index = Number((String(fix.id || "").match(/\d+/) || [])[0]) - 1;
+        return Number.isInteger(index) ? (record.ttsCheck?.issues || [])[index] || null : null;
+      }
+
+      function autoQualityTargetLog(pack) {
+        return {
+          contentId: pack?.contentId,
+          versionId: pack?.versionId,
+          kind: pack?.kind,
+          packName: pack?.packName,
+          fileUrl: pack?.url,
+          storagePrefix: pack?.storagePrefix,
+          title: pack?.title || pack?.manifestTitle
+        };
+      }
+
+      async function runBatchQualityWorkflow(generated) {
+        const targets = generatedQualityTargets(generated);
+        batchQualityState = null;
+        if (!targets.length) {
+          renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック結果</strong><span>修正候補 0件</span></div>`);
+          return;
+        }
+        renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック実行中...</strong><span>保存済みパックを確認しています。</span></div>`);
+        setProgress("品質チェック", "実行中", "生成成功後の一次チェックを実行しています。");
+        try {
+          const state = { generated, records: [], textFixes: [], ttsFixes: [] };
+          console.info("auto quality check started", {
+            generationUnit: generated?.plan?.generationUnit,
+            contentId: generated?.manifest?.contentId,
+            versionId: generated?.manifest?.versionId,
+            documentCount: targets.filter((pack) => pack.kind === "document").length,
+            quizCount: targets.filter((pack) => pack.kind === "quiz").length,
+            targets: targets.map(autoQualityTargetLog)
+          });
+          for (const pack of targets) {
+            console.info("auto quality text-check request", {
+              fileType: pack.kind,
+              fileId: pack.logicalId || pack.packName,
+              target: recordingTarget(pack)
+            });
+            const textCheck = await requestJson("/quality/text-check", { target: recordingTarget(pack) });
+            console.info("auto quality text-check response", { fileId: pack.logicalId || pack.packName, issueCount: textCheck.issues?.length || 0 });
+            const ttsCheck = await requestJson("/quality/tts-check", { target: recordingTarget(pack) });
+            const textIssues = textCheck.issues || [];
+            const ttsIssues = ttsCheck.issues || [];
+            const textFix = textIssues.length ? await requestJson("/quality/text-fix", { target: recordingTarget(pack), issues: textIssues }) : null;
+            const ttsFix = ttsIssues.length ? await requestJson("/quality/tts-fix", { target: recordingTarget(pack), issues: ttsIssues }) : null;
+            const record = { pack, textCheck, ttsCheck, textFix, ttsFix };
+            state.records.push(record);
+            (textFix?.pendingFixes || []).forEach((fix) => state.textFixes.push({ fileName: pack.packName, pack, record, fix }));
+            (ttsFix?.appliedFixes || []).forEach((fix) => state.ttsFixes.push({ fileName: pack.packName, pack, record, fix }));
+            if (selectedPack && packIdentityMatches(pack, selectedPack, true)) {
+              lastTextCheckResult = textCheck;
+              lastTtsCheckResult = ttsCheck;
+              lastTextFixResult = null;
+              lastTextApplyResult = null;
+              lastTtsFixResult = null;
+              renderQualityIssues("textQualityResult", textCheck, "text");
+            }
+          }
+          batchQualityState = state;
+          renderBatchQualityResult(state);
+          setBadge("qualityBadge", "チェック済み", "info");
+          const { total } = batchQualityCounts(state);
+          finishProgress("品質チェック", `${total}件の修正候補を取得しました。`);
+        } catch (error) {
+          console.error("auto quality check failed", {
+            message: error?.message,
+            stack: error?.stack,
+            targets: targets.map(autoQualityTargetLog)
+          });
+          renderAutoTextQualityStatus(`<p class="error">品質チェックを実行できませんでした。</p>`);
+          setProgress("品質チェック", "失敗", "品質チェックを実行できませんでした。", 1);
+        } finally {
+          updateQualityWorkflowUI();
+        }
+      }
+
+      async function applySelectedBatchQualityFixes() {
+        if (!batchQualityState) return;
+        const selected = selectedBatchFixKeys();
+        if (!selected.length) return;
+        setBusy(true, "Applying quality fixes...");
+        setProgress("品質修正", "適用中", "選択した修正だけを一括適用しています。");
+        try {
+          const selectedTextIds = new Set(selected.filter((item) => item.type === "text").map((item) => batchFixKey(item.type, item.fileName, item.id)));
+          const selectedTtsIds = new Set(selected.filter((item) => item.type === "tts").map((item) => batchFixKey(item.type, item.fileName, item.id)));
+          const textChangedUnits = new Set();
+          const filesToSave = [];
+          const appliedTtsFixes = [];
+
+          for (const record of batchQualityState.records) {
+            let finalJson = null;
+            const selectedTextFixIds = (record.textFix?.pendingFixes || [])
+              .filter((fix) => selectedTextIds.has(batchFixKey("text", record.pack.packName, fix.id)))
+              .map((fix) => fix.id);
+            if (selectedTextFixIds.length) {
+              const applied = await requestJson("/quality/text-fix/apply", {
+                updatedJson: record.textFix.updatedJson,
+                pendingFixes: record.textFix.pendingFixes || [],
+                approvedIds: selectedTextFixIds
+              });
+              finalJson = applied.finalJson;
+              (record.textFix.pendingFixes || [])
+                .filter((fix) => applied.appliedApprovedIds.includes(fix.id))
+                .forEach((fix) => textChangedUnits.add(unitKey(record.pack.packName, fix.location?.unitId)));
+            }
+
+            const selectedTtsEntries = (record.ttsFix?.appliedFixes || [])
+              .filter((fix) => selectedTtsIds.has(batchFixKey("tts", record.pack.packName, fix.id)))
+              .filter((fix) => !textChangedUnits.has(unitKey(record.pack.packName, fix.location?.unitId)))
+              .map((fix) => ({ fix, issue: issueForTtsFix(record, fix) }))
+              .filter((entry) => entry.issue);
+            if (selectedTtsEntries.length) {
+              const selectedTtsFix = await requestJson("/quality/tts-fix", {
+                target: recordingTarget(record.pack),
+                issues: selectedTtsEntries.map((entry) => entry.issue)
+              });
+              if (finalJson) {
+                for (const fix of selectedTtsFix.appliedFixes || []) {
+                  if (applyTtsFixToJson(finalJson, fix)) appliedTtsFixes.push(fix);
+                }
+              } else {
+                finalJson = selectedTtsFix.updatedJson;
+                appliedTtsFixes.push(...(selectedTtsFix.appliedFixes || []));
+              }
+            }
+
+            const changed = Boolean(finalJson);
+            if (changed) filesToSave.push({ name: record.pack.packName, kind: record.pack.kind, content: finalJson });
+          }
+
+          if (!filesToSave.length) throw new Error("適用する修正がありません。");
+          const firstTarget = batchQualityState.records[0]?.pack || selectedPack;
+          const saved = await requestJson("/quality/save-version", {
+            target: recordingTarget(firstTarget),
+            files: filesToSave,
+            appliedFixes: appliedTtsFixes
+          });
+          await loadPacks({ keepSelection: false });
+          const nextPack = currentPacks.find((pack) => pack.contentId === firstTarget.contentId && pack.versionId === saved.newVersionId)
+            || currentPacks.find((pack) => pack.contentId === firstTarget.contentId)
+            || selectedPack;
+          if (nextPack) await selectPack(nextPack);
+          renderAutoTextQualityStatus(`<div class="applied"><strong>品質修正を適用しました</strong><span>Revision: R${escapeHtml(nextPack?.revision || "-")}</span></div>`);
+          setBadge("qualityBadge", "修正済み", "success");
+          finishProgress("品質修正", `Revision: R${nextPack?.revision || "-"}`);
+        } catch (error) {
+          console.error("auto quality fix apply failed", {
+            message: error?.message,
+            stack: error?.stack,
+            targets: batchQualityState.records.map((record) => autoQualityTargetLog(record.pack))
+          });
+          renderAutoTextQualityStatus(`<p class="error">品質修正の適用に失敗しました。</p>`);
+          setProgress("品質修正", "失敗", "品質修正の適用に失敗しました。", 1);
+        } finally {
+          setBusy(false);
+          updateBatchQualityApplyAvailability();
+          updateQualityWorkflowUI();
+        }
+      }
+
       function renderQualityFixResult(data, targetId) {
         const pending = data.pendingFixes || [];
         const applied = data.appliedFixes || [];
@@ -2772,12 +3051,14 @@
       }
 
       function renderGeneratedResult(generated) {
+        batchQualityState = null;
         const manifestUrl = generated.files?.find((file) => file.kind === "manifest")?.url || generated.manifest?.manifestUrl || "";
         const shareUrl = manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(manifestUrl)}` : "";
         $("result").innerHTML = `
           <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.status)}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${generated.validation?.valid ? "ok" : "ng"}</strong></div></div>
           <div class="url"><code>${escapeHtml(manifestUrl || "not persisted")}</code>${manifestUrl ? `<a class="button secondary" href="${escapeHtml(manifestUrl)}" target="_blank" rel="noreferrer">manifest</a>` : ""}</div>
           ${shareUrl ? `<div class="url"><code id="shareUrl">${escapeHtml(shareUrl)}</code><button class="secondary" id="copyShareUrlBtn" type="button">URLコピー</button></div><div id="qrcode"></div>` : ""}
+          <div id="autoTextQualityResult" class="stack"><div class="applied"><strong>品質チェック</strong><span>${isAutoQualityFixEnabled() ? "生成成功後に実行します。" : "自動品質チェックはOFFです。"}</span></div></div>
           <div class="actions"><a class="button" href="/jobs/${escapeHtml(generated.jobId)}" target="_blank" rel="noreferrer">job JSONを見る</a><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
           <ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`;
         if (shareUrl && window.QRCode) new QRCode($("qrcode"), { text: shareUrl, width: 260, height: 260 });
@@ -2842,11 +3123,15 @@
           currentJobId = generated.jobId;
           renderGeneratedResult(generated);
           await loadPacks({ keepSelection: false });
-          const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId) || currentPacks[0];
+          const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId && pack.versionId === generated.manifest?.versionId)
+            || currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId)
+            || currentPacks[0];
           if (first) await selectPack(first);
           setBadge("genBadge", "生成済み", "success");
-          setBadge("qualityBadge", "未チェック", "warn");
           finishProgress("生成", "生成済みパックを対象に設定しました。");
+          if (isAutoQualityFixEnabled()) {
+            await runBatchQualityWorkflow(generated);
+          }
         } catch (error) {
           showResultError("生成を完了できませんでした", error.message);
           setProgress("生成", "失敗", error.message, 1);

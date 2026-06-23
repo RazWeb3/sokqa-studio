@@ -301,6 +301,13 @@ Categories:
 - style: awkward style for learner-facing text, hearsay wording such as "ドキュメントによると" or "記載されています".
 - leak: quiz explanation memo leakage, internal notes, prompt residue, placeholders, or authoring comments.
 
+Target fields:
+- document.documents[].text
+- quiz.questions[].question
+- quiz.questions[].choices[]
+- quiz.questions[].explanation
+- Ignore all tts fields, audio fields, and TTS-only text such as tts.text, tts.questionText, tts.choiceTexts, and tts.explanationText.
+
 Notation rule:
 - Report notation only when it is a display text quality issue by describing it under style/leak if appropriate. Spoken-reading notation belongs to the TTS quality check, not this check.
 """.strip()

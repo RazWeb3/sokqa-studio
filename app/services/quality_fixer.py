@@ -321,6 +321,7 @@ def save_quality_fix_version(
     changed_files: list[ChangedPackFile] = []
     changed_units: list[ChangedUnit] = []
     manifest_rerecord_units: list[ManifestReRecordNeededUnit] = []
+    text_changed_unit_keys: set[tuple[str, str | None]] = set()
     for file in files:
         content = copy.deepcopy(file.content)
         if content.get("type") != file.kind:
@@ -330,26 +331,29 @@ def save_quality_fix_version(
         if raw_changed_units:
             text_changed = True
             for unit in raw_changed_units:
+                text_changed_unit_keys.add((file.name, unit.unitId))
                 _reset_unit_tts(content, QualityLocation(fileName=file.name, unitId=unit.unitId, field=unit.fields[0] if unit.fields else None))
                 manifest_rerecord_units.append(
                     ManifestReRecordNeededUnit(fileName=file.name, unitId=unit.unitId, reason="text_changed")
                 )
             changed_units.extend(raw_changed_units)
-        else:
-            for fix in applied_fixes:
-                if fix.location.fileName == file.name:
-                    _clear_audio_for_tts_fix(content, fix.location)
-                    manifest_rerecord_units.append(
-                        ManifestReRecordNeededUnit(fileName=file.name, unitId=fix.location.unitId, reason="tts_changed")
-                    )
-                    changed_units.append(
-                        ChangedUnit(
-                            fileName=file.name,
-                            unitId=fix.location.unitId,
-                            fields=[fix.field],
-                            category=fix.category,
-                        )
-                    )
+        for fix in applied_fixes:
+            if fix.location.fileName != file.name:
+                continue
+            if (file.name, fix.location.unitId) in text_changed_unit_keys:
+                continue
+            _clear_audio_for_tts_fix(content, fix.location)
+            manifest_rerecord_units.append(
+                ManifestReRecordNeededUnit(fileName=file.name, unitId=fix.location.unitId, reason="tts_changed")
+            )
+            changed_units.append(
+                ChangedUnit(
+                    fileName=file.name,
+                    unitId=fix.location.unitId,
+                    fields=[fix.field],
+                    category=fix.category,
+                )
+            )
         _validate_pack_json(file.name, content)
         logical_id = _logical_id_from_file_name(file.name)
         current_item = _manifest_item_for_target(current_manifest, file.name, logical_id)

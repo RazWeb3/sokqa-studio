@@ -297,3 +297,114 @@ def test_json_zip_export_ui_is_available_for_selected_pack() -> None:
     assert "function exportJsonZip()" in html
     assert 'requestBlob("/packs/export-json-zip", recordingTarget(selectedPack))' in html
     assert "application/zip" not in html
+
+
+def test_generate_flow_exposes_auto_quality_fix_opt_in_and_defaults_off() -> None:
+    html = _html()
+
+    assert 'id="autoQualityFixAfterGenerate" type="checkbox"' in html
+    assert "生成後に自動品質チェック・修正提案を行う" in html
+    assert "時間がかかります。修正は選択後に適用します。" in html
+    assert html.index('id="customInstructions"') < html.index('id="suggestConditionsStandaloneBtn"') < html.index('id="planBtn"')
+    assert html.index('id="planBtn"') < html.index('id="autoQualityFixAfterGenerate"') < html.index('id="generateBtn"')
+    assert html.index('id="ttsReadingMode"') < html.index('id="autoQualityFixAfterGenerate"')
+    assert 'id="autoTextQualityResult"' in html
+    assert "自動品質チェックはOFFです。" in html
+    assert 'if (isAutoQualityFixEnabled()) {' in html
+    assert "await runBatchQualityWorkflow(generated);" in html
+    assert 'checked id="autoQualityFixAfterGenerate"' not in html
+
+
+def test_generate_flow_runs_batch_quality_after_success_when_enabled() -> None:
+    html = _html()
+
+    assert "品質チェック実行中..." in html
+    assert "finishProgress(\"生成\", \"生成済みパックを対象に設定しました。\")" in html
+    assert html.index("finishProgress(\"生成\", \"生成済みパックを対象に設定しました。\")") < html.index("await runBatchQualityWorkflow(generated);")
+
+
+def test_batch_quality_uses_existing_text_and_tts_check_fix_apis() -> None:
+    html = _html()
+    start = html.index("async function runBatchQualityWorkflow")
+    end = html.index("async function applySelectedBatchQualityFixes", start)
+    auto_check_html = html[start:end]
+
+    assert "loadPackJson" not in auto_check_html
+    assert "requestGet" not in auto_check_html
+    assert "selectedFileJsonUrl" not in auto_check_html
+    assert 'requestJson("/quality/text-check", { target: recordingTarget(pack) })' in auto_check_html
+    assert 'requestJson("/quality/tts-check", { target: recordingTarget(pack) })' in auto_check_html
+    assert 'requestJson("/quality/text-fix", { target: recordingTarget(pack), issues: textIssues })' in auto_check_html
+    assert 'requestJson("/quality/tts-fix", { target: recordingTarget(pack), issues: ttsIssues })' in auto_check_html
+    assert "console.error(\"auto quality check failed\"" in auto_check_html
+    assert "品質チェックを実行できませんでした。" in auto_check_html
+    assert 'setProgress("品質チェック", "失敗", "品質チェックを実行できませんでした。", 1);' in auto_check_html
+
+
+def test_batch_quality_does_not_fetch_public_pack_json_for_gcs_or_localhost_urls() -> None:
+    html = _html()
+    start = html.index("function generatedQualityTargets")
+    end = html.index("function renderQualityFixResult", start)
+    batch_html = html[start:end]
+
+    assert "async function loadPackJson" not in html
+    assert "originalJson" not in batch_html
+    assert "requestGet(url)" not in batch_html
+    assert "selectedFileJsonUrl(pack)" not in batch_html
+    assert 'fileUrl: pack?.url' in batch_html
+    assert 'storagePrefix: pack?.storagePrefix' in batch_html
+
+
+def test_batch_quality_displays_text_and_tts_fix_candidates() -> None:
+    html = _html()
+    start = html.index("function renderBatchQualityResult")
+    end = html.index("function selectedBatchFixKeys", start)
+    render_html = html[start:end]
+
+    assert "修正候補 0件" in render_html
+    assert "修正候補 ${total}件" in render_html
+    assert "Text ${textCount}件 / TTS ${ttsCount}件" in render_html
+    assert 'data-batch-fix' in render_html
+    assert "選択した修正を適用" in render_html
+
+
+def test_auto_text_quality_targets_only_generated_document_and_quiz_files() -> None:
+    html = _html()
+    start = html.index("function generatedQualityTargets")
+    end = html.index("function renderAutoTextQualityStatus", start)
+    targets_html = html[start:end]
+
+    assert "pack.contentId === contentId" in targets_html
+    assert "pack.versionId === versionId" in targets_html
+    assert '["document", "quiz"].includes(pack.kind)' in targets_html
+    assert "pack.packName" in targets_html
+
+
+def test_batch_quality_apply_orders_text_before_tts_and_saves_once() -> None:
+    html = _html()
+    start = html.index("async function applySelectedBatchQualityFixes")
+    end = html.index("function renderQualityFixResult", start)
+    apply_html = html[start:end]
+
+    assert 'requestJson("/quality/text-fix/apply", {' in apply_html
+    assert "textChangedUnits.add(unitKey(record.pack.packName, fix.location?.unitId))" in apply_html
+    assert ".filter((fix) => !textChangedUnits.has(unitKey(record.pack.packName, fix.location?.unitId)))" in apply_html
+    assert "applyTtsFixToJson(finalJson, fix)" in apply_html
+    assert 'requestJson("/quality/tts-fix", {' in apply_html
+    assert "issues: selectedTtsEntries.map((entry) => entry.issue)" in apply_html
+    assert 'requestJson("/quality/save-version", {' in apply_html
+    assert "console.error(\"auto quality fix apply failed\"" in apply_html
+    assert "品質修正を適用しました" in apply_html
+    assert "品質修正の適用に失敗しました。" in apply_html
+    assert apply_html.index('requestJson("/quality/text-fix/apply", {') < apply_html.index('requestJson("/quality/save-version", {')
+
+
+def test_manual_text_quality_check_still_uses_existing_flow() -> None:
+    html = _html()
+    start = html.index("async function runTextCheck")
+    end = html.index("async function runTextFix", start)
+    manual_html = html[start:end]
+
+    assert 'lastTextCheckResult = await requestJson("/quality/text-check", { target: recordingTarget(selectedPack) });' in manual_html
+    assert 'renderQualityIssues("textQualityResult", lastTextCheckResult, "text");' in manual_html
+    assert 'setBadge("qualityBadge", "チェック済み", "info");' in manual_html

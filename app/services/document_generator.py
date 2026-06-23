@@ -1,3 +1,5 @@
+from math import ceil
+
 from app.schemas.sokqa import CoursePlan, PlanDocument, SokqaDocumentItem, SokqaDocumentPack
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
@@ -9,31 +11,64 @@ from app.services.tagging import document_global_tags
 from app.services.tts_text import normalize_tts_text
 
 
+STRICT_MAX_DOCUMENT_FILES = 50
+STRICT_MAX_SECTIONS_PER_FILE = 50
+
+
 def _source_paragraphs(source_text: str) -> list[str]:
     paragraphs = [part.strip() for part in source_text.replace("\r\n", "\n").split("\n\n")]
     return [paragraph for paragraph in paragraphs if paragraph]
 
 
-def _chunk_paragraphs(paragraphs: list[str], target_count: int) -> list[str]:
-    if not paragraphs:
+def _balanced_chunks(items: list[str], chunk_count: int) -> list[list[str]]:
+    if not items:
         return []
-    chunk_count = max(1, min(target_count, len(paragraphs)))
-    base_size, remainder = divmod(len(paragraphs), chunk_count)
-    chunks: list[str] = []
+    chunk_count = max(1, min(chunk_count, len(items)))
+    base_size, remainder = divmod(len(items), chunk_count)
+    chunks: list[list[str]] = []
     start = 0
     for index in range(chunk_count):
         size = base_size + (1 if index < remainder else 0)
         end = start + size
-        chunks.append("\n\n".join(paragraphs[start:end]))
+        chunks.append(items[start:end])
         start = end
     return chunks
 
 
-def generate_strict_source_document_pack(plan: CoursePlan, document: PlanDocument) -> SokqaDocumentPack:
+def strict_source_paragraphs(source_text: str) -> list[str]:
+    return _source_paragraphs(source_text)
+
+
+def split_strict_source_sections(paragraphs: list[str]) -> list[list[str]]:
+    if not paragraphs:
+        return []
+    file_count = max(1, ceil(len(paragraphs) / STRICT_MAX_SECTIONS_PER_FILE))
+    return _balanced_chunks(paragraphs, file_count)
+
+
+def strict_source_file_count(source_text: str) -> int:
+    paragraphs = strict_source_paragraphs(source_text)
+    if not paragraphs and source_text.strip():
+        paragraphs = [source_text.strip()]
+    return len(split_strict_source_sections(paragraphs))
+
+
+def strict_source_limit_error(file_count: int) -> str | None:
+    if file_count <= STRICT_MAX_DOCUMENT_FILES:
+        return None
+    return (
+        f"資料が大きすぎます（推定{file_count}ファイル）。"
+        f"{STRICT_MAX_DOCUMENT_FILES}ファイル以内に収まるよう資料を分割して投入してください。"
+    )
+
+
+def generate_strict_source_document_pack(
+    plan: CoursePlan,
+    document: PlanDocument,
+    sections: list[str] | None = None,
+) -> SokqaDocumentPack:
     source_text = (plan.sourceText or "").strip()
-    paragraphs = _source_paragraphs(source_text) or [source_text]
-    target_count = max(1, min(document.targetSectionCount or 42, 50))
-    sections = _chunk_paragraphs(paragraphs, target_count)
+    sections = sections if sections is not None else (_source_paragraphs(source_text) or [source_text])
     items = [
         SokqaDocumentItem(id=f"doc-{index}", text=text)
         for index, text in enumerate(sections, start=1)

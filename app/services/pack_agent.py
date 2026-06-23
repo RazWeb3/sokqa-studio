@@ -3,9 +3,16 @@ import logging
 from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
 from app.schemas.common import normalize_tts_reading_mode, source_mode_for_material_mode
-from app.schemas.sokqa import CoursePlan, GeneratePackResponse, GeneratedFile
+from app.schemas.sokqa import CoursePlan, GeneratePackResponse, GeneratedFile, PlanDocument
 from app.config import get_settings
-from app.services.document_generator import generate_document_pack, generate_strict_source_document_pack
+from app.services.document_generator import (
+    STRICT_MAX_DOCUMENT_FILES,
+    generate_document_pack,
+    generate_strict_source_document_pack,
+    split_strict_source_sections,
+    strict_source_limit_error,
+    strict_source_paragraphs,
+)
 from app.services.exporter import build_generated_files
 from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
@@ -179,6 +186,52 @@ def _apply_generation_controls(plan: CoursePlan, request: GeneratePackRequest) -
     return plan.model_copy(update={"docCount": doc_count, "quizCount": quiz_count, "documents": documents, "quizPacks": quiz_packs})
 
 
+def _strict_source_plan_documents(plan: CoursePlan, chunks: list[list[str]]) -> list[PlanDocument]:
+    return [
+        PlanDocument(
+            id=f"doc_{index:02d}",
+            title=f"{plan.shortTitle or plan.title} {index}. 資料ファイル {index}",
+            goal=f"元資料の段落{start + 1}〜{end}を改変せずに格納する",
+            keyPoints=[],
+            targetSectionCount=len(chunk),
+        )
+        for index, (chunk, start, end) in enumerate(_chunks_with_offsets(chunks), start=1)
+    ]
+
+
+def _chunks_with_offsets(chunks: list[list[str]]) -> list[tuple[list[str], int, int]]:
+    offset = 0
+    indexed = []
+    for chunk in chunks:
+        start = offset
+        offset += len(chunk)
+        indexed.append((chunk, start, offset))
+    return indexed
+
+
+def _strict_source_chunks_or_error(source_text: str) -> list[list[str]]:
+    paragraphs = strict_source_paragraphs(source_text) or [source_text.strip()]
+    chunks = split_strict_source_sections(paragraphs)
+    error = strict_source_limit_error(len(chunks))
+    if error:
+        raise RuntimeError(error)
+    return chunks
+
+
+def _apply_strict_source_layout(plan: CoursePlan, chunks: list[list[str]]) -> CoursePlan:
+    return plan.model_copy(
+        update={
+            "documents": _strict_source_plan_documents(plan, chunks),
+            "docCount": None,
+            "quizCount": 0 if plan.generationUnit == "document" else plan.quizCount,
+            "strictSourceSectionCount": sum(len(chunk) for chunk in chunks),
+            "strictSourceFileCount": len(chunks),
+            "strictSourceMaxFiles": STRICT_MAX_DOCUMENT_FILES,
+            "strictSourceLimitExceeded": False,
+        }
+    )
+
+
 def _effective_tts_mode(plan: CoursePlan, requested_mode=None):
     requested_mode = normalize_tts_reading_mode(requested_mode)
     if requested_mode:
@@ -242,8 +295,16 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     logs.append(f"Model quiz: {models.quiz}")
 
     if plan.materialMode == "strict" and source_text:
-        logs.append("Generating Documents from source material (strict)")
-        document_packs = [generate_strict_source_document_pack(plan, document) for document in plan.documents]
+        strict_chunks = _strict_source_chunks_or_error(source_text)
+        plan = _apply_strict_source_layout(plan, strict_chunks)
+        logs.append(
+            "Generating Documents from source material "
+            f"(strict: {len(strict_chunks)} files / {sum(len(chunk) for chunk in strict_chunks)} sections)"
+        )
+        document_packs = [
+            generate_strict_source_document_pack(plan, document, sections=sections)
+            for document, sections in zip(plan.documents, strict_chunks)
+        ]
     else:
         logs.append("Generating Documents")
         document_packs = [generate_document_pack(plan, document, model=models.document) for document in plan.documents]

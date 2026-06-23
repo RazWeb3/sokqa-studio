@@ -148,6 +148,10 @@ def test_generation_policy_unit_and_material_controls_are_available_and_sent() -
     assert 'id="answerPositionMode" type="hidden" value="balanced"' in html
     assert '$("countControls").hidden = unit === "pack";' in html
     assert "function generationControlsPayload()" in html
+    assert "strictSourceFileCount" in html
+    assert "strict推定" in html
+    assert "strictMaxFiles" in html
+    assert "ファイル以内に収まるよう資料を分割" in html
     assert "...generationControlsPayload()," in html
     assert "syncGenerationControlsToPlan(plan)" in html
     assert html.index('id="language"') < html.index('id="customInstructions"') < html.index('id="generationUnit"')

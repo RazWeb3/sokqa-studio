@@ -197,6 +197,86 @@ def test_strict_document_generation_accepts_short_source_and_preserves_paragraph
     assert texts == ["第一段落の本文です。\n改行は本文内に残します。", "第二段落の本文です。"]
 
 
+def test_strict_large_source_splits_into_multiple_document_files_in_one_manifest() -> None:
+    source_paragraphs = [f"原文段落{i:04d}" for i in range(1, 121)]
+    source_text = "\n\n".join(source_paragraphs)
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="大きな資料",
+            targetUser="読者",
+            generationUnit="document",
+            sourceText=source_text,
+            materialMode="strict",
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    document_files = [file for file in generated.files if file.kind == "document"]
+    actual_texts = [
+        item["text"]
+        for file in document_files
+        for item in file.content["documents"]
+    ]
+
+    assert generated.validation.valid is True
+    assert generated.plan.strictSourceFileCount == 3
+    assert generated.plan.strictSourceSectionCount == 120
+    assert len(document_files) == 3
+    assert len(generated.manifest.items) == 3
+    assert [len(file.content["documents"]) for file in document_files] == [40, 40, 40]
+    assert actual_texts == source_paragraphs
+
+
+def test_strict_source_allows_exactly_50_document_files() -> None:
+    source_text = "\n\n".join([f"段落{i:04d}" for i in range(1, 2501)])
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="50ファイル資料",
+            targetUser="読者",
+            generationUnit="document",
+            sourceText=source_text,
+            materialMode="strict",
+            ttsReadingMode="none",
+        )
+    )
+
+    generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    document_files = [file for file in generated.files if file.kind == "document"]
+
+    assert generated.validation.valid is True
+    assert generated.plan.strictSourceFileCount == 50
+    assert len(document_files) == 50
+    assert len(generated.manifest.items) == 50
+    assert all(len(file.content["documents"]) == 50 for file in document_files)
+
+
+def test_strict_source_stops_when_document_file_count_exceeds_50() -> None:
+    source_text = "\n\n".join([f"段落{i:04d}" for i in range(1, 2502)])
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="51ファイル資料",
+            targetUser="読者",
+            generationUnit="document",
+            sourceText=source_text,
+            materialMode="strict",
+            ttsReadingMode="none",
+        )
+    )
+
+    try:
+        generate_pack(GeneratePackRequest(plan=plan, persist=False))
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("strict source generation must stop when the file count exceeds 50")
+
+    assert plan.strictSourceFileCount == 51
+    assert plan.strictSourceLimitExceeded is True
+    assert "資料が大きすぎます（推定51ファイル）" in message
+    assert "50ファイル以内" in message
+
+
 def test_generate_request_can_override_generation_counts() -> None:
     plan = plan_pack(
         PlanPackRequest(

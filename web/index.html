@@ -989,6 +989,10 @@
         const showReadingPatterns = usesReadingPatterns() && patterns.length;
         const documents = Array.isArray(plan.documents) ? plan.documents : [];
         const quizPacks = Array.isArray(plan.quizPacks) ? plan.quizPacks : [];
+        const strictFileCount = plan.strictSourceFileCount;
+        const strictSectionCount = plan.strictSourceSectionCount;
+        const strictMaxFiles = plan.strictSourceMaxFiles || 50;
+        const showStrictStats = (plan.materialMode === "strict") && (strictFileCount || strictSectionCount);
         $("planPreview").innerHTML = `
           <section class="plan-card">
             <h4>${escapeHtml(plan.title || "無題のパック")}</h4>
@@ -1000,7 +1004,14 @@
               <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(plan.structurePolicy || "standard")}</strong></div>
               <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(plan.generationUnit || "pack")}</strong></div>
               <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(plan.materialMode || "reference")}</strong></div>
+              ${showStrictStats ? `<div class="plan-meta"><span>strict推定</span><strong>${escapeHtml(strictFileCount || "-")}ファイル / ${escapeHtml(strictSectionCount || "-")}セクション</strong></div>` : ""}
             </div>
+            ${showStrictStats && plan.strictSourceLimitExceeded ? `
+              <div class="issue warn">
+                <div class="issue-top"><span class="issue-title">資料が大きすぎます</span><span class="badge danger">上限超過</span></div>
+                <p>推定${escapeHtml(strictFileCount)}ファイルです。${escapeHtml(strictMaxFiles)}ファイル以内に収まるよう資料を分割して投入してください。</p>
+              </div>
+            ` : ""}
           </section>
           <section class="plan-card">
             <h4>章構成</h4>

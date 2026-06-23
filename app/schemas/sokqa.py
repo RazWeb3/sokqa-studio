@@ -84,6 +84,10 @@ class CoursePlan(BaseModel):
     plannerModel: str | None = None
     sourceText: str | None = None
     sourceMode: SourceMode | None = None
+    strictSourceSectionCount: int | None = None
+    strictSourceFileCount: int | None = None
+    strictSourceMaxFiles: int | None = None
+    strictSourceLimitExceeded: bool = False
     globalTags: list[str] = Field(default_factory=list)
     documents: list[PlanDocument]
     quizPacks: list[PlanQuizPack]

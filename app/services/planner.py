@@ -7,6 +7,12 @@ from app.schemas.common import ReadingPattern, normalize_tts_reading_mode, sourc
 from app.schemas.request import PlanPackRequest, QuizPackSpec
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack
 from app.services.gemini_client import GeminiClient
+from app.services.document_generator import (
+    STRICT_MAX_DOCUMENT_FILES,
+    split_strict_source_sections,
+    strict_source_limit_error,
+    strict_source_paragraphs,
+)
 from app.services.llm_json import LlmJsonParseContext
 from app.services.pack_metadata import resolve_creator_id
 from app.services.source_material import normalize_source, source_prompt_block
@@ -608,6 +614,35 @@ def _prefix_document_titles(documents: list[PlanDocument], short_title: str) -> 
     return titled_documents
 
 
+def _strict_source_documents(request: PlanPackRequest, source_text: str) -> list[PlanDocument]:
+    paragraphs = strict_source_paragraphs(source_text) or [source_text.strip()]
+    chunks = split_strict_source_sections(paragraphs)
+    return [
+        PlanDocument(
+            id=f"doc_{index:02d}",
+            title=f"資料ファイル {index}" if _is_ja(request.language) else f"Source File {index}",
+            goal=(
+                f"元資料の段落{start + 1}〜{end}を改変せずに格納する"
+                if _is_ja(request.language)
+                else f"Store source paragraphs {start + 1}-{end} without rewriting."
+            ),
+            keyPoints=[],
+            targetSectionCount=len(chunk),
+        )
+        for index, (chunk, start, end) in enumerate(_chunks_with_offsets(chunks), start=1)
+    ]
+
+
+def _chunks_with_offsets(chunks: list[list[str]]) -> list[tuple[list[str], int, int]]:
+    offset = 0
+    indexed = []
+    for chunk in chunks:
+        start = offset
+        offset += len(chunk)
+        indexed.append((chunk, start, offset))
+    return indexed
+
+
 def _document_index(document_id: str, document_ids: list[str]) -> int | None:
     try:
         return document_ids.index(document_id) + 1
@@ -932,6 +967,14 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     tts_rules = request.userTtsRules if request.includeTts else []
     if tts_mode != "llm":
         reading_patterns = []
+    strict_section_count = None
+    strict_file_count = None
+    strict_limit_exceeded = False
+    if request.materialMode == "strict" and source_text:
+        documents = _strict_source_documents(request, source_text)
+        strict_section_count = sum(document.targetSectionCount for document in documents)
+        strict_file_count = len(documents)
+        strict_limit_exceeded = strict_source_limit_error(strict_file_count) is not None
     documents = _prefix_document_titles(documents, short_title)
     quiz_packs = _title_quiz_packs(_build_quiz_packs(request, [document.id for document in documents]), documents, short_title, request.language)
 
@@ -973,6 +1016,10 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         plannerModel=request.plannerModel,
         sourceText=source_text,
         sourceMode=source_mode,
+        strictSourceSectionCount=strict_section_count,
+        strictSourceFileCount=strict_file_count,
+        strictSourceMaxFiles=STRICT_MAX_DOCUMENT_FILES if strict_file_count is not None else None,
+        strictSourceLimitExceeded=strict_limit_exceeded,
         documents=documents,
         quizPacks=quiz_packs,
         ttsRules=tts_rules,

@@ -1,0 +1,464 @@
+{
+  "items": [
+    {
+      "id": "q-1",
+      "questionText": "お客様からの問い合わせに対し、最初にかける挨拶として最も適切なものはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Give me your question."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Thank you for contacting us."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]What do you want?"
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I am busy now."
+        }
+      ],
+      "explanationText": "お客様が連絡をくれたことに対して感謝を伝える「[en-US]Thank you for contacting us.[ja-JP]」は、信頼関係を築くための基本となる丁寧な表現です。"
+    },
+    {
+      "id": "q-2",
+      "questionText": "「本日はどのようなご用件でしょうか？」と尋ねる際の丁寧な表現を選んでください。",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Who are you today?"
+        },
+        {
+          "index": 1,
+          "text": "[en-US]How may I help you today?"
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Why are you here?"
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Tell me your problem."
+        }
+      ],
+      "explanationText": "「[en-US]How may I help you today?[ja-JP]」は、カスタマーサポートにおいて相手の要望を伺う際に非常によく使われる標準的でプロフェッショナルなフレーズです。"
+    },
+    {
+      "id": "q-3",
+      "questionText": "不具合が発生しているお客様に対して、共感を示すのに適したフレーズはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]That is your fault."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]I don't care about it."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]It happens sometimes."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I am sorry for the inconvenience."
+        }
+      ],
+      "explanationText": "お客様が不便を感じているときには「[en-US]I am sorry for the inconvenience.[ja-JP]」と伝え、こちらの配慮を示すことが重要です。"
+    },
+    {
+      "id": "q-4",
+      "questionText": "本人確認などのためにアカウント アイディー を尋ねる際の適切な聞き方はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Account ID, please."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Where is your ID?"
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Could you please provide your account ID?"
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I need your ID."
+        }
+      ],
+      "explanationText": "「[en-US]Could you please provide your account ID?[ja-JP]」のように丁寧な依頼の形をとることで、お客様に威圧感を与えず情報を伺うことができます。"
+    },
+    {
+      "id": "q-5",
+      "questionText": "詳細を確認するために、お客様に少し待っていただく際の表現を選んでください。",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Wait a minute."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Please hold for a moment."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Stop talking."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Don't move."
+        }
+      ],
+      "explanationText": "「[en-US]Please hold for a moment.[ja-JP]」は、電話やチャットで状況を確認する際にお待ちいただくための礼儀正しい表現です。"
+    },
+    {
+      "id": "q-6",
+      "questionText": "お待たせした後に会話を再開する際の第一声として適切なものはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]I am back."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Did you wait?"
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Thank you for waiting."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Now I'm ready."
+        }
+      ],
+      "explanationText": "お待たせしたことへの感謝を込めて「[en-US]Thank you for waiting.[ja-JP]」と言うのが、サポートにおけるマナーです。"
+    },
+    {
+      "id": "q-7",
+      "questionText": "お客様の言っていることが正しいか確認したい時に使うフレーズはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Are you lying?"
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Say it again."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Let me make sure I understand correctly."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I don't believe you."
+        }
+      ],
+      "explanationText": "「[en-US]Let me make sure I understand correctly.[ja-JP]」は、自分の理解が合っているか確認し、誤解を防ぐために有効なクッション言葉です。"
+    },
+    {
+      "id": "q-8",
+      "questionText": "「それについてお調べいたします」と伝える際の表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]You should check it."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Maybe someone knows."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]I don't know yet."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I will look into this for you."
+        }
+      ],
+      "explanationText": "「[en-US]I will look into this for you.[ja-JP]」は、担当者が責任を持って調査を行う姿勢を示すポジティブな表現です。"
+    },
+    {
+      "id": "q-9",
+      "questionText": "対応の最後に、他に手伝えることがないか確認する際のフレーズを選んでください。",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Is there anything else I can assist you with?"
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Are you finished?"
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Goodbye now."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Don't call again."
+        }
+      ],
+      "explanationText": "「[en-US]Is there anything else I can assist you with?[ja-JP]」と聞くことで、お客様が抱えているかもしれない他の悩みも引き出すことができます。"
+    },
+    {
+      "id": "q-10",
+      "questionText": "調査に時間がかかっている際、お客様の忍耐に感謝する表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Hurry up."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]I am very slow."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Thank you for your patience."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Wait more."
+        }
+      ],
+      "explanationText": "時間がかかる場合に「[en-US]Thank you for your patience.[ja-JP]」と伝えることで、お客様のストレスを和らげ、協力的になってもらいやすくなります。"
+    },
+    {
+      "id": "q-11",
+      "questionText": "「喜んでお手伝いします」という前向きな姿勢を示すフレーズはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]I have to help you."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]It is my job."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]I'll be happy to assist you."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]If you say so."
+        }
+      ],
+      "explanationText": "「[en-US]I'll be happy to assist you.[ja-JP]」は、単なる業務としてではなく、自発的に助けたいという親切な印象を与えます。"
+    },
+    {
+      "id": "q-12",
+      "questionText": "返信が遅れてしまった際のお詫びとして最も適切なものはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]I forgot."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]You waited a long time."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]The server was down."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]We apologize for the delay."
+        }
+      ],
+      "explanationText": "返信が遅れたときには、理由を並べる前に「[en-US]We apologize for the delay.[ja-JP]」と謝罪することがビジネス上の基本です。"
+    },
+    {
+      "id": "q-13",
+      "questionText": "お客様からの要望に対し、後ほど連絡することを伝える表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Wait for a call."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Don't worry."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Someone will call you maybe."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I'll get back to you as soon as possible."
+        }
+      ],
+      "explanationText": "「[en-US]I'll get back to you as soon as possible.[ja-JP]」は、できるだけ早く回答を準備して連絡し直すことを約束する丁寧なフレーズです。"
+    },
+    {
+      "id": "q-14",
+      "questionText": "お客様が困っている状況に対して「お気持ちお察しします」と伝える表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]I understand your frustration."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]You are too angry."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]That's too bad."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]I don't feel anything."
+        }
+      ],
+      "explanationText": "「[en-US]I understand your frustration.[ja-JP]」は、お客様の不満や困惑した感情を認め、寄り添うために使われる共感の表現です。"
+    },
+    {
+      "id": "q-15",
+      "questionText": "問題解決のために詳細を教えてほしいと依頼する際の丁寧な表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Write more."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Could you please provide more details?"
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Explain everything."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Give me info."
+        }
+      ],
+      "explanationText": "具体的な情報を引き出すために「[en-US]Could you please provide more details?[ja-JP]」と丁寧に依頼することで、正確なサポートにつなげます。"
+    },
+    {
+      "id": "q-16",
+      "questionText": "サポートの質を向上させるため、フィードバックに感謝する表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]We appreciate your feedback."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]I don't need your opinion."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Thanks for the score."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Okay, I heard you."
+        }
+      ],
+      "explanationText": "「[en-US]We appreciate your feedback.[ja-JP]」は、お客様からの意見を大切にしていることを示す、非常にプロフェッショナルな挨拶です。"
+    },
+    {
+      "id": "q-17",
+      "questionText": "「ご不明な点がございましたらお知らせください」と伝える際の適切な表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Ask me later."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Search it yourself."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Do you have a problem?"
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Please let us know if you have any further questions."
+        }
+      ],
+      "explanationText": "「[en-US]Please let us know if you have any further questions.[ja-JP]」は、対応を締めくくる際に、継続的なサポートの意思を示す標準的な表現です。"
+    },
+    {
+      "id": "q-18",
+      "questionText": "別れの挨拶として「良い一日をお過ごしください」と添える場合の表現はどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]Finish your day."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]Have a wonderful day."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Go home now."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Bye bye."
+        }
+      ],
+      "explanationText": "「[en-US]Have a wonderful day.[ja-JP]」などの明るい挨拶で締めくくることは、お客様に最後に良い印象を残すために効果的です。"
+    },
+    {
+      "id": "q-19",
+      "questionText": "お客様の問題を把握するために「どのような問題が起きていますか？」と尋ねるフレーズを選んでください。",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]What seems to be the issue?"
+        },
+        {
+          "index": 1,
+          "text": "[en-US]What is broken?"
+        },
+        {
+          "index": 2,
+          "text": "[en-US]Why is it bad?
+        },
+        {
+          "index": 3,
+          "text": "[en-US]Is it working?"
+        }
+      ],
+      "explanationText": "「[en-US]What seems to be the issue?[ja-JP]」は、状況を決めつけず、客観的に現状を把握しようとする際に使われる丁寧な尋ね方です。"
+    },
+    {
+      "id": "q-20",
+      "questionText": "「お役に立てて光栄です」と伝える際の最も適切なフレーズはどれですか？",
+      "choices": [
+        {
+          "index": 0,
+          "text": "[en-US]I'm glad I could help."
+        },
+        {
+          "index": 1,
+          "text": "[en-US]It's okay."
+        },
+        {
+          "index": 2,
+          "text": "[en-US]I am smart."
+        },
+        {
+          "index": 3,
+          "text": "[en-US]No problem."
+        }
+      ],
+      "explanationText": "感謝された際に「[en-US]I'm glad I could help.[ja-JP]」と返すことで、お客様の問題が解決したことを共に喜ぶ姿勢を示せます。"
+    }
+  ]
+}

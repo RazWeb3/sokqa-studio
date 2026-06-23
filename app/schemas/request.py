@@ -243,6 +243,38 @@ class PlanPackRequest(BaseModel):
         return self
 
 
+class PlanSuggestConditionsRequest(BaseModel):
+    theme: str = Field(..., min_length=1, max_length=160)
+    targetUser: str = Field(..., min_length=1, max_length=160)
+    difficulty: Difficulty = "beginner"
+    language: str = Field(default="ja", min_length=2, max_length=20)
+    customInstructions: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("customInstructions")
+    @classmethod
+    def blank_custom_instructions_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def normalize_language_code(cls, value):
+        return validate_language_code(value)
+
+
+class SuggestedCondition(BaseModel):
+    id: str
+    title: str
+    text: str
+    reason: str
+
+
+class PlanSuggestConditionsResponse(BaseModel):
+    suggestions: list[SuggestedCondition] = Field(default_factory=list)
+
+
 class GeneratePackRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={

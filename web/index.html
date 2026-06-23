@@ -204,6 +204,9 @@
       .pattern-option p { margin: 4px 0 0; }
       .pattern-examples { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
       .pattern-examples code { padding: 3px 7px; border-radius: 999px; background: var(--soft); border: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
+      .condition-suggestions { display: grid; gap: 9px; }
+      .condition-suggestion { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); }
+      .condition-suggestion .actions { justify-content: flex-end; }
       .rule-editor { display: grid; gap: 10px; }
       .rule-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
       .rule-row label { gap: 5px; }
@@ -406,7 +409,6 @@
                   <label>パック言語<select id="language"><option value="ja" selected>日本語 / ja</option><option value="en">English / en</option><option value="zh">中文 / zh</option><option value="ko">한국어 / ko</option><option value="es">Español / es</option><option value="fr">Français / fr</option><option value="de">Deutsch / de</option><option value="it">Italiano / it</option><option value="pt">Português / pt</option><option value="id">Bahasa Indonesia / id</option><option value="custom">カスタム</option></select></label>
                 </div>
                 <label id="customLanguageLine" hidden>カスタム言語コード<input id="customLanguageCode" value="pt-BR" maxlength="20" placeholder="pt-BR / es-419 など" /></label>
-                <label>追加条件<textarea id="customInstructions" maxlength="2000" placeholder="例: 会話例を多めにする、専門用語は避ける、各章に実務例を入れる など"></textarea></label>
                 <div class="tight">
                   <span class="muted">生成するもの</span>
                   <input id="generationUnit" type="hidden" value="pack" />
@@ -474,6 +476,15 @@
                   </div>
                 </details>
                 <input id="sourceMode" type="hidden" value="document_reference" />
+                <label>追加条件<textarea id="customInstructions" maxlength="2000" placeholder="例: 会話例を多めにする、専門用語は避ける、各章に実務例を入れる など"></textarea></label>
+                <div class="actions"><button class="secondary" id="suggestConditionsStandaloneBtn" type="button">AIに追加条件を提案してもらう</button></div>
+                <section class="plan-card" id="conditionSuggestionsPanel" hidden>
+                  <div class="issue-top">
+                    <div><h4>AI提案</h4><p>採用した条件だけ追加条件へ追記します。</p></div>
+                  </div>
+                  <div class="condition-suggestions" id="conditionSuggestions"></div>
+                  <p id="conditionSuggestionsStatus" class="muted"></p>
+                </section>
                 <div class="actions"><button id="planBtn" type="button">プランを作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
                 <p id="status" class="muted"></p>
               </div>
@@ -756,6 +767,7 @@
       let currentPlayingUnitId = null;
       let isPlaybackPaused = true;
       let selectedReadingPatternIds = new Set();
+      let planConditionSuggestions = [];
       let temporaryTtsRules = [{ source: "日本橋", reading: "にほんばし" }];
       let dictionaryTtsRules = [];
 
@@ -773,6 +785,13 @@
 
       function labelFor(group, value, fallback = "-") {
         return LABELS[group]?.[value] || value || fallback;
+      }
+
+      function materialModePreviewLabel(plan) {
+        if (!String(plan?.sourceText || "").trim()) return "テーマから作成";
+        if (plan.materialMode === "strict") return "資料をそのまま使う";
+        if (plan.materialMode === "reference") return "資料を参考に作る";
+        return labelFor("materialMode", plan.materialMode || "reference");
       }
 
       function setStatusMessage(message = "", { error = false } = {}) {
@@ -972,6 +991,67 @@
         return payload;
       }
 
+      function existingCustomInstructionLines() {
+        return $("customInstructions").value.split(/\r?\n/);
+      }
+
+      function isConditionAlreadyAdded(suggestion) {
+        return existingCustomInstructionLines().includes(String(suggestion?.text || ""));
+      }
+
+      function renderConditionSuggestions() {
+        const panel = $("conditionSuggestionsPanel");
+        const suggestions = Array.isArray(planConditionSuggestions) ? planConditionSuggestions : [];
+        panel.hidden = suggestions.length === 0;
+        $("conditionSuggestions").innerHTML = suggestions.map((suggestion) => {
+          const added = isConditionAlreadyAdded(suggestion);
+          return `
+            <article class="condition-suggestion">
+              <div class="issue-top"><span class="issue-title">${escapeHtml(suggestion.title || "提案")}</span><span class="badge info">AI提案</span></div>
+              <p>${escapeHtml(suggestion.reason || "")}</p>
+              <div class="excerpt">${escapeHtml(suggestion.text || "")}</div>
+              <div class="actions"><button class="secondary" data-add-condition="${escapeHtml(suggestion.id || "")}" type="button" ${added ? "disabled" : ""}>${added ? "追加済み" : "追加"}</button></div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      function appendConditionSuggestion(suggestion) {
+        const text = String(suggestion?.text || "").trim();
+        if (!text || existingCustomInstructionLines().includes(text)) return;
+        const field = $("customInstructions");
+        const current = field.value.trimEnd();
+        const next = current ? `${current}\n\n----\nAI提案:\n${text}` : `AI提案:\n${text}`;
+        if (next.length > field.maxLength) throw new Error("追加条件が上限文字数を超えます。既存内容を短くしてから追加してください。");
+        field.value = next;
+        handleGenerationControlChange();
+        renderConditionSuggestions();
+      }
+
+      async function suggestPlanConditions() {
+        const theme = $("theme").value.trim();
+        if (!theme) throw new Error("テーマを入力してから提案を取得してください。");
+        const button = $("suggestConditionsStandaloneBtn");
+        button.disabled = true;
+        button.textContent = "AI提案を生成中...";
+        $("conditionSuggestionsStatus").textContent = "提案を取得しています...";
+        try {
+          const data = await requestJson("/api/plan-suggest-conditions", {
+            theme,
+            targetUser: $("targetUser").value,
+            difficulty: $("difficulty").value,
+            language: languageValue(),
+            customInstructions: $("customInstructions").value.trim(),
+          });
+          planConditionSuggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+          renderConditionSuggestions();
+          $("conditionSuggestionsStatus").textContent = planConditionSuggestions.length ? `${planConditionSuggestions.length}件の提案を表示しています。` : "";
+        } finally {
+          button.disabled = false;
+          button.textContent = "AIに追加条件を提案してもらう";
+        }
+      }
+
       function syncGenerationControlsToPlan(plan) {
         if (!plan) return plan;
         Object.assign(plan, generationControlsPayload());
@@ -1080,7 +1160,7 @@
               <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(labelFor("scale", plan.scale, "-"))} / ${escapeHtml(plan.language || "-")}</strong></div>
               <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(labelFor("structurePolicy", plan.structurePolicy || "standard"))}</strong></div>
               <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(labelFor("generationUnit", plan.generationUnit || "pack"))}</strong></div>
-              <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(labelFor("materialMode", plan.materialMode || "reference"))}</strong></div>
+              <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(materialModePreviewLabel(plan))}</strong></div>
               <div class="plan-meta"><span>正解位置</span><strong>${escapeHtml(labelFor("answerPositionMode", plan.answerPositionMode || "balanced"))}</strong></div>
               ${showStrictStats ? `<div class="plan-meta"><span>strict推定</span><strong>${escapeHtml(strictFileCount || "-")}ファイル / ${escapeHtml(strictSectionCount || "-")}セクション</strong></div>` : ""}
             </div>
@@ -2864,6 +2944,16 @@
             renderDictionaryRules();
           }
         }
+        const addConditionButton = event.target.closest("[data-add-condition]");
+        if (addConditionButton) {
+          const suggestion = planConditionSuggestions.find((item) => item.id === addConditionButton.dataset.addCondition);
+          if (!suggestion) return;
+          try {
+            appendConditionSuggestion(suggestion);
+          } catch (error) {
+            setStatusMessage(error.message, { error: true });
+          }
+        }
       });
 
       document.addEventListener("keydown", (event) => {
@@ -2912,6 +3002,14 @@
       }));
       $("planBtn").addEventListener("click", createPlan);
       $("generateBtn").addEventListener("click", generatePack);
+      $("suggestConditionsStandaloneBtn").addEventListener("click", async () => {
+        try {
+          await suggestPlanConditions();
+          setStatusMessage("");
+        } catch (error) {
+          setStatusMessage(error.message, { error: true });
+        }
+      });
       $("planJson").addEventListener("input", () => {
         updateActionAvailability();
         renderPlanPreviewFromJson();

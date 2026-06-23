@@ -1,0 +1,9 @@
+error: Invalid control character at: line 431 column 41 (char 11276)
+generationUnit: unknown
+docId: None
+quizId: None
+model: gemini-3-flash-preview
+
+attempts:
+- direct: Invalid control character at: line 431 column 41 (char 11276)
+- repaired: Invalid control character at: line 431 column 41 (char 11276)

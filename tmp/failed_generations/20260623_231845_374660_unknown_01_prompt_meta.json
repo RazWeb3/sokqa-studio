@@ -1,0 +1,15 @@
+{
+  "theme": null,
+  "docId": null,
+  "quizId": null,
+  "title": null,
+  "sourceTextLength": 0,
+  "sourceTextPreview": "",
+  "additionalInstructionsLength": 0,
+  "ttsReadingMode": null,
+  "language": null,
+  "difficulty": null,
+  "scale": null,
+  "generationUnit": "unknown",
+  "model": "gemini-3-flash-preview"
+}

@@ -171,12 +171,43 @@ def test_generation_policy_unit_and_material_controls_are_available_and_sent() -
     assert "ファイル以内に収まるよう資料を分割" in html
     assert "...generationControlsPayload()," in html
     assert "syncGenerationControlsToPlan(plan)" in html
-    assert html.index('id="language"') < html.index('id="customInstructions"') < html.index('id="generationUnit"')
+    assert html.index('id="language"') < html.index('id="generationUnit"') < html.index('id="customInstructions"')
     assert "追加条件" in html
     assert 'customInstructions: $("customInstructions").value.trim()' in html
     assert 'const customInstructions = $("customInstructions").value.trim();' in html
     assert 'if (customInstructions && !String(plan.customInstructions || "").trim())' in html
     assert "plan.customInstructions = customInstructions;" in html
+
+
+def test_plan_condition_suggestion_ui_is_available_and_appends_only_selected_text() -> None:
+    html = _html()
+
+    assert 'id="suggestConditionsStandaloneBtn"' in html
+    assert ">AIに追加条件を提案してもらう<" in html
+    assert 'button.textContent = "AI提案を生成中...";' in html
+    assert 'button.textContent = "AIに追加条件を提案してもらう";' in html
+    assert 'id="conditionSuggestionsPanel" hidden' in html
+    assert 'class="condition-suggestions" id="conditionSuggestions"' in html
+    assert 'requestJson("/api/plan-suggest-conditions"' in html
+    assert "function renderConditionSuggestions()" in html
+    assert "function appendConditionSuggestion(suggestion)" in html
+    assert "existingCustomInstructionLines().includes(text)" in html
+    assert '`${current}\\n\\n----\\nAI提案:\\n${text}`' in html
+    assert 'data-add-condition="${escapeHtml(suggestion.id || "")}"' in html
+    assert '${added ? "追加済み" : "追加"}' in html
+    assert "handleGenerationControlChange();" in html
+    assert html.index('id="customInstructions"') < html.index('id="suggestConditionsStandaloneBtn"') < html.index('id="conditionSuggestionsPanel"')
+    assert html.index('id="conditionSuggestionsPanel"') < html.index('id="planBtn"') < html.index('id="generateBtn"')
+
+
+def test_material_mode_preview_reflects_source_presence() -> None:
+    html = _html()
+
+    assert "function materialModePreviewLabel(plan)" in html
+    assert 'return "テーマから作成";' in html
+    assert 'if (plan.materialMode === "strict") return "資料をそのまま使う";' in html
+    assert 'if (plan.materialMode === "reference") return "資料を参考に作る";' in html
+    assert "${escapeHtml(materialModePreviewLabel(plan))}" in html
 
 
 def test_language_selection_does_not_override_tts_mode() -> None:

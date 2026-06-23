@@ -89,11 +89,15 @@ def _language_script(language: str | None) -> str:
     return "latin"
 
 
+def _resolve_language_selection(selected_language: str | None, pack_language: str) -> str | None:
+    return pack_language if selected_language == "pack" else selected_language
+
+
 def _script_languages(pack_language: str, language_settings: TtsLanguageSettings | None, field_key: str, multilingual: bool) -> set[str]:
     languages = {pack_language}
     if multilingual and language_settings:
         mode = getattr(language_settings, f"{field_key}LanguageMode", "auto")
-        selected_language = getattr(language_settings, f"{field_key}Language", None)
+        selected_language = _resolve_language_selection(getattr(language_settings, f"{field_key}Language", None), pack_language)
         if mode in {"mixed", "select"} and selected_language:
             languages.add(selected_language)
     return languages
@@ -387,14 +391,17 @@ def _strip_edge_default_tags(value: str, default_language: str) -> str:
     return value
 
 
-def _field_language_mode(settings: TtsLanguageSettings | None, field_key: str) -> tuple[str, str | None]:
+def _field_language_mode(settings: TtsLanguageSettings | None, field_key: str, default_language: str | None = None) -> tuple[str, str | None]:
     if not settings:
         return "auto", None
-    return getattr(settings, f"{field_key}LanguageMode", "auto"), getattr(settings, f"{field_key}Language", None)
+    selected_language = getattr(settings, f"{field_key}Language", None)
+    if default_language is not None:
+        selected_language = _resolve_language_selection(selected_language, default_language)
+    return getattr(settings, f"{field_key}LanguageMode", "auto"), selected_language
 
 
-def _choice_language_mode(settings: TtsLanguageSettings | None) -> tuple[str, str | None]:
-    return _field_language_mode(settings, "choices")
+def _choice_language_mode(settings: TtsLanguageSettings | None, default_language: str | None = None) -> tuple[str, str | None]:
+    return _field_language_mode(settings, "choices", default_language)
 
 
 def _apply_field_language_tags(
@@ -409,7 +416,7 @@ def _apply_field_language_tags(
     text = _normalize_language_tag_markup(str(reading_text or source_text))
     if not allow_language_tags:
         return _strip_language_tags(text)
-    mode, selected_language = _field_language_mode(language_settings, field_key)
+    mode, selected_language = _field_language_mode(language_settings, field_key, default_language)
     default_base = _base_language(default_language)
     selected_base = _base_language(selected_language) if selected_language else None
     selected_tag = _language_tag(selected_language) if selected_language else ""
@@ -432,7 +439,7 @@ def _apply_choice_language_tags(
 ) -> list[str]:
     if not allow_language_tags:
         return choice_readings
-    mode, selected_language = _choice_language_mode(language_settings)
+    mode, selected_language = _choice_language_mode(language_settings, default_language)
     default_base = _base_language(default_language)
     selected_base = _base_language(selected_language) if selected_language else None
     selected_tag = _language_tag(selected_language) if selected_language else ""
@@ -455,18 +462,18 @@ def _apply_choice_language_tags(
     return normalized
 
 
-def _field_language_instruction(label: str, field_key: str, settings: TtsLanguageSettings | None) -> str:
+def _field_language_instruction(label: str, field_key: str, settings: TtsLanguageSettings | None, default_language: str | None = None) -> str:
     if not settings:
         return f"- {label}: auto-detect only when the source text clearly switches language."
     mode = getattr(settings, f"{field_key}LanguageMode", "auto")
-    selected_language = getattr(settings, f"{field_key}Language", None)
+    selected_language = _resolve_language_selection(getattr(settings, f"{field_key}Language", None), default_language or "")
     if mode == "select" and selected_language:
         return (
             f"- {label}: read this field in {selected_language} ({default_speech_language_code(selected_language)}). "
             "If this differs from the default language, put that language tag at the start of the field only; do not append a default-language tag at the end."
         )
     if mode == "mixed":
-        if selected_language:
+        if selected_language and _base_language(selected_language) != _base_language(default_language):
             return (
                 f"- {label}: mixed-language field. Write explanatory text in the default pack language. "
                 f"When the learning target language or another non-default span appears, output that span in {selected_language} ({default_speech_language_code(selected_language)}) "
@@ -479,8 +486,8 @@ def _field_language_instruction(label: str, field_key: str, settings: TtsLanguag
     return f"- {label}: auto-detect. Add inline tags only when the text clearly contains a non-default language."
 
 
-def _language_policy_block(settings: TtsLanguageSettings | None, fields: list[tuple[str, str]]) -> str:
-    lines = [_field_language_instruction(label, field_key, settings) for label, field_key in fields]
+def _language_policy_block(settings: TtsLanguageSettings | None, fields: list[tuple[str, str]], default_language: str | None = None) -> str:
+    lines = [_field_language_instruction(label, field_key, settings, default_language) for label, field_key in fields]
     return "Field language policy:\n" + "\n".join(lines)
 
 
@@ -526,7 +533,7 @@ Create Sokqa TTS reading texts for the fixed source texts.
 
 {_language_tag_rules(language, allow_language_tags)}
 
-{_language_policy_block(language_settings, [("document text", "documentText")])}
+{_language_policy_block(language_settings, [("document text", "documentText")], language)}
 
 Source texts:
 {entries_text}
@@ -591,7 +598,7 @@ Quiz punctuation rules:
 
 {_language_tag_rules(language, allow_language_tags)}
 
-{_language_policy_block(language_settings, [("questionText", "question"), ("choiceTexts", "choices"), ("explanationText", "explanation")])}
+{_language_policy_block(language_settings, [("questionText", "question"), ("choiceTexts", "choices"), ("explanationText", "explanation")], language)}
 
 Question id: {question_id}
 Question text:
@@ -696,7 +703,7 @@ def _quiz_tts_from_readings(
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
     )
-    choice_mode, selected_language = _choice_language_mode(language_settings)
+    choice_mode, selected_language = _choice_language_mode(language_settings, language)
     keep_all_choices = allow_language_tags and (
         choice_mode == "mixed"
         or (choice_mode == "select" and selected_language and _base_language(selected_language) != _base_language(language))
@@ -815,7 +822,7 @@ Quiz punctuation rules:
 
 {_language_tag_rules(language, allow_language_tags)}
 
-{_language_policy_block(language_settings, [("questionText", "question"), ("choiceTexts", "choices"), ("explanationText", "explanation")])}
+{_language_policy_block(language_settings, [("questionText", "question"), ("choiceTexts", "choices"), ("explanationText", "explanation")], language)}
 
 Questions:
 {questions_text}

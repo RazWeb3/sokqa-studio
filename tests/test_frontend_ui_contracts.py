@@ -102,10 +102,27 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert 'value="mixed" selected' in document_select
     assert 'value="select"' in document_select
     assert '※本文中に部分的に混在する学習対象言語や外国語を指定します。' in html
+    assert 'インドネシア語で日本語を学ぶ' not in html
+    assert '例: 英語で日本語を学ぶ、日本語で英語を学ぶなど' in html
+    assert '「言語を選ぶ」を選んだ項目だけ、右側の言語指定が有効になります。' in html
+    for status_text in ["混合判定", "自動判定", "未使用"]:
+        assert status_text not in html
+    assert ">有効<" not in html
+    assert "tts-language-status" not in html
+    assert '["pack", "パック言語"]' in html
     assert 'documentTextLanguageMode: "mixed"' in html
     assert 'questionLanguageMode: "mixed"' in html
-    assert 'choicesLanguageMode: "auto"' in html
+    assert 'choicesLanguageMode: "select"' in html
     assert 'explanationLanguageMode: "mixed"' in html
+    assert 'documentTextLanguage: "pack"' in html
+    assert 'questionLanguage: "pack"' in html
+    assert 'choicesLanguage: "pack"' in html
+    assert 'explanationLanguage: "pack"' in html
+    assert "function syncTtsLanguageControls()" in html
+    assert "select.disabled = !active;" in html
+    assert 'select.title = active ? "" : "「言語を選ぶ」を選んだ時だけ有効です。";' in html
+    assert "syncTtsLanguageControls();" in html
+    assert '<button id="planBtn" type="button">プランを作成</button>' in html
 
 
 def test_generation_policy_unit_and_material_controls_are_available_and_sent() -> None:

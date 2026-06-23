@@ -70,6 +70,12 @@
         font-size: 15px;
         letter-spacing: 0;
       }
+      .tts-language-select:disabled {
+        background: #f3f4f6;
+        color: #9ca3af;
+        cursor: not-allowed;
+        opacity: 0.75;
+      }
       textarea { min-height: 132px; resize: vertical; }
       summary { cursor: pointer; width: fit-content; }
 
@@ -453,21 +459,22 @@
                 <details id="multilingualTtsOptions" class="plan-card" hidden>
                   <summary>多言語読み上げの詳細</summary>
                   <div class="stack">
-                    <p class="hint">※本文中に部分的に混在する学習対象言語や外国語を指定します。例: インドネシア語で日本語を学ぶ、英語で日本語を学ぶ、日本語で英語を学ぶなど、本文の一部だけ別言語になる場合に使用します。</p>
+                    <p class="hint">※本文中に部分的に混在する学習対象言語や外国語を指定します。例: 英語で日本語を学ぶ、日本語で英語を学ぶなど、本文の一部だけ別言語になる場合に使用します。</p>
                     <div class="field-grid">
                       <label>ドキュメント本文<select id="documentTextLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
-                      <label>本文の言語<select id="documentTextLanguage" data-tts-language-select></select></label>
+                      <label>本文の言語<select id="documentTextLanguage" class="tts-language-select" data-tts-language-select></select></label>
                       <label>クイズ問題文<select id="questionLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
-                      <label>問題文の言語<select id="questionLanguage" data-tts-language-select></select></label>
-                      <label>クイズ選択肢<select id="choicesLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select">言語を選ぶ</option></select></label>
-                      <label>選択肢の言語<select id="choicesLanguage" data-tts-language-select></select></label>
+                      <label>問題文の言語<select id="questionLanguage" class="tts-language-select" data-tts-language-select></select></label>
+                      <label>クイズ選択肢<select id="choicesLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed">混合</option><option value="select" selected>言語を選ぶ</option></select></label>
+                      <label>選択肢の言語<select id="choicesLanguage" class="tts-language-select" data-tts-language-select></select></label>
                       <label>クイズ解説<select id="explanationLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
-                      <label>解説の言語<select id="explanationLanguage" data-tts-language-select></select></label>
+                      <label>解説の言語<select id="explanationLanguage" class="tts-language-select" data-tts-language-select></select></label>
                     </div>
+                    <p class="hint">「言語を選ぶ」を選んだ項目だけ、右側の言語指定が有効になります。</p>
                   </div>
                 </details>
                 <input id="sourceMode" type="hidden" value="document_reference" />
-                <div class="actions"><button id="planBtn" type="button">プレビュー作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
+                <div class="actions"><button id="planBtn" type="button">プランを作成</button><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
                 <p id="status" class="muted"></p>
               </div>
             </section>
@@ -699,6 +706,7 @@
       const INITIAL_CREDITS = 1.0;
       const CREDIT_UI_ENABLED = false; // Credits UI/accounting is parked for future use.
       const PACK_LANGUAGE_OPTIONS = [
+        ["pack", "パック言語"],
         ["ja", "日本語 / ja"],
         ["en", "English / en"],
         ["zh", "中文 / zh"],
@@ -712,13 +720,13 @@
       ];
       const DEFAULT_TTS_LANGUAGE_SETTINGS = {
         documentTextLanguageMode: "mixed",
-        documentTextLanguage: "ja",
+        documentTextLanguage: "pack",
         questionLanguageMode: "mixed",
-        questionLanguage: "ja",
-        choicesLanguageMode: "auto",
-        choicesLanguage: "ja",
+        questionLanguage: "pack",
+        choicesLanguageMode: "select",
+        choicesLanguage: "pack",
         explanationLanguageMode: "mixed",
-        explanationLanguage: "ja",
+        explanationLanguage: "pack",
       };
 
       let currentPacks = [];
@@ -998,7 +1006,20 @@
           const mode = $(`${key}LanguageMode`);
           const language = $(`${key}Language`);
           if (mode) mode.value = settings?.[`${key}LanguageMode`] || DEFAULT_TTS_LANGUAGE_SETTINGS[`${key}LanguageMode`] || "auto";
-          if (language) language.value = settings?.[`${key}Language`] || DEFAULT_TTS_LANGUAGE_SETTINGS[`${key}Language`] || "ja";
+          if (language) language.value = settings?.[`${key}Language`] || DEFAULT_TTS_LANGUAGE_SETTINGS[`${key}Language`] || "pack";
+        });
+        syncTtsLanguageControls();
+      }
+
+      function syncTtsLanguageControls() {
+        ["documentText", "question", "choices", "explanation"].forEach((key) => {
+          const mode = $(`${key}LanguageMode`)?.value || "auto";
+          const select = $(`${key}Language`);
+          if (!select) return;
+          const active = mode === "select";
+          select.disabled = !active;
+          select.classList.toggle("is-disabled", !active);
+          select.title = active ? "" : "「言語を選ぶ」を選んだ時だけ有効です。";
         });
       }
 
@@ -1172,11 +1193,13 @@
         $("multilingualTtsOptions").hidden = !multilingual;
         $("ttsDictionaryPanel").hidden = multilingual;
         populateTtsLanguageSelects();
+        syncTtsLanguageControls();
         syncReadingPatternMode();
       }
 
       function syncPackLanguageUi() {
         $("customLanguageLine").hidden = $("language").value !== "custom";
+        syncTtsLanguageControls();
       }
 
       function syncMetadataModeUi() {
@@ -2879,6 +2902,7 @@
         handleGenerationControlChange();
       }));
       $$("[data-tts-language-mode], [data-tts-language-select]").forEach((input) => input.addEventListener("change", () => {
+        syncTtsLanguageControls();
         let plan;
         try { plan = readPlanJson(); } catch (_error) { plan = null; }
         if (plan) {

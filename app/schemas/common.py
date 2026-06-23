@@ -108,6 +108,8 @@ class TtsLanguageSettings(BaseModel):
     def normalize_language_code(cls, value):
         if value in (None, ""):
             return None
+        if value == "pack":
+            return "pack"
         return validate_language_code(value)
 
 

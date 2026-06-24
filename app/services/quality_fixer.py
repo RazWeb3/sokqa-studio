@@ -101,6 +101,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
     loaded = load_target_pack(target)
     if mode == "tts":
         _validate_tts_fix_input(loaded.file.content)
+        issues = [_normalize_tts_issue_location(issue) for issue in issues]
     settings = get_settings()
     model = settings.fix_model
     limited_issues = issues[:max_fixes]
@@ -161,6 +162,7 @@ def _generate_tts_fix_without_llm(
     input_chars = len(json.dumps(loaded.file.content, ensure_ascii=False))
 
     for index, issue in enumerate(limited_issues, start=1):
+        issue = _normalize_tts_issue_location(issue)
         location = issue.location
         if location.fileName != loaded.file.name:
             skipped += 1
@@ -864,6 +866,27 @@ def _parse_string_list(value: str | None) -> list[Any] | None:
 
 def _is_choice_field(field: str | None) -> bool:
     return bool(field and (field.startswith("choices") or field.startswith("tts.choiceTexts")))
+
+
+def _normalize_tts_issue_location(issue: QualityIssue) -> QualityIssue:
+    field = issue.location.field
+    if not field:
+        return issue
+    lowered = field.lower()
+    match = re.search(r"\d+", field)
+    if "choice" in lowered:
+        normalized = f"choices[{int(match.group(0))}]" if match else "choices"
+    elif "explanation" in lowered:
+        normalized = "explanation"
+    elif "question" in lowered:
+        normalized = "question"
+    else:
+        normalized = field
+    if normalized == field:
+        return issue
+    return issue.model_copy(
+        update={"location": issue.location.model_copy(update={"field": normalized})}
+    )
 
 
 def _choice_field_has_explicit_index(field: str | None) -> bool:

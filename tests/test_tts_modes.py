@@ -818,6 +818,117 @@ def test_multilingual_quiz_outputs_choice_texts_and_preserves_language_tags(monk
     assert tts["explanationText"] == "[en-US]Save it? [ja-JP]を選びます."
 
 
+def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="english_choices.json",
+        kind="quiz",
+        content={
+            "id": "english_choices",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "朝の挨拶はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "朝は Good morning を使います。",
+                }
+            ],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-1",
+                    "questionText": "朝の挨拶はどれですか。",
+                    "choices": [
+                        {"index": 0, "text": "Good morning"},
+                        {"index": 1, "text": "Hello"},
+                        {"index": 2, "text": "Good evening"},
+                        {"index": 3, "text": "Goodbye"},
+                    ],
+                    "explanationText": "朝は [en-US]Good morning[ja-JP] を使います。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
+
+    assert files[0].content["questions"][0]["tts"]["choiceTexts"] == [
+        "[en-US]Good morning",
+        "[en-US]Hello",
+        "[en-US]Good evening",
+        "[en-US]Goodbye",
+    ]
+
+
+def test_learning_language_auto_keeps_only_non_pack_choice_texts(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="auto_languages.json",
+        kind="quiz",
+        content={
+            "id": "auto_languages",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "auto",
+            "questions": [
+                {
+                    "id": "q-en",
+                    "question": "英語を選んでください。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "英語4択です。",
+                },
+                {
+                    "id": "q-ja",
+                    "question": "意味を選んでください。",
+                    "choices": ["おはよう", "こんにちは", "こんばんは", "さようなら"],
+                    "answerIndex": 0,
+                    "explanation": "日本語4択です。",
+                },
+            ],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {
+            "items": [
+                {
+                    "id": question["id"],
+                    "questionText": question["question"],
+                    "choices": [
+                        {"index": index, "text": choice}
+                        for index, choice in enumerate(question["choices"])
+                    ],
+                    "explanationText": question["explanation"],
+                }
+                for question in file.content["questions"]
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
+    questions = files[0].content["questions"]
+
+    assert all(value.startswith("[en-US]") for value in questions[0]["tts"]["choiceTexts"])
+    assert "tts" not in questions[1] or "choiceTexts" not in questions[1]["tts"]
+
+
 def test_multilingual_prompt_includes_field_language_policy(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

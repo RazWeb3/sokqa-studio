@@ -70,6 +70,26 @@ def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch)
     assert all(pattern.id for pattern in plan.proposedReadingPatterns)
 
 
+def test_planner_infers_learning_language_and_allows_override(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    inferred = planner.create_course_plan(
+        PlanPackRequest(theme="英会話 初級", targetUser="日本語話者", scale="quick")
+    )
+    overridden = planner.create_course_plan(
+        PlanPackRequest(
+            theme="英会話 初級",
+            targetUser="日本語話者",
+            scale="quick",
+            learningLanguage="ko",
+        )
+    )
+
+    assert inferred.learningLanguage == "en"
+    assert overridden.learningLanguage == "ko"
+
+
 def test_planner_keeps_reading_patterns_only_for_llm_mode(monkeypatch) -> None:
     settings = planner.get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

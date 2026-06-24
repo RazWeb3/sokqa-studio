@@ -12,6 +12,7 @@ from app.schemas.sokqa import (
     ValidationErrorItem,
     ValidationResult,
 )
+from app.services.language_detection import choice_set_language_state
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,18 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
 
 def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:
     errors: list[ValidationErrorItem] = []
+    if pack.learningLanguage:
+        for index, question in enumerate(pack.questions):
+            state = choice_set_language_state(question.choices, pack.language, pack.learningLanguage)
+            if pack.choiceLanguageMode == "auto" and state == "mixed":
+                errors.append(
+                    ValidationErrorItem(
+                        file=file_name,
+                        path=f"questions.{index}.choices",
+                        message="auto choice language mode requires all four choices in one question to use the same language",
+                        severity="error",
+                    )
+                )
     if pack.questions:
         answer_indexes = {question.answerIndex for question in pack.questions}
         if len(answer_indexes) == 1 and len(pack.questions) > 1:

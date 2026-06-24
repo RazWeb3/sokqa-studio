@@ -82,6 +82,7 @@ def generate_strict_source_document_pack(
         title=document.title,
         description=document.goal,
         language=plan.language,
+        learningLanguage=plan.learningLanguage,
         author=plan.author,
         globalTags=document_global_tags(plan, document),
         documents=items,
@@ -166,6 +167,7 @@ def generate_mock_document_pack(plan: CoursePlan, document: PlanDocument) -> Sok
         title=document.title,
         description=document.goal,
         language=plan.language,
+        learningLanguage=plan.learningLanguage,
         author=plan.author,
         globalTags=document_global_tags(plan, document),
         documents=items,
@@ -180,6 +182,7 @@ def normalize_document_content(content: dict, plan: CoursePlan, document: PlanDo
     normalized.setdefault("title", document.title)
     normalized.setdefault("description", document.goal)
     normalized.setdefault("language", plan.language)
+    normalized["learningLanguage"] = plan.learningLanguage
     normalized.setdefault("author", plan.author)
     normalized["globalTags"] = document_global_tags(plan, document)
 

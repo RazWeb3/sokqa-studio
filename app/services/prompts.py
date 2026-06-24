@@ -245,6 +245,7 @@ Required JSON shape:
   "title": "{document.title}",
   "description": "{document.goal}",
   "language": "{plan.language}",
+  "learningLanguage": {json.dumps(plan.learningLanguage, ensure_ascii=False)},
   "author": "{plan.author}",
   "globalTags": {global_tags},
   "documents": [
@@ -270,6 +271,20 @@ def quiz_generation_prompt(
     custom_instructions = _custom_instructions_block(plan)
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
+    learning_language = plan.learningLanguage or "not specified"
+    if quiz_pack.choiceLanguageMode == "pack":
+        choice_language_rule = (
+            f"- Write all four choices in each question in the pack language ({plan.language})."
+        )
+    elif quiz_pack.choiceLanguageMode == "learning":
+        choice_language_rule = (
+            f"- Write all four choices in each question in the learning language ({learning_language})."
+        )
+    else:
+        choice_language_rule = (
+            f"- Choose either the pack language ({plan.language}) or learning language ({learning_language}) per question. "
+            "All four choices within one question must use the same chosen language. Never mix languages inside one four-choice set."
+        )
     integration_rules = ""
     if quiz_pack.purpose == "integrated_review":
         integration_rules = """
@@ -293,6 +308,8 @@ Rules:
 - Distribute answerIndex across questions. Do not use the same answerIndex for every question.
 - Each question must be a meaningful question sentence based on the quiz context. Do not use serial labels such as "{quiz_pack.title} 1".
 - Each choices array must contain 4 meaningful strings, not objects.
+- packLanguage is "{plan.language}" and learningLanguage is "{learning_language}".
+{choice_language_rule}
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
 - Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
@@ -333,6 +350,8 @@ Required JSON shape:
   "title": "{quiz_pack.title}",
   "description": "Short quiz description in {plan.language}.",
   "language": "{plan.language}",
+  "learningLanguage": {json.dumps(plan.learningLanguage, ensure_ascii=False)},
+  "choiceLanguageMode": "{quiz_pack.choiceLanguageMode}",
   "author": "{plan.author}",
   "globalTags": {global_tags},
   "questions": [

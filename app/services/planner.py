@@ -347,6 +347,26 @@ def _effective_request_tts_mode(request: PlanPackRequest) -> str:
     return normalize_tts_reading_mode(request.ttsReadingMode) or get_settings().tts_reading_mode
 
 
+def infer_learning_language(theme: str, target_user: str = "") -> str | None:
+    markers = [
+        ("ja", ["日本語", "にほんご", "japanese", "jlpt"]),
+        ("ko", ["韓国語", "朝鮮語", "korean", "ハングル"]),
+        ("zh", ["中国語", "中文", "chinese", "北京語"]),
+        ("id", ["インドネシア語", "bahasa indonesia", "indonesian"]),
+        ("en", ["英会話", "英語", "english"]),
+        ("es", ["スペイン語", "spanish", "español"]),
+        ("fr", ["フランス語", "french", "français"]),
+        ("de", ["ドイツ語", "german", "deutsch"]),
+        ("it", ["イタリア語", "italian", "italiano"]),
+        ("pt", ["ポルトガル語", "portuguese", "português"]),
+    ]
+    for text in (theme.casefold(), target_user.casefold()):
+        for language, candidates in markers:
+            if any(marker in text for marker in candidates):
+                return language
+    return None
+
+
 def _planner_prompt(request: PlanPackRequest) -> str:
     source_block = source_prompt_block(request.sourceText, request.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
@@ -387,6 +407,7 @@ Input:
 - difficulty: {request.difficulty}
 - scale: {request.scale}
 - language: {request.language}
+- learningLanguage: {request.learningLanguage or infer_learning_language(request.theme, request.targetUser) or "not specified"}
 - structurePolicy: {request.structurePolicy}
 - generationUnit: {request.generationUnit}
 - requested quizCount: {request.quizCount if request.quizCount is not None else "planner/default"}
@@ -467,6 +488,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 questionCount=spec.questionCount,
                 difficulty=spec.difficulty,
                 sourceDocumentIds=document_ids,
+                choiceLanguageMode=spec.choiceLanguageMode,
             )
             for spec in request.quizPacks[:requested_count]
         ]
@@ -480,6 +502,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 questionCount=_question_count(request),
                 difficulty=request.difficulty,
                 sourceDocumentIds=document_ids,
+                choiceLanguageMode="auto",
             )
         ]
 
@@ -502,6 +525,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
             questionCount=question_count,
             difficulty=request.difficulty,
             sourceDocumentIds=chunk,
+            choiceLanguageMode="auto",
         )
         for index, chunk in enumerate(chunks)
     ]
@@ -514,6 +538,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 questionCount=question_count,
                 difficulty=request.difficulty,
                 sourceDocumentIds=document_ids,
+                choiceLanguageMode="auto",
             )
         )
     return quiz_packs
@@ -946,6 +971,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
     source_mode = source_mode_for_material_mode(request.materialMode, source_mode) if source_text else None
     short_title = _fallback_short_title(request)
     tts_mode = _effective_request_tts_mode(request)
+    learning_language = request.learningLanguage or infer_learning_language(request.theme, request.targetUser)
 
     if settings.gemini_provider == "gemini":
         try:
@@ -988,6 +1014,7 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         title=title,
         description=description,
         language=request.language,
+        learningLanguage=learning_language,
         customInstructions=request.customInstructions,
         targetUser=request.targetUser,
         difficulty=request.difficulty,

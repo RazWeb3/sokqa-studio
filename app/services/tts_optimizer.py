@@ -13,6 +13,7 @@ from app.schemas.sokqa import (
     TtsReportItem,
 )
 from app.services.gemini_client import GeminiClient
+from app.services.language_detection import language_script, leading_script
 from app.services.tts_text import collapse_duplicate_katakana_parentheticals, normalize_tts_text, strip_choice_separator
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
@@ -264,6 +265,33 @@ def _rules_for_mode(rules: list[TtsRule], mode: TtsReadingMode) -> list[TtsRule]
     if mode in {"rule", "llm"}:
         return _combined_rules(rules)
     return []
+
+
+def _effective_quiz_language_settings(
+    pack: SokqaQuizPack,
+    legacy_settings: TtsLanguageSettings | None,
+) -> TtsLanguageSettings | None:
+    if not pack.learningLanguage:
+        return legacy_settings
+    if pack.choiceLanguageMode == "learning":
+        choices_mode = "select"
+        choices_language = pack.learningLanguage
+    elif pack.choiceLanguageMode == "pack":
+        choices_mode = "select"
+        choices_language = "pack"
+    else:
+        choices_mode = "auto"
+        choices_language = pack.learningLanguage
+    return TtsLanguageSettings(
+        documentTextLanguageMode="mixed",
+        documentTextLanguage=pack.learningLanguage,
+        questionLanguageMode="mixed",
+        questionLanguage=pack.learningLanguage,
+        choicesLanguageMode=choices_mode,
+        choicesLanguage=choices_language,
+        explanationLanguageMode="mixed",
+        explanationLanguage=pack.learningLanguage,
+    )
 
 
 def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
@@ -678,6 +706,8 @@ def _quiz_tts_from_readings(
     language: str = "ja",
     allow_language_tags: bool = False,
     language_settings: TtsLanguageSettings | None = None,
+    learning_language: str | None = None,
+    choice_language_mode: str | None = None,
 ) -> QuizTts | None:
     question_text = _apply_field_language_tags(
         question.question,
@@ -703,6 +733,33 @@ def _quiz_tts_from_readings(
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
     )
+    if (
+        allow_language_tags
+        and learning_language
+        and _base_language(learning_language) != _base_language(language)
+        and language_script(learning_language) != language_script(language)
+    ):
+        learning_script = language_script(learning_language)
+        learning_tag = _language_tag(learning_language)
+        default_tag = _language_tag(language)
+        deterministic_choices: list[str] = []
+        for index, source in enumerate(question.choices):
+            reading = choice_readings[index] if index < len(choice_readings) else source
+            text = _normalize_language_tag_markup(reading or source)
+            source_leading_script = leading_script(_strip_language_tags(source))
+            ambiguous_han = (
+                {learning_script, language_script(language)} == {"japanese", "cjk"}
+                and source_leading_script == "cjk"
+                and choice_language_mode != "learning"
+            )
+            if source_leading_script == learning_script and not ambiguous_han:
+                text = _strip_edge_default_tags(text, language)
+                text = re.sub(rf"^(?:{re.escape(learning_tag)})+", "", text)
+                text = f"{learning_tag}{text}"
+            elif choice_language_mode == "pack":
+                text = re.sub(rf"^(?:{re.escape(default_tag)})+", "", text)
+            deterministic_choices.append(text)
+        choice_readings = deterministic_choices
     choice_mode, selected_language = _choice_language_mode(language_settings, language)
     keep_all_choices = allow_language_tags and (
         choice_mode == "mixed"
@@ -720,13 +777,27 @@ def _quiz_tts_from_readings(
     )
 
 
-def _rule_quiz_question_tts(question, rules: list[TtsRule]) -> QuizTts | None:
+def _rule_quiz_question_tts(
+    question,
+    rules: list[TtsRule],
+    *,
+    language: str = "ja",
+    allow_language_tags: bool = False,
+    language_settings: TtsLanguageSettings | None = None,
+    learning_language: str | None = None,
+    choice_language_mode: str | None = None,
+) -> QuizTts | None:
     return _quiz_tts_from_readings(
         question,
         question.question,
         [_speech_text(choice, rules) for choice in question.choices],
         question.explanation,
         rules,
+        language=language,
+        allow_language_tags=allow_language_tags,
+        language_settings=language_settings,
+        learning_language=learning_language,
+        choice_language_mode=choice_language_mode,
     )
 
 
@@ -736,6 +807,8 @@ def _gemini_quiz_question_tts(
     language: str = "ja",
     allow_language_tags: bool = False,
     language_settings: TtsLanguageSettings | None = None,
+    learning_language: str | None = None,
+    choice_language_mode: str | None = None,
 ) -> QuizTts | None:
     total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
     if total_chars > MAX_TTS_BATCH_CHARS:
@@ -751,6 +824,8 @@ def _gemini_quiz_question_tts(
             language=language,
             allow_language_tags=allow_language_tags,
             language_settings=language_settings,
+            learning_language=learning_language,
+            choice_language_mode=choice_language_mode,
         )
 
     data = GeminiClient().generate_json(
@@ -787,6 +862,8 @@ def _gemini_quiz_question_tts(
         language=language,
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
+        learning_language=learning_language,
+        choice_language_mode=choice_language_mode,
     )
 
 
@@ -853,6 +930,8 @@ def _quiz_tts_from_item(
     language: str = "ja",
     allow_language_tags: bool = False,
     language_settings: TtsLanguageSettings | None = None,
+    learning_language: str | None = None,
+    choice_language_mode: str | None = None,
 ) -> QuizTts | None:
     question_text = item.get("questionText", "")
     explanation_text = item.get("explanationText", "")
@@ -885,6 +964,8 @@ def _quiz_tts_from_item(
         language=language,
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
+        learning_language=learning_language,
+        choice_language_mode=choice_language_mode,
     )
 
 
@@ -901,12 +982,22 @@ def _gemini_quiz_tts_map(
     language: str = "ja",
     allow_language_tags: bool = False,
     language_settings: TtsLanguageSettings | None = None,
+    learning_language: str | None = None,
+    choice_language_mode: str | None = None,
 ) -> dict[str, QuizTts | None]:
     readings: dict[str, QuizTts | None] = {}
     for chunk in _chunk_quiz_questions(questions):
         if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
             question = chunk[0]
-            readings[question.id] = _gemini_quiz_question_tts(question, rules, language, allow_language_tags, language_settings)
+            readings[question.id] = _gemini_quiz_question_tts(
+                question,
+                rules,
+                language,
+                allow_language_tags,
+                language_settings,
+                learning_language,
+                choice_language_mode,
+            )
             continue
 
         data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules, language, allow_language_tags, language_settings))
@@ -927,6 +1018,8 @@ def _gemini_quiz_tts_map(
                     language=language,
                     allow_language_tags=allow_language_tags,
                     language_settings=language_settings,
+                    learning_language=learning_language,
+                    choice_language_mode=choice_language_mode,
                 )
         for question in chunk:
             readings.setdefault(question.id, _rule_quiz_question_tts(question, rules))
@@ -1091,6 +1184,11 @@ def optimize_document_pack(
     language_settings: TtsLanguageSettings | None = None,
 ) -> SokqaDocumentPack:
     active_mode = _mode_or_default(mode)
+    if pack.learningLanguage:
+        language_settings = TtsLanguageSettings(
+            documentTextLanguageMode="mixed",
+            documentTextLanguage=pack.learningLanguage,
+        )
     rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []
@@ -1159,6 +1257,7 @@ def optimize_quiz_pack(
     language_settings: TtsLanguageSettings | None = None,
 ) -> SokqaQuizPack:
     active_mode = _mode_or_default(mode)
+    language_settings = _effective_quiz_language_settings(pack, language_settings)
     rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []
@@ -1184,7 +1283,15 @@ def optimize_quiz_pack(
     if active_mode in {"llm", "multilingual"}:
         selected_questions = [question for question in pack.questions if question.id in selected_ids]
         try:
-            llm_readings = _gemini_quiz_tts_map(selected_questions, rules, pack.language, active_mode == "multilingual", language_settings)
+            llm_readings = _gemini_quiz_tts_map(
+                selected_questions,
+                rules,
+                pack.language,
+                active_mode == "multilingual",
+                language_settings,
+                pack.learningLanguage,
+                pack.choiceLanguageMode,
+            )
             llm_ids.extend(question.id for question in selected_questions)
         except Exception as exc:
             logger.warning("tts_optimizer.llm_quiz_fallback file=%s error=%s", file_name, exc)
@@ -1194,7 +1301,18 @@ def optimize_quiz_pack(
             if active_mode in {"llm", "multilingual"}:
                 question.tts = _guard_llm_quiz_tts(
                     question,
-                    llm_readings.get(question.id, _rule_quiz_question_tts(question, rules)),
+                    llm_readings.get(
+                        question.id,
+                        _rule_quiz_question_tts(
+                            question,
+                            rules,
+                            language=pack.language,
+                            allow_language_tags=True,
+                            language_settings=language_settings,
+                            learning_language=pack.learningLanguage,
+                            choice_language_mode=pack.choiceLanguageMode,
+                        ),
+                    ),
                     rules,
                     file_name=file_name,
                     warnings=warnings,

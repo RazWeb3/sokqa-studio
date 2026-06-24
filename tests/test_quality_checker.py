@@ -1,11 +1,14 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.pack_paths import pack_root_prefix
+from app.schemas.sokqa import GeneratedFile
+from app.services import quality_checker
 from app.services.quality_checker import TTS_QUALITY_CATEGORIES, _generate_json_with_retry, _quality_prompt, _quality_response_from_data
 from main import app
 
@@ -143,6 +146,90 @@ def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatc
         "tts_text_mismatch",
     }
     assert all(issue["severity"] != "high" for issue in data["issues"] if issue["category"] == "tts_text_mismatch")
+
+
+def test_tts_quality_check_detects_missing_learning_language_choice_texts(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="quiz_english.json",
+        kind="quiz",
+        content={
+            "id": "quiz_english",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "朝の挨拶はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "朝は Good morning を使います。",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        quality_checker,
+        "load_target_pack",
+        lambda _target: SimpleNamespace(file=file),
+    )
+
+    response = client.post(
+        "/quality/tts-check",
+        json={
+            "target": {
+                "creatorId": "creator",
+                "contentId": "content",
+                "versionId": "version",
+                "packName": "quiz_english.json",
+                "kind": "quiz",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    issues = response.json()["issues"]
+    missing = [issue for issue in issues if "choiceTexts" in issue["issue"]]
+    assert len(missing) == 4
+    assert [issue["location"]["field"] for issue in missing] == [
+        "choices[0]",
+        "choices[1]",
+        "choices[2]",
+        "choices[3]",
+    ]
+
+
+def test_tts_quality_location_is_normalized() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.9,
+                    "location": {
+                        "fileName": "quiz.json",
+                        "unitId": "q-1",
+                        "field": "tts.explanationText",
+                    },
+                    "excerpt": "SQL",
+                    "issue": "読みを確認します。",
+                    "suggestion": "エスキューエル",
+                }
+            ]
+        },
+        file_name="quiz.json",
+        model="test",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+    )
+
+    assert response.issues[0].location.field == "explanation"
 
 
 def test_tts_quality_check_filters_null_audio_issues(tmp_path, monkeypatch) -> None:

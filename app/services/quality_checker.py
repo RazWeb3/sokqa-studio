@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.schemas.quality import QualityCheckResponse, QualityIssue
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
+from app.services.language_detection import choice_set_language_state, language_script, leading_script
 from app.services.tts_recording_api import load_target_pack
 
 
@@ -56,8 +57,13 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
     settings = get_settings()
     model = settings.quality_model
 
+    deterministic_issues = _deterministic_tts_issues(loaded.file.name, loaded.file.content) if mode == "tts" else []
+
     if settings.gemini_provider == "mock":
-        return _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
+        response = _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
+        if mode == "tts":
+            response.issues = (deterministic_issues + response.issues)[:max_issues]
+        return response
 
     prompt, input_truncated = _quality_prompt(loaded.file.name, loaded.file.content, max_issues, mode=mode)
     try:
@@ -66,7 +72,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         raise QualityCheckError(f"quality check LLM call failed: {exc}") from exc
 
     try:
-        return _quality_response_from_data(
+        response = _quality_response_from_data(
             data,
             file_name=loaded.file.name,
             model=model,
@@ -76,6 +82,11 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
             input_truncated=input_truncated,
             source_content=loaded.file.content if mode == "tts" else None,
         )
+        if mode == "tts":
+            llm_issues = response.issues
+            response.issues = (deterministic_issues + llm_issues)[:max_issues]
+            response.truncated = response.truncated or len(deterministic_issues) + len(llm_issues) > max_issues
+        return response
     except (TypeError, ValidationError, ValueError) as exc:
         raise QualityCheckError(f"quality check response validation failed: {exc}") from exc
 
@@ -114,7 +125,7 @@ def _quality_response_from_data(
     if not isinstance(raw_issues, list):
         raise ValueError("response must contain an issues array")
 
-    issues = [QualityIssue.model_validate(item) for item in raw_issues]
+    issues = [_normalize_quality_issue_location(QualityIssue.model_validate(item)) for item in raw_issues]
     if allowed_categories is not None:
         issues = [issue for issue in issues if issue.category in allowed_categories]
     if suppress_tts_null_issues:
@@ -137,6 +148,161 @@ def _quality_response_from_data(
         model=model,
         issues=issues[:max_issues],
         truncated=truncated,
+    )
+
+
+def _normalize_quality_field(field: str | None) -> str | None:
+    if not field:
+        return field
+    lowered = field.lower()
+    match = re.search(r"\d+", field)
+    if "choice" in lowered:
+        return f"choices[{int(match.group(0))}]" if match else "choices"
+    if "explanation" in lowered:
+        return "explanation"
+    if "question" in lowered:
+        return "question"
+    return "text" if lowered in {"text", "tts.text"} else field
+
+
+def _normalize_quality_issue_location(issue: QualityIssue) -> QualityIssue:
+    return issue.model_copy(
+        update={
+            "location": issue.location.model_copy(
+                update={"field": _normalize_quality_field(issue.location.field)}
+            )
+        }
+    )
+
+
+def _deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[QualityIssue]:
+    if content.get("type") != "quiz":
+        return []
+    pack_language = str(content.get("language") or "ja")
+    learning_language = content.get("learningLanguage")
+    if not learning_language:
+        return []
+    choice_mode = str(content.get("choiceLanguageMode") or "auto")
+    pack_script = language_script(pack_language)
+    learning_script = language_script(str(learning_language))
+    issues: list[QualityIssue] = []
+    for question in content.get("questions") or []:
+        if not isinstance(question, dict):
+            continue
+        unit_id = str(question.get("id") or "")
+        choices = [str(choice) for choice in question.get("choices") or []]
+        tts = question.get("tts") if isinstance(question.get("tts"), dict) else {}
+        choice_texts = tts.get("choiceTexts")
+        if choice_texts is not None and (
+            not isinstance(choice_texts, list) or len(choice_texts) != len(choices)
+        ):
+            issues.append(
+                _quality_issue(
+                    file_name,
+                    unit_id,
+                    "choices",
+                    "choiceTexts",
+                    "choiceTexts の配列長が choices と一致していません。",
+                    "choices と同じ長さの配列に修正してください。",
+                    category="notation",
+                )
+            )
+            choice_texts = choice_texts if isinstance(choice_texts, list) else []
+
+        state = choice_set_language_state(choices, pack_language, str(learning_language))
+        if choice_mode == "auto" and state == "mixed":
+            issues.append(
+                _quality_issue(
+                    file_name,
+                    unit_id,
+                    "choices",
+                    " / ".join(choices),
+                    "auto設定ですが、1問内の4択にパック言語と学習言語が混在しています。",
+                    "4択を同じ言語に統一してください。",
+                    category="notation",
+                )
+            )
+        elif choice_mode == "learning" and state == "pack":
+            issues.append(
+                _quality_issue(
+                    file_name,
+                    unit_id,
+                    "choices",
+                    " / ".join(choices),
+                    "選択肢表示方式が学習言語ですが、選択肢がパック言語になっています。",
+                    f"4択を学習言語（{learning_language}）へ統一してください。",
+                    category="tts_text_mismatch",
+                )
+            )
+        elif choice_mode == "pack" and state == "learning":
+            issues.append(
+                _quality_issue(
+                    file_name,
+                    unit_id,
+                    "choices",
+                    " / ".join(choices),
+                    "選択肢表示方式がパック言語ですが、選択肢が学習言語になっています。",
+                    f"4択をパック言語（{pack_language}）へ統一してください。",
+                    category="tts_text_mismatch",
+                )
+            )
+
+        if pack_script == learning_script:
+            continue
+        tag = f"[{_speech_code(str(learning_language))}]"
+        for index, choice in enumerate(choices):
+            if leading_script(choice) != learning_script:
+                continue
+            current = (
+                str(choice_texts[index] or "")
+                if isinstance(choice_texts, list) and index < len(choice_texts)
+                else ""
+            )
+            if not current.startswith(tag):
+                issue_text = (
+                    "学習言語の選択肢に必要な言語タグがありません。"
+                    if current
+                    else "学習言語の選択肢に必要な choiceTexts がありません。"
+                )
+                issues.append(
+                    _quality_issue(
+                        file_name,
+                        unit_id,
+                        f"choices[{index}]",
+                        choice,
+                        issue_text,
+                        f"{tag}{choice}",
+                    )
+                )
+    return issues
+
+
+def _speech_code(language: str) -> str:
+    from app.schemas.common import default_speech_language_code
+
+    return default_speech_language_code(language)
+
+
+def _quality_issue(
+    file_name: str,
+    unit_id: str,
+    field: str,
+    excerpt: str,
+    issue: str,
+    suggestion: str,
+    *,
+    category: str = "reading",
+) -> QualityIssue:
+    return QualityIssue.model_validate(
+        {
+            "category": category,
+            "severity": "high",
+            "confidence": 1.0,
+            "location": {"fileName": file_name, "unitId": unit_id, "field": field},
+            "excerpt": excerpt or field,
+            "issue": issue,
+            "suggestion": suggestion,
+        }
     )
 
 

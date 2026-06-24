@@ -116,6 +116,8 @@ def generate_mock_quiz_pack(
         title=quiz_plan.title,
         description=quiz_description(plan, quiz_plan),
         language=plan.language,
+        learningLanguage=plan.learningLanguage,
+        choiceLanguageMode=quiz_plan.choiceLanguageMode,
         author=plan.author,
         globalTags=quiz_global_tags(plan, quiz_plan),
         questions=questions,
@@ -135,6 +137,8 @@ def normalize_quiz_content(
     normalized.setdefault("title", quiz_plan.title)
     normalized.setdefault("description", quiz_description(plan, quiz_plan))
     normalized.setdefault("language", plan.language)
+    normalized["learningLanguage"] = plan.learningLanguage
+    normalized["choiceLanguageMode"] = quiz_plan.choiceLanguageMode
     normalized.setdefault("author", plan.author)
     normalized["globalTags"] = quiz_global_tags(plan, quiz_plan)
 

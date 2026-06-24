@@ -530,7 +530,7 @@ def test_tts_fix_no_llm_choice_texts_suggestion_preserves_index_mapping(tmp_path
     assert not any(isinstance(item, list) for item in question["tts"]["choiceTexts"])
     assert data["appliedFixes"][0]["after"] == "エスキューエル"
     assert data["reRecordNeededUnits"] == [
-        {"fileName": "quiz_01.json", "unitId": "q-1", "field": "tts.choiceTexts[0]", "category": "reading"}
+        {"fileName": "quiz_01.json", "unitId": "q-1", "field": "choices[0]", "category": "reading"}
     ]
 
 

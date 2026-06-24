@@ -252,9 +252,10 @@ Planner がテーマ、対象ユーザー、sourceText から「追加すると�
 
 ## 多言語学習支援
 
-pack language と learning language を意識して、本文、問題、選択肢、解説、TTS タグの生成方針を支援する Agent。
+pack language と `learningLanguage` を意識して、本文、問題、選択肢、解説、TTS タグの生成方針を支援する。
 
-現状は独立した `learningLanguage` フィールドが未実装のため、ttsLanguageSettings と customInstructions を使って補助する想定である。
+Planner はテーマから学習言語を推測し、ユーザー指定があればそれを優先する。Quiz Generator は quiz pack ごとの
+`choiceLanguageMode`（pack / learning / auto）に従い、auto でも1問内の4択は同じ言語に統一する。
 
 ## JLPT支援
 

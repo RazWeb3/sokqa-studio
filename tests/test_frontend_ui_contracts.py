@@ -94,17 +94,20 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
         "explanationLanguage",
     ]:
         assert f'id="{element_id}"' in html
-    assert 'if (ttsModeValue() === "multilingual") plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();' in html
-    assert 'else delete plan.ttsLanguageSettings;' in html
+    assert 'id="baseLanguageDisplay"' in html
+    assert 'id="learningLanguage"' in html
+    assert 'hidden aria-hidden="true"' in html
+    assert "plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();" in html
+    assert "delete plan.ttsLanguageSettings;" in html
     assert '$("multilingualTtsOptions").hidden = !multilingual;' in html
+    assert '$("multilingualTtsOptions").open = multilingual;' in html
     assert '$("ttsDictionaryPanel").hidden = multilingual;' in html
     document_select = html[html.index('<select id="documentTextLanguageMode"'):html.index("</select>", html.index('<select id="documentTextLanguageMode"'))]
     assert 'value="mixed" selected' in document_select
     assert 'value="select"' in document_select
-    assert '※本文中に部分的に混在する学習対象言語や外国語を指定します。' in html
-    assert 'インドネシア語で日本語を学ぶ' not in html
-    assert '例: 英語で日本語を学ぶ、日本語で英語を学ぶなど' in html
-    assert '「言語を選ぶ」を選んだ項目だけ、右側の言語指定が有効になります。' in html
+    assert "基本言語" in html
+    assert "学習言語" in html
+    assert "テーマから学習言語を推測します" in html
     for status_text in ["混合判定", "自動判定", "未使用"]:
         assert status_text not in html
     assert ">有効<" not in html
@@ -123,6 +126,10 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert 'select.title = active ? "" : "「言語を選ぶ」を選んだ時だけ有効です。";' in html
     assert "syncTtsLanguageControls();" in html
     assert '<button id="planBtn" type="button">プランを作成</button>' in html
+    assert 'data-quiz-choice-language-mode' in html
+    assert "パック言語" in html
+    assert "学習言語" in html
+    assert "おまかせ" in html
 
 
 def test_generation_policy_unit_and_material_controls_are_available_and_sent() -> None:

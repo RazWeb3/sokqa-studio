@@ -29,6 +29,7 @@ class QuizPackSpec(BaseModel):
     purpose: str
     questionCount: int = Field(..., ge=1, le=30)
     difficulty: Difficulty = "standard"
+    choiceLanguageMode: Literal["pack", "learning", "auto"] = "auto"
 
 
 class PlanPackRequest(BaseModel):
@@ -140,6 +141,7 @@ class PlanPackRequest(BaseModel):
     difficulty: Difficulty = "beginner"
     scale: Scale = "quick"
     language: str = Field(default="ja", min_length=2, max_length=20)
+    learningLanguage: str | None = Field(default=None, min_length=2, max_length=20)
     customInstructions: str | None = Field(default=None, max_length=2000)
     creatorId: str | None = Field(default=None, min_length=1, max_length=120)
     creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
@@ -204,9 +206,11 @@ class PlanPackRequest(BaseModel):
     def normalize_legacy_structure_policy(cls, value):
         return normalize_structure_policy(value)
 
-    @field_validator("language", mode="before")
+    @field_validator("language", "learningLanguage", mode="before")
     @classmethod
     def normalize_language_code(cls, value):
+        if value in (None, ""):
+            return None
         return validate_language_code(value)
 
     @field_validator("manualGlobalTags", mode="before")

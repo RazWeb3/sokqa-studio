@@ -336,9 +336,14 @@ TTS ではパック言語を default language として扱う。
 - 日本語学習教材なら学習言語は日本語
 - 英語話者向け日本語教材では、パック言語が `en`、学習言語が `ja` になり得る
 
-現在の実装では、独立した `learningLanguage` フィールドは存在しない。学習言語は `ttsLanguageSettings` の各 field language によって表現する。
+`learningLanguage` は CoursePlan、document pack、quiz pack に optional metadata として保存する。
+新規生成では `learningLanguage` を正規ルートとして扱い、旧 `ttsLanguageSettings` は後方互換用のフォールバックとして維持する。
 
-TODO: 学習言語を metadata として明示的に保存するか検討する。
+quiz pack は `choiceLanguageMode` を持つ。
+
+- `pack`: 4択をパック言語にする
+- `learning`: 4択を学習言語にする
+- `auto`: 問題単位で選ぶ。ただし1問内の4択は同じ言語に統一する
 
 検討中の例:
 
@@ -594,4 +599,4 @@ TODO: QR を読み込む Sokqa アプリ側の URL scheme と import contract �
 - README には `auto` TTS mode の説明があるが、現在の型定義では `TtsReadingMode` は `none/rule/llm/multilingual` である。
 - `normalize_tts_reading_mode("auto")` は `llm` に正規化する。
 - README の古い manifest shape 例と、現行の `PackManifestV2` は異なる。
-- `learningLanguage` という独立フィールドは現状存在しない。
+- `learningLanguage` がない既存パックでは、従来の `ttsLanguageSettings` を利用する。

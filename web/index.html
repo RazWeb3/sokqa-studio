@@ -588,11 +588,15 @@
                   </div>
                   <div class="actions"><button class="secondary" id="openDictionaryRulesBtn" type="button">辞書を管理</button></div>
                 </section>
-                <details id="multilingualTtsOptions" class="plan-card" hidden>
-                  <summary>多言語読み上げの詳細</summary>
+                <details id="multilingualTtsOptions" class="plan-card" hidden open>
+                  <summary>多言語読み上げ</summary>
                   <div class="stack">
-                    <p class="hint">※本文中に部分的に混在する学習対象言語や外国語を指定します。例: 英語で日本語を学ぶ、日本語で英語を学ぶなど、本文の一部だけ別言語になる場合に使用します。</p>
                     <div class="field-grid">
+                      <label>基本言語<input id="baseLanguageDisplay" value="日本語 / ja" readonly /></label>
+                      <label>学習言語<select id="learningLanguage"></select></label>
+                    </div>
+                    <p class="hint">テーマから学習言語を推測します。構成プレビュー作成後も変更できます。</p>
+                    <div hidden aria-hidden="true">
                       <label>ドキュメント本文<select id="documentTextLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>本文の言語<select id="documentTextLanguage" class="tts-language-select" data-tts-language-select></select></label>
                       <label>クイズ問題文<select id="questionLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
@@ -602,7 +606,6 @@
                       <label>クイズ解説<select id="explanationLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>解説の言語<select id="explanationLanguage" class="tts-language-select" data-tts-language-select></select></label>
                     </div>
-                    <p class="hint">「言語を選ぶ」を選んだ項目だけ、右側の言語指定が有効になります。</p>
                   </div>
                 </details>
                 <input id="sourceMode" type="hidden" value="document_reference" />
@@ -880,6 +883,7 @@
         ["pt", "Português / pt"],
         ["id", "Bahasa Indonesia / id"],
       ];
+      const LEARNING_LANGUAGE_OPTIONS = PACK_LANGUAGE_OPTIONS.filter(([value]) => value !== "pack");
       const DEFAULT_TTS_LANGUAGE_SETTINGS = {
         documentTextLanguageMode: "mixed",
         documentTextLanguage: "pack",
@@ -1100,6 +1104,12 @@
         $$("[data-tts-language-select]").forEach((select) => {
           if (!select.innerHTML) select.innerHTML = options;
         });
+        const learning = $("learningLanguage");
+        if (learning && !learning.innerHTML) {
+          learning.innerHTML = `<option value="">テーマから推測</option>` + LEARNING_LANGUAGE_OPTIONS
+            .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+            .join("");
+        }
       }
 
       function languageCodePattern(value) {
@@ -1126,6 +1136,11 @@
           explanationLanguageMode: $("explanationLanguageMode").value,
           explanationLanguage: $("explanationLanguage").value,
         };
+      }
+
+      function learningLanguageValue() {
+        if (ttsModeValue() !== "multilingual") return null;
+        return $("learningLanguage")?.value || null;
       }
 
       const COUNT_LIMITS = {
@@ -1261,6 +1276,8 @@
         $("descriptionIncludeDate").checked = Boolean(plan.descriptionIncludeDate);
         $("descriptionIncludeAiDisclaimer").checked = Boolean(plan.descriptionIncludeAiDisclaimer);
         $("answerPositionMode").value = "balanced";
+        populateTtsLanguageSelects();
+        if ($("learningLanguage")) $("learningLanguage").value = plan.learningLanguage || "";
         syncGenerationUnitUi();
         syncMaterialModeUi();
         syncMetadataModeUi();
@@ -1291,8 +1308,14 @@
 
       function syncTtsLanguageSettingsToPlan(plan) {
         if (!plan) return plan;
-        if (ttsModeValue() === "multilingual") plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();
-        else delete plan.ttsLanguageSettings;
+        if (ttsModeValue() === "multilingual") {
+          const learningLanguage = learningLanguageValue();
+          if (learningLanguage) plan.learningLanguage = learningLanguage;
+          else if (!plan.learningLanguage) delete plan.learningLanguage;
+          plan.ttsLanguageSettings = ttsLanguageSettingsFromControls();
+        } else {
+          delete plan.ttsLanguageSettings;
+        }
         return plan;
       }
 
@@ -1344,6 +1367,7 @@
               <div class="plan-meta"><span>対象</span><strong>${escapeHtml(plan.targetUser || "-")}</strong></div>
               <div class="plan-meta"><span>難易度</span><strong>${escapeHtml(plan.difficulty || "-")}</strong></div>
               <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(labelFor("scale", plan.scale, "-"))} / ${escapeHtml(plan.language || "-")}</strong></div>
+              ${plan.learningLanguage ? `<div class="plan-meta"><span>学習言語</span><strong>${escapeHtml(plan.learningLanguage)}</strong></div>` : ""}
               <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(labelFor("structurePolicy", plan.structurePolicy || "standard"))}</strong></div>
               <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(labelFor("generationUnit", plan.generationUnit || "pack"))}</strong></div>
               <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(materialModePreviewLabel(plan))}</strong></div>
@@ -1373,10 +1397,19 @@
           <section class="plan-card">
             <h4>クイズ構成</h4>
             <ul class="plan-list">
-              ${quizPacks.map((quiz) => `
+              ${quizPacks.map((quiz, quizIndex) => `
                 <li>
                   <strong>${escapeHtml(quiz.title || quiz.id || "クイズ")}</strong>
                   <p>${escapeHtml(purposeLabel(quiz.purpose))} / ${escapeHtml(quiz.questionCount || "-")}問</p>
+                  ${plan.learningLanguage ? `
+                    <label>選択肢表示方式
+                      <select data-quiz-choice-language-mode="${quizIndex}">
+                        <option value="pack" ${quiz.choiceLanguageMode === "pack" ? "selected" : ""}>パック言語</option>
+                        <option value="learning" ${quiz.choiceLanguageMode === "learning" ? "selected" : ""}>学習言語</option>
+                        <option value="auto" ${!quiz.choiceLanguageMode || quiz.choiceLanguageMode === "auto" ? "selected" : ""}>おまかせ</option>
+                      </select>
+                    </label>
+                  ` : ""}
                 </li>
               `).join("") || `<li><p class="muted">クイズはまだありません。</p></li>`}
             </ul>
@@ -1403,6 +1436,13 @@
         $$("[data-reading-pattern]").forEach((input) => input.addEventListener("change", () => {
           writeSelectedReadingPatternsToPlanJson();
           renderPlanPreview(readPlanJson());
+        }));
+        $$("[data-quiz-choice-language-mode]").forEach((select) => select.addEventListener("change", () => {
+          const current = readPlanJson();
+          const index = Number(select.dataset.quizChoiceLanguageMode);
+          if (!current?.quizPacks?.[index]) return;
+          current.quizPacks[index].choiceLanguageMode = select.value;
+          setPlanJson(current);
         }));
       }
 
@@ -1457,14 +1497,20 @@
       function syncTtsModeUi() {
         const multilingual = ttsModeValue() === "multilingual";
         $("multilingualTtsOptions").hidden = !multilingual;
+        $("multilingualTtsOptions").open = multilingual;
         $("ttsDictionaryPanel").hidden = multilingual;
         populateTtsLanguageSelects();
+        let packLanguage = $("language").value;
+        try { packLanguage = languageValue(); } catch (_error) {}
+        const packLabel = PACK_LANGUAGE_OPTIONS.find(([value]) => value === packLanguage)?.[1] || packLanguage;
+        if ($("baseLanguageDisplay")) $("baseLanguageDisplay").value = packLabel;
         syncTtsLanguageControls();
         syncReadingPatternMode();
       }
 
       function syncPackLanguageUi() {
         $("customLanguageLine").hidden = $("language").value !== "custom";
+        syncTtsModeUi();
         syncTtsLanguageControls();
       }
 
@@ -3266,6 +3312,7 @@
             difficulty: $("difficulty").value,
             scale: scaleValue(),
             language: languageValue(),
+            learningLanguage: learningLanguageValue(),
             customInstructions,
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
@@ -3460,6 +3507,14 @@
       }));
       $("language").addEventListener("change", syncPackLanguageUi);
       $("ttsReadingMode").addEventListener("change", syncTtsModeUi);
+      $("learningLanguage").addEventListener("change", () => {
+        let plan;
+        try { plan = readPlanJson(); } catch (_error) { plan = null; }
+        if (!plan) return;
+        syncTtsLanguageSettingsToPlan(plan);
+        setPlanJson(plan);
+        renderPlanPreview(plan);
+      });
       function handleGenerationControlChange() {
         syncGenerationUnitUi();
         let plan;

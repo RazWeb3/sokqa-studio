@@ -791,3 +791,78 @@ def test_generation_does_not_repair_clean_quiz(monkeypatch) -> None:
 
     assert calls["repair"] == 0
     assert generated.validation.valid is True
+
+
+def test_auto_choice_language_allows_per_question_switch_but_rejects_mixed_set() -> None:
+    valid = GeneratedFile(
+        name="valid_auto.json",
+        kind="quiz",
+        content={
+            "id": "valid_auto",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "auto",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "英語を選んでください。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "英語4択です。",
+                },
+                {
+                    "id": "q-2",
+                    "question": "意味を選んでください。",
+                    "choices": ["おはよう", "こんにちは", "こんばんは", "さようなら"],
+                    "answerIndex": 1,
+                    "explanation": "日本語4択です。",
+                },
+            ],
+        },
+    )
+    mixed = valid.model_copy(deep=True)
+    mixed.name = "mixed_auto.json"
+    mixed.content["id"] = "mixed_auto"
+    mixed.content["questions"][0]["choices"] = [
+        "Good morning",
+        "こんにちは",
+        "Good evening",
+        "さようなら",
+    ]
+
+    valid_result = validate_files([valid])
+    mixed_result = validate_files([mixed])
+
+    assert valid_result.valid is True
+    assert mixed_result.valid is False
+    assert any("same language" in error.message for error in mixed_result.errors)
+
+
+def test_existing_japanese_quiz_does_not_require_choice_texts() -> None:
+    file = GeneratedFile(
+        name="japanese_only.json",
+        kind="quiz",
+        content={
+            "id": "japanese_only",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "日本語クイズ",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "正しいものはどれですか。",
+                    "choices": ["一", "二", "三", "四"],
+                    "answerIndex": 0,
+                    "explanation": "一が正解です。",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    assert result.valid is True

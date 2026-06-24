@@ -50,6 +50,7 @@ class PlanQuizPack(BaseModel):
     questionCount: int = Field(..., ge=1, le=30)
     difficulty: Difficulty = "standard"
     sourceDocumentIds: list[str] = Field(default_factory=list)
+    choiceLanguageMode: Literal["pack", "learning", "auto"] = "auto"
 
 
 class CoursePlan(BaseModel):
@@ -62,6 +63,7 @@ class CoursePlan(BaseModel):
     title: str
     description: str
     language: str = "ja"
+    learningLanguage: str | None = None
     customInstructions: str | None = Field(default=None, max_length=2000)
     targetUser: str
     difficulty: Difficulty
@@ -117,9 +119,11 @@ class CoursePlan(BaseModel):
     def normalize_legacy_structure_policy(cls, value):
         return normalize_structure_policy(value)
 
-    @field_validator("language", mode="before")
+    @field_validator("language", "learningLanguage", mode="before")
     @classmethod
     def normalize_language_code(cls, value):
+        if value in (None, ""):
+            return None
         return validate_language_code(value)
 
     @model_validator(mode="after")
@@ -167,10 +171,18 @@ class SokqaDocumentPack(BaseModel):
     title: str
     description: str = ""
     language: str = "ja"
+    learningLanguage: str | None = None
     author: str | None = None
     assetBaseUrl: str | None = None
     globalTags: list[str] = Field(default_factory=list)
     documents: list[SokqaDocumentItem]
+
+    @field_validator("language", "learningLanguage", mode="before")
+    @classmethod
+    def normalize_pack_language_code(cls, value):
+        if value in (None, ""):
+            return None
+        return validate_language_code(value)
 
 
 class QuizTts(BaseModel):
@@ -233,10 +245,19 @@ class SokqaQuizPack(BaseModel):
     title: str
     description: str = ""
     language: str = "ja"
+    learningLanguage: str | None = None
+    choiceLanguageMode: Literal["pack", "learning", "auto"] = "auto"
     author: str | None = None
     assetBaseUrl: str | None = None
     globalTags: list[str] = Field(default_factory=list)
     questions: list[SokqaQuestion]
+
+    @field_validator("language", "learningLanguage", mode="before")
+    @classmethod
+    def normalize_pack_language_code(cls, value):
+        if value in (None, ""):
+            return None
+        return validate_language_code(value)
 
 
 class GeneratedFile(BaseModel):

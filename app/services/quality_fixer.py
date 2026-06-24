@@ -356,7 +356,7 @@ def save_quality_fix_version(
                     category=fix.category,
                 )
             )
-        _validate_pack_json(file.name, content)
+        content = _validate_pack_json(file.name, content)
         logical_id = _logical_id_from_file_name(file.name)
         current_item = _manifest_item_for_target(current_manifest, file.name, logical_id)
         changed_files.append(
@@ -1028,17 +1028,18 @@ def _mock_fix_response(file_name: str, content: dict[str, Any], issues: list[Qua
     )
 
 
-def _validate_pack_json(file_name: str, content: dict[str, Any]) -> None:
+def _validate_pack_json(file_name: str, content: dict[str, Any]) -> dict[str, Any]:
     kind = content.get("type")
     if kind == "document":
-        SokqaDocumentPack.model_validate(content)
+        normalized = SokqaDocumentPack.model_validate(content).model_dump(exclude_none=True)
     elif kind == "quiz":
-        SokqaQuizPack.model_validate(content)
+        normalized = SokqaQuizPack.model_validate(content).model_dump(exclude_none=True)
     else:
         raise ValueError("content type must be document or quiz")
-    result = validate_files([GeneratedFile(name=file_name, kind=kind, content=content)])
+    result = validate_files([GeneratedFile(name=file_name, kind=kind, content=normalized)])
     if not result.valid:
         raise ValueError("; ".join(error.message for error in result.errors))
+    return normalized
 
 
 def _get_raw_field(content: dict[str, Any], location: QualityLocation) -> str:

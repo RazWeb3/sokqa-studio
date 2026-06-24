@@ -296,6 +296,62 @@ def test_quality_fix_save_tts_fix_clears_audio_and_preserves_display_text(tmp_pa
     assert (old_dir / "objects" / "audio" / "av_doc_01__doc-1.mp3").exists()
 
 
+def test_quality_fix_save_normalizes_answer_index_and_preserves_sparse_quiz_tts(tmp_path, monkeypatch) -> None:
+    target = _write_quiz_version(tmp_path, monkeypatch)
+    content = {
+        "id": "content_fix_quiz_01",
+        "type": "quiz",
+        "schemaVersion": 1,
+        "title": "修正テストクイズ",
+        "language": "ja",
+        "learningLanguage": "en",
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "SQLとは何ですか？",
+                "choices": ["A", "B", "C", "D"],
+                "answerIndex": "1",
+                "explanation": "SQLの説明です。",
+                "tts": {
+                    "questionText": "エスキューエルとは何ですか？",
+                    "choiceTexts": ["", "ビー", "", ""],
+                    "explanationText": "エスキューエルの説明です。",
+                },
+            }
+        ],
+    }
+
+    response = client.post(
+        "/quality/save-version",
+        json={
+            "target": target,
+            "files": [{"name": "quiz_01.json", "kind": "quiz", "content": content}],
+            "appliedFixes": [],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["newVersionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    quiz_item = next(item for item in manifest["items"] if item["name"] == "quiz_01.json")
+    saved_quiz = json.loads(
+        (tmp_path / "generated" / data["storagePrefix"] / quiz_item["url"].split(f"{data['storagePrefix']}/", 1)[1]).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    question = saved_quiz["questions"][0]
+    assert question["answerIndex"] == 1
+    assert isinstance(question["answerIndex"], int)
+    assert saved_quiz["learningLanguage"] == "en"
+    assert question["tts"] == {
+        "questionText": "エスキューエルとは何ですか？",
+        "choiceTexts": ["", "ビー", "", ""],
+        "explanationText": "エスキューエルの説明です。",
+    }
+
+
 def test_quality_fix_save_mixed_text_and_tts_changes_in_one_revision(tmp_path, monkeypatch) -> None:
     target = _write_version(tmp_path, monkeypatch)
     prefix = pack_root_prefix(target["creatorId"], target["contentId"])

@@ -475,3 +475,49 @@ def test_manual_text_quality_check_still_uses_existing_flow() -> None:
     assert 'lastTextCheckResult = await requestJson("/quality/text-check", { target: recordingTarget(selectedPack) });' in manual_html
     assert 'renderQualityIssues("textQualityResult", lastTextCheckResult, "text");' in manual_html
     assert 'setBadge("qualityBadge", "チェック済み", "info");' in manual_html
+
+
+def test_save_version_rebuilds_selected_pack_from_new_version_once() -> None:
+    html = _html()
+
+    assert "async function applySavedVersion(versionId, before = selectedPack)" in html
+    assert 'await loadPacks({ keepSelection: false, forceRefresh: true });' in html
+    assert "const refreshed = packForSavedVersion(before, versionId, fallbackRevision);" in html
+    assert "const fallbackRevision = Number.isFinite(Number(before.revision))" in html
+    assert "selectedPack = normalized;" in html
+    assert "updateGlobalStatus();" in html
+    assert 'await refreshVersionInfoIfOpen();' in html
+    assert 'await refreshImportQrIfOpen();' in html
+    assert html.count("await applySavedVersion(newVersionId, before);") == 2
+
+
+def test_saved_version_fallback_updates_revision_and_manifest_url() -> None:
+    html = _html()
+    start = html.index("function packAtVersion(")
+    end = html.index("async function selectPack", start)
+    pack_html = html[start:end]
+
+    assert "function packAtVersion(pack, versionId, revision = pack?.revision)" in pack_html
+    assert "revision: revision ?? pack.revision," in pack_html
+    assert "function packForSavedVersion(reference, versionId, revision = null)" in pack_html
+    assert "exactMatchingPack({ ...reference, versionId })" in pack_html
+    assert "revision ?? latest?.revision ?? reference?.revision" in pack_html
+
+
+def test_import_qr_refresh_keeps_current_selected_version() -> None:
+    html = _html()
+    start = html.index("async function openImportQr")
+    end = html.index("function groupPacks", start)
+    qr_html = html[start:end]
+
+    assert 'await loadPacks({ keepSelection: false, forceRefresh: true });' in qr_html
+    assert "selectedPack = packForSavedVersion(before, before.versionId, before.revision);" in qr_html
+    assert "latestMatchingPack(before)" not in qr_html
+    assert 'await openImportQr({ refreshLatest: true });' in qr_html
+
+
+def test_request_get_uses_no_store_cache_policy() -> None:
+    html = _html()
+
+    assert 'async function requestGet(url, { noStore = false } = {})' in html
+    assert 'const response = await fetch(url, noStore ? { cache: "no-store" } : {});' in html

@@ -1676,8 +1676,8 @@
         return data;
       }
 
-      async function requestGet(url) {
-        const response = await fetch(url);
+      async function requestGet(url, { noStore = false } = {}) {
+        const response = await fetch(url, noStore ? { cache: "no-store" } : {});
         const data = await response.json();
         if (!response.ok) throw new Error(apiErrorMessage(data, response.statusText));
         return data;
@@ -2084,7 +2084,7 @@
         if (!force && manifestCache.has(key)) return manifestCache.get(key);
         let manifest;
         try {
-          manifest = await requestGet(pack.manifestUrl);
+          manifest = await requestGet(pack.manifestUrl, { noStore: force });
         } catch (error) {
           manifest = manifestFromPackSummary(pack, error);
         }
@@ -2186,6 +2186,33 @@
         }
       }
 
+      async function applySavedVersion(versionId, before = selectedPack) {
+        if (!before) return;
+        const previousCacheKey = manifestCacheKey(before);
+        const fallbackRevision = Number.isFinite(Number(before.revision))
+          ? Number(before.revision) + 1
+          : before.revision;
+        await loadPacks({ keepSelection: false, forceRefresh: true });
+        const refreshed = packForSavedVersion(before, versionId, fallbackRevision);
+        if (!refreshed) {
+          throw new Error("最新リビジョンを取得できません。再読み込みしてください。");
+        }
+        if (previousCacheKey) manifestCache.delete(previousCacheKey);
+        const normalized = versionId
+          ? packAtVersion(refreshed, versionId, refreshed.revision ?? fallbackRevision)
+          : refreshed;
+        const nextCacheKey = manifestCacheKey(normalized);
+        if (nextCacheKey) manifestCache.delete(nextCacheKey);
+        selectedPack = normalized;
+        await selectPack(selectedPack);
+        if (versionId && selectedPack?.versionId !== versionId) {
+          throw new Error("最新リビジョンを取得できません。再読み込みしてください。");
+        }
+        updateGlobalStatus();
+        await refreshVersionInfoIfOpen();
+        await refreshImportQrIfOpen();
+      }
+
       function importUrlForPack(pack = selectedPack) {
         return pack?.manifestUrl ? `https://convly.jp/import?url=${encodeURIComponent(pack.manifestUrl)}` : "";
       }
@@ -2240,9 +2267,12 @@
         $("importQrBody").innerHTML = `<p class="muted">最新のmanifest URLを確認しています...</p>`;
         if (refreshLatest) {
           const before = selectedPack;
-          await loadPacks({ keepSelection: true });
-          selectedPack = latestMatchingPack(before) || selectedPack;
-          updateGlobalStatus();
+          await loadPacks({ keepSelection: false, forceRefresh: true });
+          selectedPack = packForSavedVersion(before, before.versionId, before.revision);
+          if (selectedPack) {
+            selectedPack = packAtVersion(selectedPack, before.versionId, selectedPack.revision ?? before.revision);
+            updateGlobalStatus();
+          }
         }
         const importUrl = importUrlForPack(selectedPack);
         if (!importUrl) {
@@ -2315,12 +2345,12 @@
         return currentPacks.find((pack) => (url && pack.url === url) || `${pack.contentId}::${pack.packName}` === key) || null;
       }
 
-      async function loadPacks({ keepSelection = true } = {}) {
+      async function loadPacks({ keepSelection = true, forceRefresh = false } = {}) {
         setProgress("パック一覧", "取得中", "保存済みパックを読み込んでいます。");
         const previous = selectedPack;
         const creatorId = $("packCreatorId").value.trim();
         const query = creatorId ? `?creatorId=${encodeURIComponent(creatorId)}` : "";
-        const data = await requestGet(`/packs${query}`);
+        const data = await requestGet(`/packs${query}`, { noStore: forceRefresh });
         currentPacks = data.items || [];
         if (keepSelection && previous) {
           selectedPack = exactMatchingPack(previous)
@@ -2359,19 +2389,22 @@
         return pack.manifestUrl.replace(/\/versions\/[^/]+\/manifest\.json$/, `/versions/${versionId}/manifest.json`);
       }
 
-      function packAtVersion(pack, versionId) {
+      function packAtVersion(pack, versionId, revision = pack?.revision) {
         if (!pack || !versionId) return pack;
         return {
           ...pack,
+          revision: revision ?? pack.revision,
           versionId,
           manifestUrl: manifestUrlForVersion(pack, versionId)
         };
       }
 
-      function packForSavedVersion(reference, versionId) {
+      function packForSavedVersion(reference, versionId, revision = null) {
         if (!versionId) return latestMatchingPack(reference) || reference;
-        return exactMatchingPack({ ...reference, versionId })
-          || packAtVersion(latestMatchingPack(reference) || reference, versionId);
+        const exact = exactMatchingPack({ ...reference, versionId });
+        if (exact) return exact;
+        const latest = latestMatchingPack(reference) || reference;
+        return packAtVersion(latest, versionId, revision ?? latest?.revision ?? reference?.revision);
       }
 
       async function selectPack(pack, { switchTab = null } = {}) {
@@ -3041,18 +3074,11 @@
             appliedFixes: []
           });
           const newVersionId = data.newVersionId || before.versionId;
-          await loadPacks({ keepSelection: false });
-          const refreshed = packForSavedVersion(before, newVersionId);
-          if (refreshed) await selectPack(refreshed);
-          if (newVersionId && selectedPack?.versionId !== newVersionId) {
-            throw new Error("最新リビジョンを取得できません。再読み込みしてください。");
-          }
+          await applySavedVersion(newVersionId, before);
           textWorkflowSaved = true;
           ttsWorkflowSaved = false;
           textWorkflowSkipped = false;
           textSavedVersionId = selectedPack?.versionId || newVersionId;
-          await refreshVersionInfoIfOpen();
-          await refreshImportQrIfOpen();
           setBadge("qualityBadge", "修正済み", "success");
           $("qualitySaveSummary").innerHTML = `<strong>テキスト保存完了</strong><span>newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件。次にTTS工程へ進めます。</span>`;
           finishProgress("テキスト修正版保存", "最新リビジョンへ切り替えました。");
@@ -3090,18 +3116,11 @@
             appliedFixes: lastTtsFixResult.appliedFixes || []
           });
           const newVersionId = data.newVersionId || before.versionId;
-          await loadPacks({ keepSelection: false });
-          const refreshed = packForSavedVersion(before, newVersionId);
-          if (refreshed) await selectPack(refreshed);
-          if (newVersionId && selectedPack?.versionId !== newVersionId) {
-            throw new Error("最新リビジョンを取得できません。再読み込みしてください。");
-          }
+          await applySavedVersion(newVersionId, before);
           textWorkflowSaved = wasTextWorkflowSaved;
           textWorkflowSkipped = wasTextWorkflowSkipped;
           ttsWorkflowSaved = true;
           textSavedVersionId = wasTextWorkflowSaved ? (selectedPack?.versionId || newVersionId) : "";
-          await refreshVersionInfoIfOpen();
-          await refreshImportQrIfOpen();
           setBadge("qualityBadge", "修正済み", "success");
           $("qualitySaveSummary").innerHTML = `<strong>TTS保存完了</strong><span>newVersionId=${escapeHtml(data.newVersionId)} / 再録音推奨=${(data.reRecordNeededUnits || []).length}件</span>`;
           finishProgress("TTS修正版保存", "最新リビジョンへ切り替えました。");

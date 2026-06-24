@@ -1,3 +1,4 @@
+import hashlib
 import re
 from datetime import date
 from typing import Any
@@ -35,6 +36,8 @@ RANGE_TITLES = {
 
 RANGE_PURPOSES = ["key_concepts", "application", "application", "application"]
 MAX_READING_PATTERN_COUNT = 8
+SECTION_COUNT_MIN = 35
+SECTION_COUNT_MAX = 50
 
 
 FALLBACK_READING_PATTERNS = [
@@ -253,10 +256,18 @@ def _split_document_ids(document_ids: list[str], chunk_count: int) -> list[list[
     return chunks
 
 
-def _section_count(request: PlanPackRequest) -> int:
+def _section_count(request: PlanPackRequest, index: int = 1, total_documents: int = 1) -> int:
     if request.sectionsPerDocument:
         return request.sectionsPerDocument
-    return 42
+    span = SECTION_COUNT_MAX - SECTION_COUNT_MIN + 1
+    seed_input = (
+        f"{request.theme}|{request.targetUser}|{request.difficulty}|"
+        f"{request.scale}|{max(1, total_documents)}"
+    )
+    base_offset = int(hashlib.sha256(seed_input.encode("utf-8")).hexdigest()[:8], 16) % span
+    # Use a coprime stride so the first 15 documents do not collapse to one repeated value.
+    spread_offset = ((max(1, index) - 1) * 5) % span
+    return SECTION_COUNT_MIN + ((base_offset + spread_offset) % span)
 
 
 def _requested_document_count(request: PlanPackRequest) -> str:
@@ -291,8 +302,9 @@ def _requested_section_count(request: PlanPackRequest) -> str:
             "Every document.targetSectionCount must use this number."
         )
     return (
-        "Not specified. Propose a suitable targetSectionCount from 35 to 50 for each chapter, with 42 as the default target. "
-        "Optimize within this range per chapter; do not vary section count by scale."
+        "Not specified. Determine an integer targetSectionCount from 35 to 50 for each chapter. "
+        "Choose different values per chapter based on topic breadth and expected content density. "
+        "Do not collapse every chapter to the same midpoint or reuse one safe default across the whole pack."
     )
 
 
@@ -465,7 +477,9 @@ Rules:
 - If documentCount was not specified and scale is auto, return 8-12 documents.
 - If sectionsPerDocument was specified, every targetSectionCount must exactly match it.
 - keyPoints should contain 3 to 6 concise items. For structurePolicy listening, keyPoints must be narrative beats in the order the spoken explanation should flow, not isolated term labels.
-- If sectionsPerDocument was not specified, targetSectionCount must be an integer from 35 to 50 for every document. Prefer 42 unless the source structure clearly calls for a different count.
+- If sectionsPerDocument was not specified, targetSectionCount must be an integer from 35 to 50 for every document.
+- Decide targetSectionCount per chapter based on the breadth of the topic and expected explanation density.
+- Use different targetSectionCount values across chapters when the content scope differs. Do not flatten every chapter to one safe midpoint value.
 - targetSectionCount must be an integer from 1 to 50.
 {reading_pattern_rules}
 
@@ -485,10 +499,22 @@ Return this JSON shape:
   ],
   "documents": [
     {{
-      "title": "specific chapter title",
-      "goal": "chapter-specific learning goal",
+      "title": "specific chapter title 1",
+      "goal": "chapter-specific learning goal 1",
       "keyPoints": ["specific point 1", "specific point 2", "specific point 3"],
-      "targetSectionCount": 40
+      "targetSectionCount": 38
+    }},
+    {{
+      "title": "specific chapter title 2",
+      "goal": "chapter-specific learning goal 2",
+      "keyPoints": ["specific point 4", "specific point 5", "specific point 6"],
+      "targetSectionCount": 45
+    }},
+    {{
+      "title": "specific chapter title 3",
+      "goal": "chapter-specific learning goal 3",
+      "keyPoints": ["specific point 7", "specific point 8", "specific point 9"],
+      "targetSectionCount": 41
     }}
   ]
 }}
@@ -569,7 +595,6 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
 
 def _fallback_documents(request: PlanPackRequest) -> list[PlanDocument]:
     count = _document_count(request)
-    section_count = _section_count(request)
     documents = []
     for index in range(1, count + 1):
         doc_id = f"doc_{index:02d}"
@@ -579,7 +604,7 @@ def _fallback_documents(request: PlanPackRequest) -> list[PlanDocument]:
                 title=_fallback_document_title(request, index),
                 goal=_fallback_document_goal(request, index),
                 keyPoints=_fallback_document_key_points(request, index),
-                targetSectionCount=section_count,
+                targetSectionCount=_section_count(request, index=index, total_documents=count),
             )
         )
     return documents
@@ -598,14 +623,14 @@ def _normalize_key_points(value: Any, theme: str, index: int) -> list[str]:
     return points[:6]
 
 
-def _sanitize_section_count(value: Any, request: PlanPackRequest) -> int:
+def _sanitize_section_count(value: Any, request: PlanPackRequest, *, index: int = 1, total_documents: int = 1) -> int:
     if request.sectionsPerDocument:
         return request.sectionsPerDocument
     try:
         count = int(value)
     except (TypeError, ValueError):
-        count = _section_count(request)
-    return max(35, min(50, count))
+        count = _section_count(request, index=index, total_documents=total_documents)
+    return max(SECTION_COUNT_MIN, min(SECTION_COUNT_MAX, count))
 
 
 def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[PlanDocument]:
@@ -621,6 +646,7 @@ def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequ
     elif request.scale == "auto":
         raw_documents = raw_documents[:12]
 
+    total_documents = len(raw_documents)
     documents = []
     for index, raw in enumerate(raw_documents, start=1):
         if not isinstance(raw, dict):
@@ -635,7 +661,12 @@ def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequ
                 title=title,
                 goal=goal,
                 keyPoints=_normalize_key_points(raw.get("keyPoints"), request.theme, index),
-                targetSectionCount=_sanitize_section_count(raw.get("targetSectionCount"), request),
+                targetSectionCount=_sanitize_section_count(
+                    raw.get("targetSectionCount"),
+                    request,
+                    index=index,
+                    total_documents=total_documents,
+                ),
             )
         )
     return documents

@@ -3,6 +3,7 @@
 .venv*/
 .deps/
 generated/
+.pytest_tmp/
 __pycache__/
 *.py[cod]
 *.log

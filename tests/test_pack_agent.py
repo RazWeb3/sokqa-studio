@@ -60,8 +60,10 @@ def test_quick_plan_and_generate() -> None:
     plan = plan_response.json()
     document_count = len(plan["documents"])
     quiz_count = len(plan["quizPacks"])
+    plan_section_counts = [document["targetSectionCount"] for document in plan["documents"]]
     assert document_count == 3
-    assert all(35 <= document["targetSectionCount"] <= 50 for document in plan["documents"])
+    assert all(35 <= count <= 50 for count in plan_section_counts)
+    assert len(set(plan_section_counts)) > 1
     assert plan["scale"] == "quick"
     assert "quality" not in plan
     assert len(plan["quizPacks"]) == 1
@@ -77,6 +79,13 @@ def test_quick_plan_and_generate() -> None:
     assert generate_response.status_code == 200
     generated = generate_response.json()
     assert generated["validation"]["valid"] is True
+    generated_section_counts = [
+        len(file["content"]["documents"])
+        for file in generated["files"]
+        if file["kind"] == "document"
+    ]
+    assert generated_section_counts == plan_section_counts
+    assert len(set(generated_section_counts)) > 1
     assert generated["manifest"]["scale"] == "quick"
     assert "quality" not in generated["manifest"]
     assert len(generated["manifest"]["items"]) == document_count + quiz_count

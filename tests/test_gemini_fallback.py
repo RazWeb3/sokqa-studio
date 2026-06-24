@@ -14,9 +14,17 @@ from main import app
 client = TestClient(app)
 
 
+def _force_gemini_failure(monkeypatch) -> None:
+    def fail_generate_json(self, *args, **kwargs):
+        raise RuntimeError("forced gemini failure")
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fail_generate_json)
+
+
 def test_gemini_provider_generation_failure_does_not_save_mock_content(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    _force_gemini_failure(monkeypatch)
 
     plan = plan_pack(
         PlanPackRequest(
@@ -34,6 +42,7 @@ def test_gemini_provider_generation_failure_does_not_save_mock_content(monkeypat
 def test_gemini_provider_quiz_generation_failure_does_not_save_mock_content(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    _force_gemini_failure(monkeypatch)
 
     plan = plan_pack(
         PlanPackRequest(
@@ -57,6 +66,7 @@ def test_gemini_provider_quiz_generation_failure_does_not_save_mock_content(monk
 def test_generate_route_returns_clear_generation_failure_message(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    _force_gemini_failure(monkeypatch)
 
     plan = plan_pack(
         PlanPackRequest(

@@ -272,6 +272,42 @@ def test_listening_planner_uses_default_section_count_range(monkeypatch) -> None
     assert all(35 <= document.targetSectionCount <= 50 for document in plan.documents)
 
 
+def test_mock_planner_uses_deterministic_varied_section_counts(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    request = PlanPackRequest(
+        theme="ITパスポート試験対策",
+        targetUser="IT初心者の社会人",
+        scale="standard",
+        structurePolicy="listening",
+    )
+    first = planner.create_course_plan(request)
+    second = planner.create_course_plan(request)
+    first_counts = [document.targetSectionCount for document in first.documents]
+    second_counts = [document.targetSectionCount for document in second.documents]
+
+    assert first_counts == second_counts
+    assert all(35 <= count <= 50 for count in first_counts)
+    assert len(set(first_counts)) > 1
+
+
+def test_planner_prompt_removes_42_midpoint_bias_for_section_counts() -> None:
+    prompt = planner._planner_prompt(
+        PlanPackRequest(
+            theme="Git基礎",
+            targetUser="初学者",
+            scale="quick",
+        )
+    )
+
+    assert "Prefer 42" not in prompt
+    assert "same midpoint" in prompt
+    assert '"targetSectionCount": 38' in prompt
+    assert '"targetSectionCount": 45' in prompt
+    assert '"targetSectionCount": 41' in prompt
+
+
 def test_generation_unit_and_counts_shape_plan(monkeypatch) -> None:
     settings = planner.get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

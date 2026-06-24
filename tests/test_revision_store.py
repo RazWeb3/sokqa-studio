@@ -396,6 +396,7 @@ def test_gcs_v2_save_uses_uploads_in_order_and_never_copy_prefix(monkeypatch) ->
 
 def test_gcs_pack_prefix_listing_uses_delimiter_without_listing_pack_objects(monkeypatch) -> None:
     _configure_gcs(monkeypatch)
+    storage_module._cached_gcs_bucket_for_factory.cache_clear()
 
     class PrefixIterator:
         def __init__(self, prefixes: list[str]) -> None:

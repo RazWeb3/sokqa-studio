@@ -251,7 +251,7 @@ def test_tts_quality_check_detects_choice_language_mode_violation_and_mixed_choi
     assert response.status_code == 200
     issues = response.json()["issues"]
     assert any("学習言語ですが" in issue["issue"] for issue in issues)
-    assert any("混在" in issue["issue"] for issue in issues)
+    assert any("パック言語になっています" in issue["issue"] for issue in issues)
 
 
 def test_tts_quality_check_detects_choice_text_length_mismatch(monkeypatch) -> None:

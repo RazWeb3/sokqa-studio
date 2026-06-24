@@ -596,6 +596,15 @@
                       <label>学習言語<select id="learningLanguage"></select></label>
                     </div>
                     <p class="hint">テーマから学習言語を推測します。構成プレビュー作成後も変更できます。</p>
+                    <section id="quizChoiceLanguageSettings" class="plan-card" hidden>
+                      <div class="issue-top">
+                        <div>
+                          <h4>クイズ選択肢の表示言語</h4>
+                          <p>QuizPackごとに選択肢をパック言語・学習言語・おまかせから選びます。</p>
+                        </div>
+                      </div>
+                      <div id="quizChoiceLanguageSettingsList" class="stack"></div>
+                    </section>
                     <div hidden aria-hidden="true">
                       <label>ドキュメント本文<select id="documentTextLanguageMode" data-tts-language-mode><option value="auto">おまかせ</option><option value="mixed" selected>混合</option><option value="select">言語を選ぶ</option></select></label>
                       <label>本文の言語<select id="documentTextLanguage" class="tts-language-select" data-tts-language-select></select></label>
@@ -925,6 +934,7 @@
       let isPlaybackPaused = true;
       let selectedReadingPatternIds = new Set();
       let planConditionSuggestions = [];
+      let quizChoiceLanguageModes = [];
       let temporaryTtsRules = [{ source: "日本橋", reading: "にほんばし" }];
       let dictionaryTtsRules = [];
       let batchQualityState = null;
@@ -938,6 +948,7 @@
         structurePolicy: { listening: "聞き流し向け", standard: "要点整理" },
         generationUnit: { pack: "学習パック", document: "ドキュメント", quiz: "クイズ" },
         materialMode: { reference: "資料を参考に作る", source_only: "資料内容に基づく構成", strict: "資料準拠" },
+        choiceLanguageMode: { pack: "パック言語", learning: "学習言語", auto: "おまかせ" },
         answerPositionMode: { balanced: "バランス配置" },
       };
 
@@ -1143,6 +1154,99 @@
         return $("learningLanguage")?.value || null;
       }
 
+      function defaultQuizChoiceLanguageMode(plan) {
+        return plan?.learningLanguage ? "learning" : "auto";
+      }
+
+      function expectedQuizPackCount() {
+        const unit = generationUnitValue();
+        if (unit === "document") return 0;
+        if (unit === "quiz") return Number($("quizCount").value || 1);
+        return { quick: 1, standard: 2, large: 3, auto: 4 }[scaleValue()] || 1;
+      }
+
+      function ensureQuizChoiceLanguageModes(count, fallback = defaultQuizChoiceLanguageMode({ learningLanguage: learningLanguageValue() })) {
+        const next = quizChoiceLanguageModes.slice(0, count);
+        while (next.length < count) next.push(fallback);
+        quizChoiceLanguageModes = next.map((mode) => ["pack", "learning", "auto"].includes(mode) ? mode : fallback);
+        return quizChoiceLanguageModes;
+      }
+
+      function quizChoiceLanguageModesPayload(count = expectedQuizPackCount()) {
+        return ensureQuizChoiceLanguageModes(count).slice(0, count);
+      }
+
+      function loadQuizChoiceLanguageModesFromPlan(plan) {
+        if (!plan?.quizPacks?.length) return ensureQuizChoiceLanguageModes(expectedQuizPackCount());
+        quizChoiceLanguageModes = plan.quizPacks.map((quizPack) => quizPack?.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan));
+        return ensureQuizChoiceLanguageModes(expectedQuizPackCount(), defaultQuizChoiceLanguageMode(plan));
+      }
+
+      function normalizeQuizChoiceLanguageModes(plan) {
+        if (!plan || !Array.isArray(plan.quizPacks)) return plan;
+        const fallback = defaultQuizChoiceLanguageMode(plan);
+        const requestedModes = quizChoiceLanguageModesPayload(plan.quizPacks.length);
+        plan.quizPacks = plan.quizPacks.map((quizPack, index) => ({
+          ...quizPack,
+          choiceLanguageMode: requestedModes[index] || quizPack?.choiceLanguageMode || fallback,
+        }));
+        return plan;
+      }
+
+      function shouldShowQuizChoiceLanguageSettings() {
+        if (ttsModeValue() !== "multilingual") return false;
+        if (!["pack", "quiz"].includes(generationUnitValue())) return false;
+        return expectedQuizPackCount() > 0;
+      }
+
+      function renderQuizChoiceLanguageSettings() {
+        const panel = $("quizChoiceLanguageSettings");
+        const list = $("quizChoiceLanguageSettingsList");
+        if (!panel || !list) return;
+        if (!shouldShowQuizChoiceLanguageSettings()) {
+          panel.hidden = true;
+          list.innerHTML = "";
+          return;
+        }
+        const modes = quizChoiceLanguageModesPayload();
+        list.innerHTML = modes.map((currentMode, quizIndex) => {
+          return `
+            <section class="plan-card">
+              <strong>Quiz ${quizIndex + 1}</strong>
+              <div class="stack">
+                ${["pack", "learning", "auto"].map((mode) => `
+                  <label class="checkline">
+                    <input
+                      type="radio"
+                      name="quiz-choice-language-${quizIndex}"
+                      value="${mode}"
+                      data-quiz-choice-language-mode="${quizIndex}"
+                      ${currentMode === mode ? "checked" : ""}
+                    />
+                    ${escapeHtml(labelFor("choiceLanguageMode", mode))}
+                  </label>
+                `).join("")}
+              </div>
+            </section>
+          `;
+        }).join("");
+        panel.hidden = false;
+        $$("[data-quiz-choice-language-mode]").forEach((input) => input.addEventListener("change", () => {
+          if (!input.checked) return;
+          const index = Number(input.dataset.quizChoiceLanguageMode);
+          quizChoiceLanguageModes[index] = input.value;
+          ensureQuizChoiceLanguageModes(expectedQuizPackCount());
+          const current = readPlanJson();
+          if (current?.quizPacks?.length) {
+            normalizeQuizChoiceLanguageModes(current);
+            setPlanJson(current);
+            renderPlanPreview(current);
+          } else {
+            renderQuizChoiceLanguageSettings();
+          }
+        }));
+      }
+
       const COUNT_LIMITS = {
         docCount: { min: 1, max: 15 },
         quizCount: { min: 1, max: 10 },
@@ -1278,6 +1382,7 @@
         $("answerPositionMode").value = "balanced";
         populateTtsLanguageSelects();
         if ($("learningLanguage")) $("learningLanguage").value = plan.learningLanguage || "";
+        loadQuizChoiceLanguageModesFromPlan(plan);
         syncGenerationUnitUi();
         syncMaterialModeUi();
         syncMetadataModeUi();
@@ -1316,6 +1421,7 @@
         } else {
           delete plan.ttsLanguageSettings;
         }
+        normalizeQuizChoiceLanguageModes(plan);
         return plan;
       }
 
@@ -1351,10 +1457,13 @@
       }
 
       function renderPlanPreview(plan) {
+        normalizeQuizChoiceLanguageModes(plan);
+        renderQuizChoiceLanguageSettings();
         const patterns = Array.isArray(plan.proposedReadingPatterns) ? plan.proposedReadingPatterns : [];
         const showReadingPatterns = usesReadingPatterns() && patterns.length;
         const documents = Array.isArray(plan.documents) ? plan.documents : [];
         const quizPacks = Array.isArray(plan.quizPacks) ? plan.quizPacks : [];
+        const showQuizChoiceLanguageSettings = ttsModeValue() === "multilingual" && ["pack", "quiz"].includes(plan.generationUnit || "pack");
         const strictFileCount = plan.strictSourceFileCount;
         const strictSectionCount = plan.strictSourceSectionCount;
         const strictMaxFiles = plan.strictSourceMaxFiles || 50;
@@ -1401,15 +1510,7 @@
                 <li>
                   <strong>${escapeHtml(quiz.title || quiz.id || "クイズ")}</strong>
                   <p>${escapeHtml(purposeLabel(quiz.purpose))} / ${escapeHtml(quiz.questionCount || "-")}問</p>
-                  ${plan.learningLanguage ? `
-                    <label>選択肢表示方式
-                      <select data-quiz-choice-language-mode="${quizIndex}">
-                        <option value="pack" ${quiz.choiceLanguageMode === "pack" ? "selected" : ""}>パック言語</option>
-                        <option value="learning" ${quiz.choiceLanguageMode === "learning" ? "selected" : ""}>学習言語</option>
-                        <option value="auto" ${!quiz.choiceLanguageMode || quiz.choiceLanguageMode === "auto" ? "selected" : ""}>おまかせ</option>
-                      </select>
-                    </label>
-                  ` : ""}
+                  ${showQuizChoiceLanguageSettings ? `<div class="muted">選択肢言語：${escapeHtml(labelFor("choiceLanguageMode", quiz.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan)))}</div>` : ""}
                 </li>
               `).join("") || `<li><p class="muted">クイズはまだありません。</p></li>`}
             </ul>
@@ -1437,19 +1538,13 @@
           writeSelectedReadingPatternsToPlanJson();
           renderPlanPreview(readPlanJson());
         }));
-        $$("[data-quiz-choice-language-mode]").forEach((select) => select.addEventListener("change", () => {
-          const current = readPlanJson();
-          const index = Number(select.dataset.quizChoiceLanguageMode);
-          if (!current?.quizPacks?.[index]) return;
-          current.quizPacks[index].choiceLanguageMode = select.value;
-          setPlanJson(current);
-        }));
       }
 
       function renderPlanPreviewFromJson() {
         const text = $("planJson").value.trim();
         if (!text) {
           selectedReadingPatternIds = new Set();
+          renderQuizChoiceLanguageSettings();
           $("planPreview").innerHTML = `<p class="muted">プレビュー作成後、構成案がここに表示されます。</p>`;
           return;
         }
@@ -1506,6 +1601,7 @@
         if ($("baseLanguageDisplay")) $("baseLanguageDisplay").value = packLabel;
         syncTtsLanguageControls();
         syncReadingPatternMode();
+        renderQuizChoiceLanguageSettings();
       }
 
       function syncPackLanguageUi() {
@@ -3313,6 +3409,7 @@
             scale: scaleValue(),
             language: languageValue(),
             learningLanguage: learningLanguageValue(),
+            quizChoiceLanguageModes: quizChoiceLanguageModesPayload(),
             customInstructions,
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
@@ -3325,6 +3422,8 @@
           }
           applyGenerationControlsToPlan(plan);
           initializeReadingPatternSelection(plan);
+          normalizeQuizChoiceLanguageModes(plan);
+          loadQuizChoiceLanguageModesFromPlan(plan);
           setPlanJson(plan);
           renderPlanPreview(plan);
           generationActionState = "planned";
@@ -3510,6 +3609,8 @@
       $("learningLanguage").addEventListener("change", () => {
         let plan;
         try { plan = readPlanJson(); } catch (_error) { plan = null; }
+        ensureQuizChoiceLanguageModes(expectedQuizPackCount(), defaultQuizChoiceLanguageMode({ learningLanguage: learningLanguageValue() }));
+        renderQuizChoiceLanguageSettings();
         if (!plan) return;
         syncTtsLanguageSettingsToPlan(plan);
         setPlanJson(plan);
@@ -3517,6 +3618,7 @@
       });
       function handleGenerationControlChange() {
         syncGenerationUnitUi();
+        renderQuizChoiceLanguageSettings();
         let plan;
         try { plan = readPlanJson(); } catch (_error) { plan = null; }
         if (plan) {
@@ -3679,6 +3781,7 @@
       syncPackLanguageUi();
       populateTtsLanguageSelects();
       syncTtsModeUi();
+      renderQuizChoiceLanguageSettings();
       renderTemporaryRules();
       loadDictionaryRules();
       saveCredits(creditBalance);

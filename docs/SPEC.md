@@ -345,6 +345,37 @@ quiz pack は `choiceLanguageMode` を持つ。
 - `learning`: 4択を学習言語にする
 - `auto`: 問題単位で選ぶ。ただし1問内の4択は同じ言語に統一する
 
+QuizPack ごとの選択肢言語 UI 表示条件:
+
+- `ttsReadingMode=multilingual`
+- `generationUnit` が `pack` または `quiz`
+- QuizPack 数は plan 生成後の `quizPacks.length` ではなく、現在の生成設定から算出する
+
+QuizPack 数の算出:
+
+- `generationUnit=pack` は現在の scale と既定ルールから予定 QuizPack 数を出す
+- `generationUnit=quiz` は `quizCount` を使う
+- `generationUnit=document` は 0 件
+
+配置:
+
+- 多言語読み上げ設定エリア内で plan 作成前に編集する
+- 構成レビューでは編集 UI を出さず、各 QuizPack の `choiceLanguageMode` を確認表示だけ行う
+
+非表示:
+
+- `generationUnit=document`
+
+UI 初期値:
+
+- `learningLanguage` がある新規 plan では各 `quizPack.choiceLanguageMode` の初期値を `learning` にする
+- `learningLanguage` がない場合は `auto`
+- 既存データの旧 `ttsLanguageSettings` は削除しない
+
+Planner 入力:
+
+- UI の事前選択値は `quizChoiceLanguageModes` として `/plan-pack` に渡し、生成された各 `PlanQuizPack.choiceLanguageMode` に反映する
+
 検討中の例:
 
 ```json

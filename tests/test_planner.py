@@ -90,6 +90,91 @@ def test_planner_infers_learning_language_and_allows_override(monkeypatch) -> No
     assert overridden.learningLanguage == "ko"
 
 
+def test_planner_defaults_quiz_choice_language_mode_to_learning_when_learning_language_exists(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    inferred = planner.create_course_plan(
+        PlanPackRequest(theme="英会話 初級", targetUser="日本語話者", scale="quick", generationUnit="quiz")
+    )
+    explicit = planner.create_course_plan(
+        PlanPackRequest(
+            theme="英会話 初級",
+            targetUser="日本語話者",
+            scale="quick",
+            generationUnit="quiz",
+            quizPacks=[
+                {
+                    "id": "quiz_pack_01",
+                    "title": "Meaning Check",
+                    "purpose": "key_concepts",
+                    "questionCount": 10,
+                }
+            ],
+        )
+    )
+    without_learning = planner.create_course_plan(
+        PlanPackRequest(theme="Git", targetUser="初学者", scale="quick", generationUnit="quiz")
+    )
+
+    assert inferred.quizPacks[0].choiceLanguageMode == "learning"
+    assert explicit.quizPacks[0].choiceLanguageMode == "learning"
+    assert without_learning.quizPacks[0].choiceLanguageMode == "auto"
+
+
+def test_planner_preserves_explicit_quiz_choice_language_mode(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="英会話 初級",
+            targetUser="日本語話者",
+            scale="quick",
+            generationUnit="quiz",
+            quizPacks=[
+                {
+                    "id": "quiz_pack_01",
+                    "title": "Meaning Check",
+                    "purpose": "key_concepts",
+                    "questionCount": 10,
+                    "choiceLanguageMode": "pack",
+                }
+            ],
+        )
+    )
+
+    assert plan.quizPacks[0].choiceLanguageMode == "pack"
+
+
+def test_planner_applies_preplan_quiz_choice_language_modes_to_generated_quiz_packs(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    pack_plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="英会話 初級",
+            targetUser="日本語話者",
+            scale="standard",
+            generationUnit="pack",
+            quizChoiceLanguageModes=["pack", "auto"],
+        )
+    )
+    quiz_plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="英会話 初級",
+            targetUser="日本語話者",
+            scale="quick",
+            generationUnit="quiz",
+            quizCount=2,
+            quizChoiceLanguageModes=["learning", "pack"],
+        )
+    )
+
+    assert [quiz.choiceLanguageMode for quiz in pack_plan.quizPacks] == ["pack", "auto"]
+    assert [quiz.choiceLanguageMode for quiz in quiz_plan.quizPacks] == ["learning", "pack"]
+
+
 def test_planner_keeps_reading_patterns_only_for_llm_mode(monkeypatch) -> None:
     settings = planner.get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

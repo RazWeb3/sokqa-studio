@@ -122,6 +122,23 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert 'choicesLanguage: "pack"' in html
     assert 'explanationLanguage: "pack"' in html
     assert "function syncTtsLanguageControls()" in html
+    assert "function expectedQuizPackCount()" in html
+    assert "function shouldShowQuizChoiceLanguageSettings()" in html
+    assert "function renderQuizChoiceLanguageSettings()" in html
+    assert "function quizChoiceLanguageModesPayload(count = expectedQuizPackCount())" in html
+    assert 'if (ttsModeValue() !== "multilingual") return false;' in html
+    assert '!["pack", "quiz"].includes(generationUnitValue())' in html
+    assert "return expectedQuizPackCount() > 0;" in html
+    assert "return { quick: 1, standard: 2, large: 3, auto: 4 }[scaleValue()] || 1;" in html
+    assert 'if (unit === "quiz") return Number($("quizCount").value || 1);' in html
+    assert "let quizChoiceLanguageModes = [];" in html
+    assert 'id="quizChoiceLanguageSettings"' in html
+    assert 'id="quizChoiceLanguageSettingsList"' in html
+    assert "クイズ選択肢の表示言語" in html
+    assert "Quiz ${quizIndex + 1}" in html
+    assert "function normalizeQuizChoiceLanguageModes(plan)" in html
+    assert 'return plan?.learningLanguage ? "learning" : "auto";' in html
+    assert 'type="radio"' in html
     assert "select.disabled = !active;" in html
     assert 'select.title = active ? "" : "「言語を選ぶ」を選んだ時だけ有効です。";' in html
     assert "syncTtsLanguageControls();" in html
@@ -130,6 +147,12 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert "パック言語" in html
     assert "学習言語" in html
     assert "おまかせ" in html
+    render_start = html.index("function renderPlanPreview(plan)")
+    render_end = html.index("function renderPlanPreviewFromJson()", render_start)
+    render_html = html[render_start:render_end]
+    assert "選択肢言語：" in render_html
+    assert 'labelFor("choiceLanguageMode", quiz.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan))' in render_html
+    assert '<select data-quiz-choice-language-mode=' not in render_html
 
 
 def test_generation_policy_unit_and_material_controls_are_available_and_sent() -> None:
@@ -178,6 +201,7 @@ def test_generation_policy_unit_and_material_controls_are_available_and_sent() -
     assert "ファイル以内に収まるよう資料を分割" in html
     assert "...generationControlsPayload()," in html
     assert "syncGenerationControlsToPlan(plan)" in html
+    assert 'quizChoiceLanguageModes: quizChoiceLanguageModesPayload(),' in html
     assert html.index('id="language"') < html.index('id="generationUnit"') < html.index('id="customInstructions"')
     assert "追加条件" in html
     assert 'customInstructions: $("customInstructions").value.trim()' in html

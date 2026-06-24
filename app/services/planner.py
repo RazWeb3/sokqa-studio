@@ -219,6 +219,26 @@ def _range_quiz_pack_count(scale: str, document_count: int) -> int:
     return 4
 
 
+def _default_choice_language_mode(learning_language: str | None) -> str:
+    return "learning" if learning_language else "auto"
+
+
+def _apply_requested_choice_language_modes(
+    quiz_packs: list[PlanQuizPack],
+    request: PlanPackRequest,
+    learning_language: str | None,
+) -> list[PlanQuizPack]:
+    if not quiz_packs:
+        return quiz_packs
+    fallback = _default_choice_language_mode(learning_language)
+    requested_modes = list(request.quizChoiceLanguageModes or [])
+    normalized: list[PlanQuizPack] = []
+    for index, quiz_pack in enumerate(quiz_packs):
+        mode = requested_modes[index] if index < len(requested_modes) else quiz_pack.choiceLanguageMode or fallback
+        normalized.append(quiz_pack.model_copy(update={"choiceLanguageMode": mode}))
+    return normalized
+
+
 def _split_document_ids(document_ids: list[str], chunk_count: int) -> list[list[str]]:
     if chunk_count <= 0:
         return []
@@ -479,6 +499,9 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
     requested_count = _quiz_pack_count(request, len(document_ids))
     if requested_count <= 0:
         return []
+    default_choice_language_mode = _default_choice_language_mode(
+        request.learningLanguage or infer_learning_language(request.theme, request.targetUser)
+    )
     if request.quizPacks:
         return [
             PlanQuizPack(
@@ -488,7 +511,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 questionCount=spec.questionCount,
                 difficulty=spec.difficulty,
                 sourceDocumentIds=document_ids,
-                choiceLanguageMode=spec.choiceLanguageMode,
+                choiceLanguageMode=spec.choiceLanguageMode or default_choice_language_mode,
             )
             for spec in request.quizPacks[:requested_count]
         ]
@@ -502,7 +525,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 questionCount=_question_count(request),
                 difficulty=request.difficulty,
                 sourceDocumentIds=document_ids,
-                choiceLanguageMode="auto",
+                choiceLanguageMode=default_choice_language_mode,
             )
         ]
 
@@ -525,7 +548,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
             questionCount=question_count,
             difficulty=request.difficulty,
             sourceDocumentIds=chunk,
-            choiceLanguageMode="auto",
+            choiceLanguageMode=default_choice_language_mode,
         )
         for index, chunk in enumerate(chunks)
     ]
@@ -538,7 +561,7 @@ def _build_quiz_packs(request: PlanPackRequest, document_ids: list[str]) -> list
                 questionCount=question_count,
                 difficulty=request.difficulty,
                 sourceDocumentIds=document_ids,
-                choiceLanguageMode="auto",
+                choiceLanguageMode=default_choice_language_mode,
             )
         )
     return quiz_packs
@@ -1002,7 +1025,9 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         strict_file_count = len(documents)
         strict_limit_exceeded = strict_source_limit_error(strict_file_count) is not None
     documents = _prefix_document_titles(documents, short_title)
-    quiz_packs = _title_quiz_packs(_build_quiz_packs(request, [document.id for document in documents]), documents, short_title, request.language)
+    quiz_packs = _build_quiz_packs(request, [document.id for document in documents])
+    quiz_packs = _apply_requested_choice_language_modes(quiz_packs, request, learning_language)
+    quiz_packs = _title_quiz_packs(quiz_packs, documents, short_title, request.language)
 
     plan = CoursePlan(
         id=pack_id,

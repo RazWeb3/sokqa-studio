@@ -222,7 +222,7 @@ def _deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[Q
                     category="notation",
                 )
             )
-        elif choice_mode == "learning" and state == "pack":
+        elif choice_mode == "learning" and state in {"pack", "mixed"}:
             issues.append(
                 _quality_issue(
                     file_name,
@@ -234,7 +234,7 @@ def _deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[Q
                     category="tts_text_mismatch",
                 )
             )
-        elif choice_mode == "pack" and state == "learning":
+        elif choice_mode == "pack" and state in {"learning", "mixed"}:
             issues.append(
                 _quality_issue(
                     file_name,

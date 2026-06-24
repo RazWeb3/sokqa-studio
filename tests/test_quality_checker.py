@@ -204,6 +204,106 @@ def test_tts_quality_check_detects_missing_learning_language_choice_texts(monkey
     ]
 
 
+def test_tts_quality_check_detects_choice_language_mode_violation_and_mixed_choices(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="quiz_mixed_choices.json",
+        kind="quiz",
+        content={
+            "id": "quiz_mixed_choices",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "朝の挨拶はどれですか。",
+                    "choices": ["Good morning", "こんにちは", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "朝は Good morning を使います。",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        quality_checker,
+        "load_target_pack",
+        lambda _target: SimpleNamespace(file=file),
+    )
+
+    response = client.post(
+        "/quality/tts-check",
+        json={
+            "target": {
+                "creatorId": "creator",
+                "contentId": "content",
+                "versionId": "version",
+                "packName": "quiz_mixed_choices.json",
+                "kind": "quiz",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    issues = response.json()["issues"]
+    assert any("学習言語ですが" in issue["issue"] for issue in issues)
+    assert any("混在" in issue["issue"] for issue in issues)
+
+
+def test_tts_quality_check_detects_choice_text_length_mismatch(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="quiz_choice_text_mismatch.json",
+        kind="quiz",
+        content={
+            "id": "quiz_choice_text_mismatch",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "朝の挨拶はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "朝は Good morning を使います。",
+                    "tts": {"choiceTexts": ["[en-US]Good morning"]},
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        quality_checker,
+        "load_target_pack",
+        lambda _target: SimpleNamespace(file=file),
+    )
+
+    response = client.post(
+        "/quality/tts-check",
+        json={
+            "target": {
+                "creatorId": "creator",
+                "contentId": "content",
+                "versionId": "version",
+                "packName": "quiz_choice_text_mismatch.json",
+                "kind": "quiz",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    issues = response.json()["issues"]
+    assert any("配列長" in issue["issue"] for issue in issues)
+
+
 def test_tts_quality_location_is_normalized() -> None:
     response = _quality_response_from_data(
         {

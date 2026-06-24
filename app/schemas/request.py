@@ -29,7 +29,7 @@ class QuizPackSpec(BaseModel):
     purpose: str
     questionCount: int = Field(..., ge=1, le=30)
     difficulty: Difficulty = "standard"
-    choiceLanguageMode: Literal["pack", "learning", "auto"] = "auto"
+    choiceLanguageMode: Literal["pack", "learning", "auto"] | None = None
 
 
 class PlanPackRequest(BaseModel):
@@ -164,6 +164,7 @@ class PlanPackRequest(BaseModel):
     documentCount: int | None = Field(default=None, ge=1, le=15)
     sectionsPerDocument: int | None = Field(default=None, ge=1, le=50)
     quizPacks: list[QuizPackSpec] | None = None
+    quizChoiceLanguageModes: list[Literal["pack", "learning", "auto"]] = Field(default_factory=list)
     userTtsRules: list[TtsRule] = Field(default_factory=list)
     sourceText: str | None = Field(default=None, max_length=50000)
     sourceMode: SourceMode | None = None

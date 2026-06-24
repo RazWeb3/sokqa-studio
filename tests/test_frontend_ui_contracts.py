@@ -306,13 +306,49 @@ def test_generate_flow_exposes_auto_quality_fix_opt_in_and_defaults_off() -> Non
     assert "生成後に自動品質チェック・修正提案を行う" in html
     assert "時間がかかります。修正は選択後に適用します。" in html
     assert html.index('id="customInstructions"') < html.index('id="suggestConditionsStandaloneBtn"') < html.index('id="planBtn"')
-    assert html.index('id="planBtn"') < html.index('id="autoQualityFixAfterGenerate"') < html.index('id="generateBtn"')
+    assert html.index('id="autoQualityFixAfterGenerate"') < html.index('id="planBtn"') < html.index('id="generateBtn"')
     assert html.index('id="ttsReadingMode"') < html.index('id="autoQualityFixAfterGenerate"')
+    assert 'id="generateBtn" type="button" hidden disabled' in html
+    assert '$("generateBtn").hidden = !hasPlan;' in html
+    assert 'id="generateQualityOption" hidden' in html
+    assert '$("generateQualityOption").hidden = !hasPlan;' in html
     assert 'id="autoTextQualityResult"' in html
     assert "自動品質チェックはOFFです。" in html
     assert 'if (isAutoQualityFixEnabled()) {' in html
     assert "await runBatchQualityWorkflow(generated);" in html
     assert 'checked id="autoQualityFixAfterGenerate"' not in html
+
+
+def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_bar() -> None:
+    html = _html()
+
+    assert 'id="generationSettingsTab"' in html
+    assert 'id="generationReviewTab"' in html
+    assert 'id="generationResultTab"' in html
+    assert 'data-generation-view-panel="settings"' in html
+    assert 'data-generation-view-panel="review" hidden' in html
+    assert 'data-generation-view-panel="result" hidden' in html
+    assert "function setGenerationView(view)" in html
+    assert '["settings", "review", "result"].includes(view)' in html
+    assert 'setGenerationView("review");' in html
+    assert 'renderGeneratedResult(generated);\n          setGenerationView("result");' in html
+    assert 'class="generate-action-bar"' in html
+    action_bar_css = html[html.index(".generate-action-bar {"):html.index(".generate-action-bar .actions")]
+    assert "position: fixed;" in action_bar_css
+    assert "left: max(14px, calc((100vw - 1480px) / 2 + 28px));" in action_bar_css
+    assert "body:has(#tab-generate:not([hidden])) .toast { display: none !important; }" in html
+    workflow_css = html[html.index(".workflow-shell {"):html.index(".workflow-label")]
+    assert "height: calc(100vh - 178px);" in workflow_css
+    assert "overflow-x: hidden;" in workflow_css
+    assert "overflow-y: auto;" in workflow_css
+    assert ".workflow-shell { position: static; height: auto; min-height: 0; overflow-y: visible; }" in html
+    assert 'id="generateActionBadge"' in html
+    assert 'id="generateActionLoader" hidden' in html
+    assert 'generationActionState = "planning";' in html
+    assert 'generationActionState = "generating";' in html
+    assert 'generationActionState = "quality";' in html
+    assert 'generationActionState = "complete";' in html
+    assert '$("planBtn").textContent = hasPlan ? "プランを再作成" : "プランを作成";' in html
 
 
 def test_generate_flow_runs_batch_quality_after_success_when_enabled() -> None:

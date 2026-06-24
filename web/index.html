@@ -79,41 +79,57 @@
       textarea { min-height: 132px; resize: vertical; }
       summary { cursor: pointer; width: fit-content; }
 
-      .app { max-width: 1440px; margin: 0 auto; padding: 0 clamp(14px, 2vw, 28px) 48px; }
+      .app { max-width: 1480px; margin: 0 auto; padding: 0 clamp(14px, 2vw, 28px) 48px; }
       .topbar {
-        position: sticky;
-        top: 0;
-        z-index: 40;
+        position: relative;
+        z-index: 1;
         margin: 0 calc(clamp(14px, 2vw, 28px) * -1);
-        padding: 14px clamp(14px, 2vw, 28px);
-        background: rgba(247,249,251,.88);
-        backdrop-filter: blur(18px);
+        padding: 10px clamp(14px, 2vw, 28px);
+        background: rgba(247,249,251,.96);
         border-bottom: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
       }
-      .topbar-inner { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
-      .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-      .mark { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: white; font-family: var(--display); font-weight: 700; }
-      .brand h1 { margin: 0; font-family: var(--display); font-size: clamp(21px, 2.2vw, 30px); line-height: 1.1; letter-spacing: -0.02em; }
-      .brand p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+      .topbar-inner { max-width: 1480px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
+      .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .mark { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: var(--accent); color: white; font-family: var(--display); font-weight: 700; }
+      .brand h1 { margin: 0; font-family: var(--display); font-size: 23px; line-height: 1.1; letter-spacing: 0; }
+      .brand p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
       .top-actions, .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-      .tabs {
-        position: sticky;
-        top: 65px;
-        z-index: 35;
-        margin: 16px 0 0;
+      .top-actions label { grid-template-columns: auto 190px; align-items: center; gap: 8px; }
+      .top-actions input { min-height: 38px; padding-block: 7px; }
+      .studio-layout {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
-        padding: 8px;
-        background: rgba(255,255,255,.88);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        backdrop-filter: blur(16px);
-        box-shadow: 0 10px 24px rgba(15,23,42,.04);
+        grid-template-columns: 238px minmax(0, 1fr);
+        gap: 18px;
+        align-items: start;
+        margin-top: 14px;
       }
-      .tab { min-height: 66px; justify-content: space-between; padding: 10px 12px; background: transparent; color: var(--fg); border-color: transparent; }
+      .workflow-shell {
+        position: sticky;
+        top: 14px;
+        height: calc(100vh - 178px);
+        min-height: 420px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        margin: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: rgba(255,255,255,.94);
+        box-shadow: 0 8px 22px rgba(15,23,42,.035);
+      }
+      .workflow-label { color: var(--muted); font-size: 11px; font-weight: 760; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+      .tabs {
+        position: static;
+        margin: 0;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0;
+        padding: 8px;
+        background: transparent;
+        border-bottom: 1px solid var(--border);
+      }
+      .tab { min-height: 72px; justify-content: space-between; padding: 11px 10px; background: transparent; color: var(--fg); border-color: transparent; border-radius: 7px; }
       .tab:hover { background: var(--soft); }
-      .tab[aria-selected="true"] { background: color-mix(in oklch, var(--accent) 10%, white); border-color: color-mix(in oklch, var(--accent) 24%, white); color: var(--accent-ink); }
+      .tab[aria-selected="true"] { background: color-mix(in oklch, var(--accent) 8%, white); box-shadow: inset 3px 0 0 var(--accent); color: var(--accent-ink); }
       .tab-title { display: grid; gap: 2px; text-align: left; }
       .tab-title strong { font-size: 14px; line-height: 1.2; }
       .tab-title span { color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
@@ -128,30 +144,41 @@
       .source-corrected { background: #e7f7ed; color: #146c43; }
 
       .pack-bar {
-        position: sticky;
-        top: 152px;
-        z-index: 30;
-        margin: 10px 0 18px;
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        background: rgba(255,255,255,.92);
-        backdrop-filter: blur(16px);
-        box-shadow: 0 10px 24px rgba(15,23,42,.04);
+        position: static;
+        margin: 8px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--soft);
+        box-shadow: none;
       }
-      .pack-inner { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 12px 14px; }
-      .pack-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .pack-inner { display: grid; grid-template-columns: 1fr; align-items: center; gap: 10px; padding: 12px; }
+      .pack-main { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; }
       .pack-icon { width: 42px; height: 42px; border-radius: 10px; background: color-mix(in oklch, var(--accent) 11%, white); display: grid; place-items: center; color: var(--accent-ink); font-weight: 750; font-family: var(--mono); }
-      .pack-meta h2 { margin: 0; font-family: var(--display); font-size: 17px; letter-spacing: -0.01em; overflow-wrap: anywhere; }
-      .pack-meta p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
-      .pack-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-      main { display: block; }
+      .pack-meta h2 { margin: 0; font-family: var(--display); font-size: 14px; letter-spacing: 0; overflow-wrap: anywhere; }
+      .pack-meta p { margin: 3px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+      .pack-actions { display: grid; grid-template-columns: 1fr; gap: 7px; }
+      .pack-actions button { min-height: 36px; padding-inline: 8px; font-size: 12px; }
+      main { display: block; min-width: 0; }
       .tab-panel[hidden] { display: none; }
-      .grid { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 18px; align-items: start; }
-      .generate-grid { align-items: start; }
-      .generate-left, .generate-right { max-height: calc(100vh - 250px); overflow: auto; align-self: start; }
-      .generate-left { position: sticky; top: 250px; }
-      .generate-left .actions { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: linear-gradient(180deg, rgba(255,255,255,0), var(--surface) 34%); }
-      .generate-right { padding-right: 2px; }
+      #tab-generate { padding-bottom: 92px; }
+      .grid { display: grid; grid-template-columns: minmax(340px, 410px) minmax(0, 1fr); gap: 20px; align-items: start; }
+      .generate-view-tabs {
+        display: flex;
+        align-items: stretch;
+        gap: 4px;
+        padding: 5px;
+        margin-bottom: 12px;
+        width: fit-content;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+      }
+      .generation-view-tab { min-width: 130px; min-height: 38px; background: transparent; color: var(--muted); border-color: transparent; }
+      .generation-view-tab[aria-selected="true"] { background: color-mix(in oklch, var(--accent) 10%, white); color: var(--accent-ink); border-color: color-mix(in oklch, var(--accent) 26%, var(--border)); }
+      .generate-grid { grid-template-columns: minmax(0, 1fr); align-items: start; }
+      .generate-left, .generate-right { max-height: none; overflow: visible; align-self: start; }
+      .generate-left { position: static; }
+      .generate-right { padding-right: 0; }
       .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 0 rgba(15,23,42,.02); }
       .panel-head { padding: 16px 18px 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
       .panel h3 { margin: 0; font-family: var(--display); font-size: 18px; line-height: 1.22; letter-spacing: -0.01em; }
@@ -159,6 +186,51 @@
       .panel-body { padding: 16px 18px 18px; }
       .stack { display: grid; gap: 14px; }
       .tight { display: grid; gap: 9px; }
+      .settings-stack { gap: 0; padding: 0; }
+      .settings-group { display: grid; gap: 13px; padding: 16px 18px 18px; border-top: 1px solid var(--border); }
+      .settings-group:first-child { border-top: 0; }
+      .settings-group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .settings-group-head h4 { margin: 0; font-family: var(--display); font-size: 14px; }
+      .settings-group-head span { color: var(--muted); font-size: 11px; }
+      .settings-group > .plan-card {
+        padding: 12px 0 0;
+        border: 0;
+        border-top: 1px solid var(--border);
+        border-radius: 0;
+        background: transparent;
+      }
+      .generate-action-bar {
+        position: fixed;
+        left: max(14px, calc((100vw - 1480px) / 2 + 28px));
+        right: max(14px, calc((100vw - 1480px) / 2 + 28px));
+        bottom: 12px;
+        z-index: 50;
+        display: grid;
+        grid-template-columns: minmax(190px, .8fr) minmax(330px, 1.2fr) minmax(270px, .9fr);
+        gap: 14px;
+        align-items: center;
+        padding: 11px 14px;
+        border: 1px solid color-mix(in oklch, var(--accent) 18%, var(--border));
+        border-radius: 10px;
+        background: rgba(255,255,255,.96);
+        box-shadow: 0 14px 34px rgba(15,23,42,.12);
+        backdrop-filter: blur(16px);
+      }
+      .generate-action-bar .actions { display: flex; justify-content: flex-end; flex-wrap: nowrap; }
+      .generate-action-bar button { width: 100%; }
+      .generate-action-bar #planBtn { background: var(--surface); color: var(--fg); border-color: var(--border); }
+      .generate-action-state { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; align-items: center; min-width: 0; }
+      .generate-action-state .badge { grid-row: 1 / span 2; }
+      .generate-action-state strong { font-size: 14px; }
+      .generate-action-state .generate-action-status { overflow-wrap: anywhere; }
+      .generate-action-loader { grid-column: 1 / -1; margin-top: 4px; }
+      .generate-action-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+      .generate-action-buttons.single { grid-template-columns: 1fr; }
+      .generate-action-option { display: grid; gap: 3px; min-width: 0; }
+      .generate-action-option .checkline { align-items: center; }
+      .generate-action-option .hint, .generate-action-status { margin: 0; }
+      .generate-action-status:empty { display: none; }
+      .generate-primary { min-height: 48px; font-size: 16px; }
       .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
       .segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
       .segmented button { min-height: 36px; background: transparent; color: var(--muted); border-color: transparent; border-radius: 7px; padding: 0 8px; font-size: 13px; }
@@ -307,6 +379,7 @@
         gap: 10px;
       }
       .toast.active { display: grid; }
+      body:has(#tab-generate:not([hidden])) .toast { display: none !important; }
       .progress-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .bar { height: 8px; border-radius: 999px; overflow: hidden; background: color-mix(in oklch, var(--accent) 10%, white); }
       .bar span { display: block; width: 32%; height: 100%; border-radius: inherit; background: var(--accent); animation: sweep 1.3s ease-in-out infinite; }
@@ -315,23 +388,63 @@
       .recording-result { overflow-wrap: anywhere; }
 
       @media (max-width: 1060px) {
+        .studio-layout { grid-template-columns: 1fr; }
+        .workflow-shell { position: static; height: auto; min-height: 0; overflow-y: visible; }
+        .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .tab { min-height: 58px; }
+        .tab[aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--accent); }
+        .pack-inner { grid-template-columns: auto minmax(0, 1fr) auto; }
+        .pack-main { display: flex; }
+        .pack-actions { grid-template-columns: repeat(3, auto); }
         .grid, .record, .quality-board { grid-template-columns: 1fr; }
-        .generate-left, .generate-right { position: static; max-height: none; overflow: visible; padding-right: 0; }
-        .generate-left .actions { position: static; padding-top: 0; background: transparent; }
+        .generate-action-bar { left: 14px; right: 14px; grid-template-columns: minmax(170px, .8fr) minmax(280px, 1.2fr) minmax(240px, .9fr); }
         .quality-controls { max-height: none; overflow: visible; padding-right: 0; }
         .quality-results { max-height: none; overflow: visible; }
         .record-operations { position: static; max-height: none; overflow: visible; padding-right: 0; }
         .record-units .panel-body { padding-right: 18px; }
-        .tabs { top: 64px; }
-        .pack-bar { top: 151px; }
       }
       @media (max-width: 760px) {
-        .topbar, .tabs, .pack-bar { position: relative; top: auto; }
-        .topbar-inner, .tabs, .pack-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid { grid-template-columns: 1fr; }
-        .top-actions { justify-content: flex-start; }
-        .tab { min-height: 56px; }
-        .pack-main { display: grid; }
-        .pack-actions { justify-content: stretch; }
+        .topbar-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid, .generate-action-bar { grid-template-columns: 1fr; }
+        .brand p { display: none; }
+        .top-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; width: 100%; }
+        .top-actions label { grid-template-columns: 1fr; width: auto; gap: 3px; }
+        .top-actions button { width: auto; }
+        .studio-layout { margin-top: 10px; }
+        .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; }
+        .tab { min-height: 54px; padding-inline: 5px; justify-content: center; }
+        .tab-title { text-align: center; }
+        .tab-title strong { font-size: 12px; }
+        .tab-title span { display: none; }
+        .tab .badge { display: none; }
+        .workflow-label { display: none; }
+        .pack-inner { grid-template-columns: auto minmax(0, 1fr); gap: 10px; }
+        .pack-main { display: contents; }
+        .pack-meta h2 { font-size: 15px; }
+        .pack-meta p { font-size: 11px; }
+        .pack-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+        .pack-actions button { min-height: 38px; padding-inline: 8px; font-size: 12px; }
+        .pack-actions .ghost { grid-column: 1 / -1; min-height: 32px; }
+        #tab-generate { padding-bottom: 132px; }
+        .generate-view-tabs { width: 100%; }
+        .generation-view-tab { min-width: 0; width: calc(100% / 3); }
+        .generate-action-bar {
+          position: fixed;
+          left: 8px;
+          right: 8px;
+          bottom: 8px;
+          grid-template-columns: minmax(0, 1fr) minmax(122px, auto);
+          gap: 8px;
+          padding: 9px;
+        }
+        .generate-action-bar .actions { display: grid; grid-column: 2; grid-row: 1; }
+        .generate-action-option { grid-column: 1 / -1; grid-row: 2; }
+        .generate-action-option .hint { display: none; }
+        .generate-action-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .generate-action-buttons.single { grid-template-columns: 1fr; }
+        .generate-action-state .generate-action-status { font-size: 11px; }
+        .generate-action-state .badge { display: none; }
+        .generate-action-state { grid-template-columns: 1fr; }
+        .generate-action-state strong { font-size: 13px; }
         .pack-option { grid-template-columns: 1fr; }
         .pack-option-title, .pack-option-detail { white-space: normal; }
         .version-grid { grid-template-columns: 1fr; }
@@ -363,35 +476,46 @@
         </div>
       </header>
 
-      <nav class="tabs" role="tablist" aria-label="Sokqa Studio工程">
-        <button class="tab" role="tab" aria-selected="true" data-tab="generate" type="button"><span class="tab-title"><span>STEP 01</span><strong>パック生成</strong></span><span class="badge" id="genBadge">未生成</span></button>
-        <button class="tab" role="tab" aria-selected="false" data-tab="quality" type="button"><span class="tab-title"><span>STEP 02</span><strong>品質チェック・修正</strong></span><span class="badge" id="qualityBadge">未チェック</span></button>
-        <button class="tab" role="tab" aria-selected="false" data-tab="record" type="button"><span class="tab-title"><span>STEP 03</span><strong>録音</strong></span><span class="badge" id="recordBadge">未判定</span></button>
-      </nav>
+      <div class="studio-layout">
+      <aside class="workflow-shell">
+        <nav class="tabs" role="tablist" aria-label="Sokqa Studio工程">
+          <button class="tab" role="tab" aria-selected="true" data-tab="generate" type="button"><span class="tab-title"><span>STEP 01</span><strong>パック生成</strong></span><span class="badge" id="genBadge">未生成</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="quality" type="button"><span class="tab-title"><span>STEP 02</span><strong>品質チェック・修正</strong></span><span class="badge" id="qualityBadge">未チェック</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="record" type="button"><span class="tab-title"><span>STEP 03</span><strong>録音</strong></span><span class="badge" id="recordBadge">未判定</span></button>
+        </nav>
 
-      <section class="pack-bar" aria-label="対象パック">
-        <div class="pack-inner">
-          <div class="pack-main">
-            <div class="pack-icon" id="packIcon">--</div>
-            <div class="pack-meta">
-              <h2 id="packName">パックを選択してください</h2>
-              <p><span id="packKind">-</span> · <span id="packRevision">-</span> · <span id="packStatusText">生成、品質チェック、録音の対象として共有されます</span></p>
+        <section class="pack-bar" aria-label="対象パック">
+          <div class="pack-inner">
+            <span class="workflow-label">対象パック</span>
+            <div class="pack-main">
+              <div class="pack-icon" id="packIcon">--</div>
+              <div class="pack-meta">
+                <h2 id="packName">パックを選択してください</h2>
+                <p><span id="packKind">-</span> · <span id="packRevision">-</span> · <span id="packStatusText">生成、品質チェック、録音の対象として共有されます</span></p>
+              </div>
+            </div>
+            <div class="pack-actions">
+              <button class="secondary" id="openVersionInfo" type="button">バージョン情報</button>
+              <button class="secondary" id="openPack" type="button">別のパックに切り替え</button>
+              <button class="ghost" id="clearPack" type="button">未選択にする</button>
             </div>
           </div>
-          <div class="pack-actions">
-            <button class="secondary" id="openVersionInfo" type="button">バージョン情報</button>
-            <button class="secondary" id="openPack" type="button">別のパックに切り替え</button>
-            <button class="ghost" id="clearPack" type="button">未選択にする</button>
-          </div>
-        </div>
-      </section>
+        </section>
+      </aside>
 
       <main>
         <section class="tab-panel" id="tab-generate">
+          <div class="generate-view-tabs" role="tablist" aria-label="パック生成画面">
+            <button class="generation-view-tab" id="generationSettingsTab" role="tab" aria-selected="true" data-generation-view="settings" type="button">設定</button>
+            <button class="generation-view-tab" id="generationReviewTab" role="tab" aria-selected="false" data-generation-view="review" type="button">構成レビュー</button>
+            <button class="generation-view-tab" id="generationResultTab" role="tab" aria-selected="false" data-generation-view="result" type="button">生成結果</button>
+          </div>
           <div class="grid generate-grid">
-            <section class="panel generate-left">
-              <div class="panel-head"><div><h3>テーマから構成を作成</h3><p class="hint">生成だけで完結するライト層でも使えるよう、最初の入力は最小限にしています。</p></div></div>
-              <div class="panel-body stack">
+            <section class="panel generate-left" data-generation-view-panel="settings">
+              <div class="panel-head"><div><h3>生成設定</h3><p class="hint">必要な項目を設定して構成プレビューを作成します。</p></div></div>
+              <div class="panel-body settings-stack">
+                <section class="settings-group">
+                  <div class="settings-group-head"><h4>基本設定</h4><span>テーマ・言語</span></div>
                 <label>テーマ<input id="theme" value="" maxlength="160" placeholder="例: ITパスポート / 基本情報技術者" /></label>
                 <section class="plan-card">
                   <div class="issue-top"><div><h4>説明文</h4><p>出典を入れたい場合は手動入力に記載してください。</p></div></div>
@@ -409,6 +533,9 @@
                   <label>パック言語<select id="language"><option value="ja" selected>日本語 / ja</option><option value="en">English / en</option><option value="zh">中文 / zh</option><option value="ko">한국어 / ko</option><option value="es">Español / es</option><option value="fr">Français / fr</option><option value="de">Deutsch / de</option><option value="it">Italiano / it</option><option value="pt">Português / pt</option><option value="id">Bahasa Indonesia / id</option><option value="custom">カスタム</option></select></label>
                 </div>
                 <label id="customLanguageLine" hidden>カスタム言語コード<input id="customLanguageCode" value="pt-BR" maxlength="20" placeholder="pt-BR / es-419 など" /></label>
+                </section>
+                <section class="settings-group">
+                  <div class="settings-group-head"><h4>教材設定</h4><span>構成・規模</span></div>
                 <div class="tight">
                   <span class="muted">生成するもの</span>
                   <input id="generationUnit" type="hidden" value="pack" />
@@ -446,6 +573,9 @@
                   <label>想定ユーザー<select id="targetUser"><option selected>初学者</option><option>小学生</option><option>中学生</option><option>高校生</option><option>大学生</option><option>資格学習者</option><option>社会人</option><option>実務担当者</option><option>上級者</option></select></label>
                   <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
                 </div>
+                </section>
+                <section class="settings-group">
+                  <div class="settings-group-head"><h4>読み上げ</h4><span>TTS補正</span></div>
                 <input id="answerPositionMode" type="hidden" value="balanced" />
                 <label>読み上げ補正<select id="ttsReadingMode"><option value="none">なし</option><option value="rule">標準（ルールのみ）</option><option value="llm" selected>高精度（読み補正）</option><option value="multilingual">多言語（読み分け）</option></select></label>
                 <section class="plan-card" id="ttsDictionaryPanel">
@@ -476,6 +606,9 @@
                   </div>
                 </details>
                 <input id="sourceMode" type="hidden" value="document_reference" />
+                </section>
+                <section class="settings-group">
+                  <div class="settings-group-head"><h4>追加条件</h4><span>任意</span></div>
                 <label>追加条件<textarea id="customInstructions" maxlength="2000" placeholder="例: 会話例を多めにする、専門用語は避ける、各章に実務例を入れる など"></textarea></label>
                 <div class="actions"><button class="secondary" id="suggestConditionsStandaloneBtn" type="button">AIに追加条件を提案してもらう</button></div>
                 <section class="plan-card" id="conditionSuggestionsPanel" hidden>
@@ -485,15 +618,11 @@
                   <div class="condition-suggestions" id="conditionSuggestions"></div>
                   <p id="conditionSuggestionsStatus" class="muted"></p>
                 </section>
-                <div class="actions"><button id="planBtn" type="button">プランを作成</button></div>
-                <p id="status" class="muted"></p>
-                <label class="checkline"><input id="autoQualityFixAfterGenerate" type="checkbox" /> 生成後に自動品質チェック・修正提案を行う</label>
-                <p class="hint">時間がかかります。修正は選択後に適用します。</p>
-                <div class="actions"><button class="secondary" id="generateBtn" type="button" disabled>生成</button></div>
+                </section>
               </div>
             </section>
 
-            <div class="stack generate-right">
+            <div class="stack generate-right" data-generation-view-panel="review" hidden>
               <section class="panel">
                 <div class="panel-head"><div><h3>構成プレビュー</h3><p class="hint">章立てとクイズ構成を確認し、必要な読みパターンだけ選んで生成します。</p></div><span class="badge info">preview</span></div>
                 <div class="panel-body stack">
@@ -504,6 +633,8 @@
                   </details>
                 </div>
               </section>
+            </div>
+            <div class="stack generate-right" data-generation-view-panel="result" hidden>
               <section class="panel">
                 <div class="panel-head"><div><h3>生成結果</h3><p class="hint">完了後はスマホ学習アプリへ渡すURLとQRコードを共有します。</p></div></div>
                 <div class="panel-body result" id="result"><p class="muted">まだ生成結果はありません。</p></div>
@@ -532,6 +663,22 @@
                   <button class="secondary" id="reviseBtn" type="button" disabled>読みを置き換えてTTS再最適化</button>
                 </div>
               </section>
+            </div>
+          </div>
+          <div class="generate-action-bar" aria-label="生成操作">
+            <div class="generate-action-state">
+              <span class="badge" id="generateActionBadge">未作成</span>
+              <strong id="generateActionTitle">プラン未作成</strong>
+              <p id="status" class="muted generate-action-status"></p>
+              <div class="bar generate-action-loader" id="generateActionLoader" hidden><span></span></div>
+            </div>
+            <div class="generate-action-option" id="generateQualityOption" hidden>
+              <label class="checkline"><input id="autoQualityFixAfterGenerate" type="checkbox" /> 生成後に自動品質チェック・修正提案を行う</label>
+              <p class="hint">時間がかかります。修正は選択後に適用します。</p>
+            </div>
+            <div class="actions generate-action-buttons single" id="generateActionButtons">
+              <button id="planBtn" type="button">プランを作成</button>
+              <button class="generate-primary" id="generateBtn" type="button" hidden disabled>生成</button>
             </div>
           </div>
         </section>
@@ -644,6 +791,7 @@
           </div>
         </section>
       </main>
+      </div>
     </div>
 
     <div class="toast" id="progressToast" role="status" aria-live="polite">
@@ -751,6 +899,8 @@
       let creditBalance = INITIAL_CREDITS;
       let currentJobId = "";
       let activeTab = "generate";
+      let activeGenerationView = "settings";
+      let generationActionState = "idle";
       let isBusy = false;
       let manifestCache = new Map();
       let lastTextCheckResult = null;
@@ -800,7 +950,7 @@
 
       function setStatusMessage(message = "", { error = false } = {}) {
         const status = $("status");
-        status.className = error ? "issue error" : "muted";
+        status.className = error ? "generate-action-status issue error" : "generate-action-status muted";
         status.textContent = message;
       }
 
@@ -826,6 +976,38 @@
         } catch (_error) {
           return null;
         }
+      }
+
+      function setGenerationView(view) {
+        activeGenerationView = ["settings", "review", "result"].includes(view) ? view : "settings";
+        $$("[data-generation-view]").forEach((button) => {
+          button.setAttribute("aria-selected", String(button.dataset.generationView === activeGenerationView));
+        });
+        $$("[data-generation-view-panel]").forEach((panel) => {
+          panel.hidden = panel.dataset.generationViewPanel !== activeGenerationView;
+        });
+      }
+
+      function updateGenerateActionBar() {
+        const hasPlan = Boolean(currentPlanFromJson());
+        const activeStates = {
+          planning: ["作成中", "プラン作成中", "info"],
+          generating: ["生成中", "パック生成中", "info"],
+          quality: ["確認中", "品質チェック中", "info"],
+        };
+        const active = activeStates[generationActionState];
+        const completed = generationActionState === "complete";
+        const label = active?.[0] || (completed ? "完了" : hasPlan ? "作成済み" : "未作成");
+        const title = active?.[1] || (completed ? "生成完了" : hasPlan ? "プラン作成済み" : "プラン未作成");
+        const tone = active?.[2] || (completed || hasPlan ? "success" : "");
+        $("generateActionBadge").className = `badge ${tone}`.trim();
+        $("generateActionBadge").textContent = label;
+        $("generateActionTitle").textContent = title;
+        $("generateActionLoader").hidden = !active;
+        $("planBtn").textContent = hasPlan ? "プランを再作成" : "プランを作成";
+        $("generateBtn").hidden = !hasPlan;
+        $("generateQualityOption").hidden = !hasPlan;
+        $("generateActionButtons").classList.toggle("single", !hasPlan);
       }
 
       function normalizeRule(rule) {
@@ -1640,6 +1822,7 @@
         $("openSelectedJsonBtn").disabled = isBusy || !selectedFileJsonUrl(selectedPack);
         $("reviseBtn").disabled = isBusy || !normalizeRules(temporaryTtsRules).length || (!selectedPack && !currentJobId);
         $("creditWarning").textContent = "";
+        updateGenerateActionBar();
       }
 
       function scaleValue() {
@@ -3069,6 +3252,8 @@
       }
 
       async function createPlan() {
+        generationActionState = "planning";
+        updateGenerateActionBar();
         setBusy(true, "Planning...");
         setProgress("プレビュー作成", "Planning", "構成案を作成しています。");
         try {
@@ -3095,16 +3280,22 @@
           initializeReadingPatternSelection(plan);
           setPlanJson(plan);
           renderPlanPreview(plan);
+          generationActionState = "planned";
+          setGenerationView("review");
           finishProgress("プレビュー作成", "構成案を作成しました。");
         } catch (error) {
+          generationActionState = currentPlanFromJson() ? "planned" : "idle";
           showResultError("構成プレビューを作成できませんでした", error.message);
           setProgress("プレビュー作成", "失敗", error.message, 1);
         } finally {
           setBusy(false);
+          updateGenerateActionBar();
         }
       }
 
       async function generatePack() {
+        generationActionState = "generating";
+        updateGenerateActionBar();
         setBusy(true, "Generating...");
         setProgress("生成", "Planning", "生成は完了後にログがまとめて返ります。");
         try {
@@ -3122,6 +3313,7 @@
           });
           currentJobId = generated.jobId;
           renderGeneratedResult(generated);
+          setGenerationView("result");
           await loadPacks({ keepSelection: false });
           const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId && pack.versionId === generated.manifest?.versionId)
             || currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId)
@@ -3130,13 +3322,18 @@
           setBadge("genBadge", "生成済み", "success");
           finishProgress("生成", "生成済みパックを対象に設定しました。");
           if (isAutoQualityFixEnabled()) {
+            generationActionState = "quality";
+            updateGenerateActionBar();
             await runBatchQualityWorkflow(generated);
           }
+          generationActionState = "complete";
         } catch (error) {
+          generationActionState = currentPlanFromJson() ? "planned" : "idle";
           showResultError("生成を完了できませんでした", error.message);
           setProgress("生成", "失敗", error.message, 1);
         } finally {
           setBusy(false);
+          updateGenerateActionBar();
         }
       }
 
@@ -3250,6 +3447,7 @@
       });
 
       $$(".tab").forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.tab)));
+      $$("[data-generation-view]").forEach((tab) => tab.addEventListener("click", () => setGenerationView(tab.dataset.generationView)));
       $$("#scaleSegment button").forEach((button) => button.addEventListener("click", () => {
         $$("#scaleSegment button").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");

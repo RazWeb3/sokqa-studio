@@ -254,6 +254,7 @@ class PlanSuggestConditionsRequest(BaseModel):
     difficulty: Difficulty = "beginner"
     language: str = Field(default="ja", min_length=2, max_length=20)
     customInstructions: str | None = Field(default=None, max_length=2000)
+    hasSourceMaterial: bool = False
 
     @field_validator("customInstructions")
     @classmethod

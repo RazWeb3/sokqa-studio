@@ -1347,6 +1347,7 @@
             difficulty: $("difficulty").value,
             language: languageValue(),
             customInstructions: $("customInstructions").value.trim(),
+            hasSourceMaterial: Boolean($("sourceText").value.trim()),
           });
           planConditionSuggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
           renderConditionSuggestions();

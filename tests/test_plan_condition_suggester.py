@@ -156,3 +156,38 @@ def test_plan_suggest_conditions_endpoint_returns_gemini_suggestions(monkeypatch
 
     assert response.status_code == 200
     assert response.json()["suggestions"][0]["id"] == "plain_terms"
+
+
+def test_source_material_injects_strict_japanese_notation_suggestion(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "gemini_provider", "gemini")
+
+    def fake_generate_json(self, *args, **kwargs):
+        return {
+            "suggestions": [
+                {
+                    "id": "plain_terms",
+                    "title": "専門用語を減らす",
+                    "text": "初学者向けに専門用語を減らし、必要な場合は短く言い換えてください。",
+                    "reason": "学習者が説明を追いやすくするため",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    response = client.post(
+        "/api/plan-suggest-conditions",
+        json={
+            "theme": "歌詞の読解",
+            "targetUser": "高校生",
+            "difficulty": "beginner",
+            "language": "ja",
+            "customInstructions": "",
+            "hasSourceMaterial": True,
+        },
+    )
+
+    assert response.status_code == 200
+    suggestions = response.json()["suggestions"]
+    assert suggestions[0]["id"] == "strict_japanese_notation_reading"
+    assert any(item["id"] == "plain_terms" for item in suggestions)

@@ -3,6 +3,7 @@ from typing import Any
 from app.config import get_settings
 from app.schemas.request import PlanSuggestConditionsRequest, SuggestedCondition
 from app.services.gemini_client import GeminiClient
+from app.services.language_detection import language_base
 from app.services.llm_json import LlmJsonParseContext
 from app.utils.ids import slugify
 
@@ -37,7 +38,84 @@ def suggest_conditions(request: PlanSuggestConditionsRequest) -> list[SuggestedC
     suggestions = _gemini_suggestions(request)
     if not suggestions:
         raise RuntimeError("AI提案の取得に失敗しました。\n時間をおいて再度お試しください。")
-    return suggestions
+    return _inject_source_quality_suggestion(suggestions, request)
+
+
+def _inject_source_quality_suggestion(
+    suggestions: list[SuggestedCondition], request: PlanSuggestConditionsRequest
+) -> list[SuggestedCondition]:
+    if not request.hasSourceMaterial:
+        return suggestions
+    suggestion = _source_quality_suggestion(request.language)
+    if not suggestion:
+        return suggestions
+    if any(item.id == suggestion.id or item.text == suggestion.text for item in suggestions):
+        return suggestions
+    merged = [suggestion, *suggestions]
+    return merged[:MAX_SUGGESTION_COUNT]
+
+
+def _source_quality_suggestion(language: str | None) -> SuggestedCondition | None:
+    base = language_base(language) or "en"
+    templates: dict[str, dict[str, str]] = {
+        "ja": {
+            "title": "日本語表記・読みの厳密確認",
+            "text": "資料内の日本語表記・読み・ローマ字表記は推測で補完せず、必ず参考資料を基準にしてください。不明な読みや表記は推測せず、そのまま扱うか、解釈の可能性として説明してください。",
+            "reason": "推測による表記揺れ・誤ローマ字を防ぎ、歌詞など固有表現の誤りを減らすため",
+        },
+        "en": {
+            "title": "Strict Japanese Notation Check",
+            "text": "Do not guess Japanese spelling, readings, or romanization found in the reference material. Always follow the source. If something is unclear, keep it as-is or describe it as a possible interpretation.",
+            "reason": "Reduces hallucinated readings and wrong romanization in source-based materials.",
+        },
+        "zh": {
+            "title": "严格核对日语表记与读音",
+            "text": "不要推测补全参考资料中的日语表记、读音与罗马字。必须以资料为准。遇到不明确的读音或表记，不要猜测，保持原样，或作为可能的解释进行说明。",
+            "reason": "减少推测导致的表记偏差与错误罗马字，提升歌词类教材质量。",
+        },
+        "ko": {
+            "title": "일본어 표기·읽기 엄밀 확인",
+            "text": "자료에 있는 일본어 표기·읽기·로마자 표기는 추측으로 보완하지 말고 반드시 자료를 기준으로 하세요. 불명확한 경우는 추측하지 말고 그대로 두거나 가능한 해석으로 설명하세요.",
+            "reason": "추측으로 인한 표기 오류와 잘못된 로마자를 줄이기 위해서입니다.",
+        },
+        "es": {
+            "title": "Verificación estricta del japonés",
+            "text": "No infieras la escritura, la lectura ni la romanización del japonés presentes en el material de referencia. Sigue siempre la fuente. Si algo no está claro, mantenlo tal cual o descríbelo como una interpretación posible.",
+            "reason": "Reduce lecturas inventadas y romanizaciones incorrectas en materiales basados en fuentes.",
+        },
+        "fr": {
+            "title": "Vérification stricte du japonais",
+            "text": "Ne devine pas l’orthographe, la lecture ni la romanisation du japonais présentes dans la source. Base-toi toujours sur le document. Si un point est ambigu, conserve-le tel quel ou présente-le comme une interprétation possible.",
+            "reason": "Réduit les lectures inventées et les romanisations erronées dans les contenus basés sur des sources.",
+        },
+        "de": {
+            "title": "Strenge Prüfung japanischer Notation",
+            "text": "Errate keine japanische Schreibweise, Lesung oder Romanisierung aus dem Referenzmaterial. Richte dich immer nach der Quelle. Wenn etwas unklar ist, lass es unverändert oder beschreibe es als mögliche Interpretation.",
+            "reason": "Verhindert erfundene Lesungen und falsche Romanisierung bei quellenbasierten Materialien.",
+        },
+        "it": {
+            "title": "Verifica rigorosa del giapponese",
+            "text": "Non dedurre grafia, lettura o romanizzazione del giapponese presenti nel materiale di riferimento. Attieniti sempre alla fonte. Se qualcosa è ambiguo, lascialo com’è o descrivilo come possibile interpretazione.",
+            "reason": "Riduce letture inventate e romanizzazioni errate nei materiali basati su fonti.",
+        },
+        "pt": {
+            "title": "Verificação rigorosa do japonês",
+            "text": "Não deduza a escrita, a leitura nem a romanização do japonês presentes no material de referência. Siga sempre a fonte. Se algo estiver ambíguo, mantenha como está ou descreva como uma interpretação possível.",
+            "reason": "Reduz leituras inventadas e romanizações incorretas em materiais baseados em fontes.",
+        },
+        "id": {
+            "title": "Verifikasi ketat notasi Jepang",
+            "text": "Jangan menebak penulisan, pembacaan, atau romanisasi Jepang yang ada di materi referensi. Selalu ikuti sumber. Jika ada yang tidak jelas, biarkan apa adanya atau jelaskan sebagai kemungkinan interpretasi.",
+            "reason": "Mengurangi pembacaan halusinasi dan romanisasi salah pada materi berbasis sumber.",
+        },
+    }
+    content = templates.get(base) or templates["en"]
+    return SuggestedCondition(
+        id="strict_japanese_notation_reading",
+        title=content["title"][:80],
+        text=content["text"][:400],
+        reason=content["reason"][:160],
+    )
 
 
 def _gemini_suggestions(request: PlanSuggestConditionsRequest) -> list[SuggestedCondition]:

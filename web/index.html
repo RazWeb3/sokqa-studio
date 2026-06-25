@@ -1969,6 +1969,7 @@
         $("openSelectedJsonBtn").disabled = isBusy || !selectedFileJsonUrl(selectedPack);
         $("reviseBtn").disabled = isBusy || !normalizeRules(temporaryTtsRules).length || (!selectedPack && !currentJobId);
         $("creditWarning").textContent = "";
+        updateBatchQualityApplyAvailability();
         updateGenerateActionBar();
       }
 

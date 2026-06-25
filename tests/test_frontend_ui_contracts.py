@@ -436,6 +436,20 @@ def test_batch_quality_displays_text_and_tts_fix_candidates() -> None:
     assert "選択した修正を適用" in render_html
 
 
+def test_batch_quality_apply_button_updates_on_busy_change_and_is_safe_without_button() -> None:
+    html = _html()
+    start = html.index("function updateActionAvailability()")
+    end = html.index("function scaleValue()", start)
+    action_html = html[start:end]
+    batch_start = html.index("function updateBatchQualityApplyAvailability()")
+    batch_end = html.index("function findUnit(", batch_start)
+    batch_html = html[batch_start:batch_end]
+
+    assert "updateBatchQualityApplyAvailability();" in action_html
+    assert 'const button = $("applyBatchQualityFixBtn");' in batch_html
+    assert "if (button) button.disabled = isBusy || selectedBatchFixKeys().length === 0;" in batch_html
+
+
 def test_auto_text_quality_targets_only_generated_document_and_quiz_files() -> None:
     html = _html()
     start = html.index("function generatedQualityTargets")

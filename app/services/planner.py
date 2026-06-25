@@ -47,9 +47,9 @@ SECTION_COUNT_MAX = 50
 #      sourceText 本文は技術判定に使わない(誤爆防止のため)。
 #  (2) 重複統合: _reading_pattern_signature で意味的に同種の候補
 #      (LLM由来とfallback由来など)を1つにまとめる。
-#  (3) recommended補正: _recommended_allowed_for_pattern /
-#      _apply_recommended_guard が、本文に該当表記が出ない場合に
-#      初期チェック(recommended=true)を控えめにする。
+#  (3) recommended補正: 候補が属するカテゴリごとの固定ルールで
+#      初期チェック(recommended=true)を上書きする。
+#      sourceText / documents は recommended 判定に使わない。
 #      ※(1)は「候補を出すか」、(3)は「初期選択にするか」で層が違う。
 # ────────────────────────────────────────────────
 FALLBACK_READING_PATTERNS_BY_CATEGORY = {
@@ -283,6 +283,19 @@ CATEGORY_KEYWORDS = {
 }
 
 CATEGORY_ORDER = ("technical", "literature", "qualification", "business", "language", "generic")
+FALLBACK_PATTERN_CATEGORY_BY_ID = {
+    pattern.id: category
+    for category, patterns in FALLBACK_READING_PATTERNS_BY_CATEGORY.items()
+    for pattern in patterns
+}
+CATEGORY_RECOMMENDED_SIGNATURES = {
+    "technical": {"alphabet_abbreviations"},
+    "literature": {"literary_difficult_words"},
+    "qualification": {"exam_official_names"},
+    "business": {"business_roles_departments"},
+    "language": {"language_kanji_readings"},
+    "generic": {"generic_numbers_and_symbols"},
+}
 
 
 def _language_base(language: str | None) -> str:
@@ -1048,9 +1061,40 @@ def _fallback_reading_patterns(request: PlanPackRequest) -> list[ReadingPattern]
     return _merge_reading_patterns([], matched_patterns, request, max_count=None)
 
 
+def _matched_fallback_categories(request: PlanPackRequest) -> set[str]:
+    context = _fallback_category_context(request)
+    if not context:
+        return set()
+    return {
+        category
+        for category in CATEGORY_ORDER
+        if _matches_category_keywords(context, category)
+    }
+
+
 def _reading_pattern_signature(pattern: ReadingPattern) -> str:
     """読み候補の意味的重複をまとめる署名を返す。"""
     text = " ".join([pattern.id, pattern.title, pattern.description, *pattern.examples]).lower()
+    if any(token in text for token in ["難読語", "文学語彙", "たそがれ", "しじま", "literary_difficult_words"]):
+        return "literary_difficult_words"
+    if any(token in text for token in ["作品名", "人物名", "地名", "百人一首", "芥川龍之介", "literary_proper_nouns"]):
+        return "literary_proper_nouns"
+    if any(token in text for token in ["試験名", "制度名", "基本情報技術者試験", "日商簿記", "exam_official_names"]):
+        return "exam_official_names"
+    if any(token in text for token in ["toeic", "fp", "試験で頻出の略語", "exam_abbreviations"]):
+        return "exam_abbreviations"
+    if any(token in text for token in ["部署名", "役職名", "社内用語", "経営企画部", "執行役員", "business_roles_departments"]):
+        return "business_roles_departments"
+    if any(token in text for token in ["kpi", "roi", "b2b", "ビジネス略語", "business_abbreviations"]):
+        return "business_abbreviations"
+    if any(token in text for token in ["漢字語彙", "language_kanji_readings", "ごい", "けいご"]):
+        return "language_kanji_readings"
+    if any(token in text for token in ["学習語彙", "language_example_readings", "おととい", "あいづち"]):
+        return "language_example_readings"
+    if any(token in text for token in ["generic_numbers_and_symbols", "第3章", "a/bテスト", "数字・記号・区切り"]):
+        return "generic_numbers_and_symbols"
+    if any(token in text for token in ["generic_proper_names", "御茶ノ水", "重慶", "固有名詞の読みを一定"]):
+        return "generic_proper_names"
     if any(token in text for token in [".git", ".env", ".gitignore", "dot notation", "ドット記法", "ドットファイル"]):
         return "dot_notation"
     if any(token in text for token in ["api", "url", "os", "英略語", "アルファベット"]):
@@ -1064,30 +1108,41 @@ def _reading_pattern_signature(pattern: ReadingPattern) -> str:
     return re.sub(r"\s+", "", pattern.title).lower() or pattern.id
 
 
-def _reading_pattern_context(request: PlanPackRequest, documents: list[PlanDocument] | None = None) -> str:
-    """recommended 再判定用に theme/targetUser/sourceText/documents を文脈化する。"""
-    document_text = ""
-    if documents:
-        document_text = " ".join(
-            " ".join([document.title, document.goal, *document.keyPoints])
-            for document in documents
-        )
-    return " ".join([request.theme, request.targetUser, request.sourceText or "", document_text]).lower()
+SIGNATURE_CATEGORY_BY_SIGNATURE = {
+    "alphabet_abbreviations": "technical",
+    "dot_notation": "technical",
+    "technical_commands": "technical",
+    "camel_case_terms": "technical",
+    "symbols_and_versions": "technical",
+    "literary_difficult_words": "literature",
+    "literary_proper_nouns": "literature",
+    "exam_official_names": "qualification",
+    "exam_abbreviations": "qualification",
+    "business_roles_departments": "business",
+    "business_abbreviations": "business",
+    "language_kanji_readings": "language",
+    "language_example_readings": "language",
+    "generic_numbers_and_symbols": "generic",
+    "generic_proper_names": "generic",
+}
+
+
+def _pattern_category(pattern: ReadingPattern) -> str | None:
+    return FALLBACK_PATTERN_CATEGORY_BY_ID.get(pattern.id) or SIGNATURE_CATEGORY_BY_SIGNATURE.get(
+        _reading_pattern_signature(pattern)
+    )
 
 
 def _recommended_allowed_for_pattern(pattern: ReadingPattern, request: PlanPackRequest, documents: list[PlanDocument] | None = None) -> bool:
-    """文脈に該当表記がなければ recommended を抑制してよいか判定。"""
+    """カテゴリ固定ルールで recommended=true を付ける候補か判定。"""
+    del documents
+    category = _pattern_category(pattern)
+    if not category:
+        return False
+    if category not in _matched_fallback_categories(request):
+        return False
     signature = _reading_pattern_signature(pattern)
-    context = _reading_pattern_context(request, documents)
-    if signature == "dot_notation":
-        return bool(re.search(r"(^|\s|\W)\.[a-z0-9_-]+", context)) or any(token in context for token in ["dotfile", "dot file", "ドットファイル", "ドット記法"])
-    if signature == "technical_commands":
-        return any(token in context for token in ["git ", "npm ", "pip ", "docker ", "checkout", "install", "commit", "コマンド", "cli"])
-    if signature == "camel_case_terms":
-        return bool(re.search(r"[a-z]+[A-Z][A-Za-z0-9]*", _reading_pattern_context(request, documents)))
-    if signature == "symbols_and_versions":
-        return bool(re.search(r"\bv?\d+\.\d+|[A-Za-z0-9]+/[A-Za-z0-9]+|バージョン|スラッシュ", context))
-    return True
+    return signature in CATEGORY_RECOMMENDED_SIGNATURES.get(category, set())
 
 
 def _merge_reading_patterns(
@@ -1108,8 +1163,8 @@ def _merge_reading_patterns(
         signature = _reading_pattern_signature(pattern)
         if pattern.id in seen_ids or title_key in seen_titles or signature in seen_signatures:
             continue
-        if request is not None and pattern.recommended and not _recommended_allowed_for_pattern(pattern, request, documents):
-            pattern = pattern.model_copy(update={"recommended": False})
+        if request is not None:
+            pattern = pattern.model_copy(update={"recommended": _recommended_allowed_for_pattern(pattern, request, documents)})
         merged.append(pattern)
         seen_ids.add(pattern.id)
         seen_titles.add(title_key)
@@ -1122,11 +1177,10 @@ def _apply_recommended_guard(
     request: PlanPackRequest,
     documents: list[PlanDocument] | None = None,
 ) -> list[ReadingPattern]:
-    """候補配列全体に recommended 抑制を適用する。"""
+    """候補配列全体にカテゴリ固定の recommended 上書きを適用する。"""
     guarded: list[ReadingPattern] = []
     for pattern in patterns:
-        if pattern.recommended and not _recommended_allowed_for_pattern(pattern, request, documents):
-            pattern = pattern.model_copy(update={"recommended": False})
+        pattern = pattern.model_copy(update={"recommended": _recommended_allowed_for_pattern(pattern, request, documents)})
         guarded.append(pattern)
     return guarded
 

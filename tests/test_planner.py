@@ -468,7 +468,9 @@ def test_fallback_reading_patterns_include_dot_notation_for_git_theme() -> None:
     patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
 
     dot_pattern = next(pattern for pattern in patterns if pattern.id == "dot_notation")
-    assert dot_pattern.recommended is True
+    alphabet = next(pattern for pattern in patterns if pattern.id == "alphabet_abbreviations")
+    assert alphabet.recommended is True
+    assert dot_pattern.recommended is False
     assert ".git -> ドット ギット" in dot_pattern.examples
     assert ".env -> ドット イーエヌブイ" in dot_pattern.examples
     assert ".gitignore -> ドット ギットイグノア" in dot_pattern.examples
@@ -650,7 +652,7 @@ def test_invalid_reading_pattern_examples_are_removed_and_recommended_is_downgra
 
     security_pattern = next(pattern for pattern in patterns if pattern.id == "security_terms")
     assert security_pattern.examples == ["有線LAN -> ゆうせんラン"]
-    assert security_pattern.recommended is True
+    assert security_pattern.recommended is False
 
 
 def test_reading_pattern_without_valid_examples_is_not_recommended() -> None:
@@ -672,3 +674,99 @@ def test_reading_pattern_without_valid_examples_is_not_recommended() -> None:
     kana_pattern = next(pattern for pattern in patterns if pattern.id == "kana_only")
     assert kana_pattern.examples == []
     assert kana_pattern.recommended is False
+
+
+def test_non_technical_theme_does_not_make_technical_candidates_recommended_from_source_text() -> None:
+    request = PlanPackRequest(
+        theme="歌詞教材",
+        targetUser="学習者",
+        scale="quick",
+        sourceText="API と Git を歌詞に含む。",
+    )
+
+    fallback_patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
+    merged_patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "api_reading",
+                    "title": "APIをアルファベット読みする",
+                    "description": "APIやURLをアルファベット読みで扱います。",
+                    "examples": ["API -> エーピーアイ"],
+                    "recommended": True,
+                }
+            ]
+        },
+        request,
+    )
+
+    assert all(pattern.id not in {"alphabet_abbreviations", "dot_notation"} for pattern in fallback_patterns)
+    api_pattern = next(pattern for pattern in merged_patterns if pattern.id == "api_reading")
+    assert api_pattern.recommended is False
+
+
+def test_technical_theme_uses_fixed_recommended_rules() -> None:
+    request = PlanPackRequest(
+        theme="ITパスポート試験対策",
+        targetUser="IT初心者の社会人",
+        scale="quick",
+        sourceText="本文に技術語がなくてもよい。",
+    )
+    patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
+
+    recommended_by_id = {pattern.id: pattern.recommended for pattern in patterns}
+    assert recommended_by_id["alphabet_abbreviations"] is True
+    assert recommended_by_id["dot_notation"] is False
+    assert recommended_by_id["technical_commands"] is False
+    assert recommended_by_id["camel_case_terms"] is False
+    assert recommended_by_id["symbols_and_versions"] is False
+
+
+def test_llm_technical_recommended_is_overridden_to_false_for_non_technical_theme() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "api_reading",
+                    "title": "APIをアルファベット読みする",
+                    "description": "APIやURLをアルファベット読みで扱います。",
+                    "examples": ["API -> エーピーアイ"],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(
+            theme="英会話 初級",
+            targetUser="初学者",
+            scale="quick",
+        ),
+    )
+
+    api_pattern = next(pattern for pattern in patterns if pattern.id == "api_reading")
+    assert api_pattern.recommended is False
+
+
+def test_fallback_and_llm_same_signature_share_same_recommended_rule() -> None:
+    request = PlanPackRequest(
+        theme="ITパスポート試験対策",
+        targetUser="IT初心者の社会人",
+        scale="quick",
+    )
+    fallback_patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
+    llm_patterns = planner._apply_recommended_guard(
+        [
+            ReadingPattern(
+                id="api_reading",
+                title="APIをアルファベット読みする",
+                description="APIやURLをアルファベット読みで扱います。",
+                examples=["API -> エーピーアイ"],
+                recommended=False,
+            )
+        ],
+        request,
+    )
+
+    fallback_alphabet = next(pattern for pattern in fallback_patterns if pattern.id == "alphabet_abbreviations")
+    llm_alphabet = llm_patterns[0]
+    assert planner._reading_pattern_signature(fallback_alphabet) == planner._reading_pattern_signature(llm_alphabet)
+    assert fallback_alphabet.recommended is llm_alphabet.recommended is True

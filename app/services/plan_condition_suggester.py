@@ -46,7 +46,7 @@ def _inject_source_quality_suggestion(
 ) -> list[SuggestedCondition]:
     if not request.hasSourceMaterial:
         return suggestions
-    suggestion = _source_quality_suggestion(request.language)
+    suggestion = _source_quality_suggestion(request.displayLanguage)
     if not suggestion:
         return suggestions
     if any(item.id == suggestion.id or item.text == suggestion.text for item in suggestions):
@@ -128,8 +128,12 @@ def _gemini_suggestions(request: PlanSuggestConditionsRequest) -> list[Suggested
             model=get_settings().planner_model,
             theme=request.theme,
             additional_instructions=request.customInstructions,
-            language=request.language,
+            language=request.displayLanguage,
             difficulty=request.difficulty,
+            extra={
+                "packLanguage": request.language,
+                "displayLanguage": request.displayLanguage,
+            },
         ),
     )
     return _suggestions_from_response(data)
@@ -141,9 +145,11 @@ def _suggestion_prompt(request: PlanSuggestConditionsRequest) -> str:
 Return strict JSON only. Do not use markdown fences.
 出力は必ずJSONのみ。Markdown、説明文、コードブロックは禁止。
 
-入力された theme / targetUser / difficulty / language から、Sokqa学習パックの品質を上げる追加条件候補を3〜5件生成してください。
+入力された theme / targetUser / difficulty / packLanguage / displayLanguage から、Sokqa学習パックの品質を上げる追加条件候補を3〜5件生成してください。
 候補はユーザーが採用すると customInstructions にそのまま追記されます。
 既存の追加条件と同じ意味の候補は避けてください。
+提案タイトル・提案理由・提案内容は、必ず displayLanguage で出力してください。
+packLanguage や learningLanguage に引っ張られて出力言語を変えてはいけません。
 
 追加条件提案は教材内容・説明方法・出題方針のみ提案してください。
 
@@ -167,7 +173,8 @@ Input:
 - theme: {request.theme}
 - targetUser: {request.targetUser}
 - difficulty: {request.difficulty}
-- language: {request.language}
+- packLanguage: {request.language}
+- displayLanguage: {request.displayLanguage}
 - existing customInstructions: {additional_conditions}
 
 JSON schema:

@@ -107,6 +107,7 @@ TODO: 正式な対象 commit / 日付を確認する。
 - pack language 対応強化
 - multilingual TTS タグ仕様整理
 - choiceTexts 保持ルール改善
+- AI追加条件提案の表示言語を管理画面基準へ統一
 - docs 整備
 - Agent Design 再整理
 - learningLanguage 検討開始

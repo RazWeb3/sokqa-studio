@@ -1135,6 +1135,11 @@
         return custom;
       }
 
+      function displayLanguageValue() {
+        const value = document.documentElement.lang?.trim();
+        return languageCodePattern(value || "") ? value : "ja";
+      }
+
       function ttsLanguageSettingsFromControls() {
         if (ttsModeValue() !== "multilingual") return null;
         return {
@@ -1346,6 +1351,7 @@
             targetUser: $("targetUser").value,
             difficulty: $("difficulty").value,
             language: languageValue(),
+            displayLanguage: displayLanguageValue(),
             customInstructions: $("customInstructions").value.trim(),
             hasSourceMaterial: Boolean($("sourceText").value.trim()),
           });

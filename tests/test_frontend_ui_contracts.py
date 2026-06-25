@@ -220,6 +220,9 @@ def test_plan_condition_suggestion_ui_is_available_and_appends_only_selected_tex
     assert 'id="conditionSuggestionsPanel" hidden' in html
     assert 'class="condition-suggestions" id="conditionSuggestions"' in html
     assert 'requestJson("/api/plan-suggest-conditions"' in html
+    assert "function displayLanguageValue()" in html
+    assert 'displayLanguage: displayLanguageValue(),' in html
+    assert 'const value = document.documentElement.lang?.trim();' in html
     assert 'hasSourceMaterial: Boolean($("sourceText").value.trim())' in html
     assert "function renderConditionSuggestions()" in html
     assert "function appendConditionSuggestion(suggestion)" in html

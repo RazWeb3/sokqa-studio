@@ -108,6 +108,22 @@ def test_prompt_excludes_tts_responsibilities() -> None:
         assert banned in prompt
 
 
+def test_prompt_requires_display_language_for_all_suggestion_fields() -> None:
+    prompt = suggester._suggestion_prompt(
+        PlanSuggestConditionsRequest(
+            theme="日本語会話",
+            targetUser="初学者",
+            language="id",
+            displayLanguage="ja",
+        )
+    )
+
+    assert "- packLanguage: id" in prompt
+    assert "- displayLanguage: ja" in prompt
+    assert "提案タイトル・提案理由・提案内容は、必ず displayLanguage で出力してください。" in prompt
+    assert "packLanguage や learningLanguage に引っ張られて出力言語を変えてはいけません。" in prompt
+
+
 def test_plan_suggest_conditions_endpoint_returns_503_without_gemini(monkeypatch) -> None:
     monkeypatch.setattr(get_settings(), "gemini_provider", "mock")
 
@@ -191,3 +207,36 @@ def test_source_material_injects_strict_japanese_notation_suggestion(monkeypatch
     suggestions = response.json()["suggestions"]
     assert suggestions[0]["id"] == "strict_japanese_notation_reading"
     assert any(item["id"] == "plain_terms" for item in suggestions)
+
+
+def test_source_material_fixed_suggestion_uses_display_language_not_pack_language(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "gemini_provider", "gemini")
+
+    def fake_generate_json(self, *args, **kwargs):
+        return {
+            "suggestions": [
+                {
+                    "id": "source_based_examples",
+                    "title": "例文を増やす",
+                    "text": "参考資料に沿った例文を増やしてください。",
+                    "reason": "資料との対応が追いやすくなるため",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    suggestions = suggester.suggest_conditions(
+        PlanSuggestConditionsRequest(
+            theme="歌詞の読解",
+            targetUser="高校生",
+            difficulty="beginner",
+            language="id",
+            displayLanguage="ja",
+            hasSourceMaterial=True,
+        )
+    )
+
+    assert suggestions[0].id == "strict_japanese_notation_reading"
+    assert suggestions[0].title == "日本語表記・読みの厳密確認"
+    assert suggestions[0].reason == "推測による表記揺れ・誤ローマ字を防ぎ、歌詞など固有表現の誤りを減らすため"

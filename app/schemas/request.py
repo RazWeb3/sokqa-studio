@@ -253,6 +253,7 @@ class PlanSuggestConditionsRequest(BaseModel):
     targetUser: str = Field(..., min_length=1, max_length=160)
     difficulty: Difficulty = "beginner"
     language: str = Field(default="ja", min_length=2, max_length=20)
+    displayLanguage: str = Field(default="ja", min_length=2, max_length=20)
     customInstructions: str | None = Field(default=None, max_length=2000)
     hasSourceMaterial: bool = False
 
@@ -264,7 +265,7 @@ class PlanSuggestConditionsRequest(BaseModel):
         value = value.strip()
         return value or None
 
-    @field_validator("language", mode="before")
+    @field_validator("language", "displayLanguage", mode="before")
     @classmethod
     def normalize_language_code(cls, value):
         return validate_language_code(value)

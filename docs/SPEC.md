@@ -49,6 +49,28 @@ Sokqa Studio の基本生成フローは二段階である。
 
 Planner は pack language に基づいて title、description、document titles、quiz labels を生成する。
 
+## テーマ別追加条件提案
+
+入力:
+
+- theme
+- targetUser
+- difficulty
+- language
+- displayLanguage
+- customInstructions
+- sourceText の有無
+
+出力:
+
+- suggestions[].title
+- suggestions[].reason
+- suggestions[].text
+
+AI提案は管理画面の表示言語で生成する。`title`、`reason`、`text` はすべて `displayLanguage` に合わせる。
+`language` は教材のパック言語であり、提案の出力言語を決める値ではない。`learningLanguage` も提案言語には影響しない。
+固定提案と Gemini 生成提案の両方に同じルールを適用する。
+
 ## document generator
 
 入力:

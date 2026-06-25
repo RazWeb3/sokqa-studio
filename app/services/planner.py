@@ -35,52 +35,273 @@ RANGE_TITLES = {
 }
 
 RANGE_PURPOSES = ["key_concepts", "application", "application", "application"]
-MAX_READING_PATTERN_COUNT = 8
 SECTION_COUNT_MIN = 35
 SECTION_COUNT_MAX = 50
 
 
-FALLBACK_READING_PATTERNS = [
-    ReadingPattern(
-        id="alphabet_abbreviations",
-        title="英略語はアルファベット読みで扱う",
-        description="IT、AI、API、OS などの英略語は、必要に応じてカタカナのアルファベット読みとして扱う方針です。",
-        examples=["IT -> アイティー", "API -> エーピーアイ", "OS -> オーエス"],
-        recommended=True,
+# ── 読み候補(proposedReadingPatterns)の生成方針 ──────────────
+# 読み候補は次の3段構成で決まる。役割が異なるので混同しないこと。
+#  (1) カテゴリ判定: theme + customInstructions を主体に
+#      6カテゴリ(技術/文学/資格/ビジネス/語学/汎用)へマッチさせ、
+#      該当カテゴリのテンプレートだけを候補に入れる。
+#      sourceText 本文は技術判定に使わない(誤爆防止のため)。
+#  (2) 重複統合: _reading_pattern_signature で意味的に同種の候補
+#      (LLM由来とfallback由来など)を1つにまとめる。
+#  (3) recommended補正: _recommended_allowed_for_pattern /
+#      _apply_recommended_guard が、本文に該当表記が出ない場合に
+#      初期チェック(recommended=true)を控えめにする。
+#      ※(1)は「候補を出すか」、(3)は「初期選択にするか」で層が違う。
+# ────────────────────────────────────────────────
+FALLBACK_READING_PATTERNS_BY_CATEGORY = {
+    "technical": [
+        ReadingPattern(
+            id="alphabet_abbreviations",
+            title="英略語はアルファベット読みで扱う",
+            description="IT、API、CLI などの英略語は、必要に応じてカタカナのアルファベット読みとして扱う方針です。",
+            examples=["IT -> アイティー", "API -> エーピーアイ", "CLI -> シーエルアイ"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="dot_notation",
+            title="ドット記法やファイル名を読み下す",
+            description=".git、.env、.gitignore、app.config のようなドットや記号を含む表記を、読み上げで自然に聞こえるように扱う方針です。",
+            examples=[".git -> ドット ギット", ".env -> ドット イーエヌブイ", ".gitignore -> ドット ギットイグノア"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="technical_commands",
+            title="コマンドや技術用語を読み下す",
+            description="git checkout や npm install のようなコマンド・技術用語を、聞き取りやすい読みとして扱う方針です。",
+            examples=["git checkout -> ギット チェックアウト", "npm install -> エヌピーエム インストール"],
+            recommended=False,
+        ),
+        ReadingPattern(
+            id="camel_case_terms",
+            title="キャメルケースや区切り語を読みやすくする",
+            description="localStorage や accessToken のような区切りのある技術語を、自然なまとまりで読めるように扱う方針です。",
+            examples=["localStorage -> ローカルストレージ", "accessToken -> アクセストークン"],
+            recommended=False,
+        ),
+        ReadingPattern(
+            id="symbols_and_versions",
+            title="記号・バージョン番号を聞き取りやすくする",
+            description="スラッシュ、ハイフン、バージョン番号などを、聞き取りやすい読みとして扱う方針です。",
+            examples=["v1.2 -> バージョン いち てん に", "A/B -> エー スラッシュ ビー"],
+            recommended=False,
+        ),
+    ],
+    "literature": [
+        ReadingPattern(
+            id="literary_difficult_words",
+            title="難読語や文学語彙に読みを付ける",
+            description="歌詞、詩、小説、古典などで難読語や文学的な語彙を、聞き取りやすい読みとして扱う方針です。",
+            examples=["黄昏 -> たそがれ", "静寂 -> しじま"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="literary_proper_nouns",
+            title="作品名・人物名・地名の固有名詞を読み下す",
+            description="作品世界の固有名詞や作者名などを、一定の読みで扱う方針です。",
+            examples=["芥川龍之介 -> あくたがわ りゅうのすけ", "百人一首 -> ひゃくにんいっしゅ"],
+            recommended=False,
+        ),
+    ],
+    "qualification": [
+        ReadingPattern(
+            id="exam_official_names",
+            title="試験名や制度名を正式名称で読み下す",
+            description="資格試験や制度の正式名称を、省略しすぎず安定した読みとして扱う方針です。",
+            examples=["基本情報技術者試験 -> きほんじょうほうぎじゅつしゃしけん", "日商簿記2級 -> にっしょう ぼき にきゅう"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="exam_abbreviations",
+            title="試験で頻出の略語を読み下す",
+            description="資格分野で繰り返し出る略語や区分表記を、聞き取りやすい読みとして扱う方針です。",
+            examples=["FP -> エフピー", "TOEIC -> トーイック"],
+            recommended=False,
+        ),
+    ],
+    "business": [
+        ReadingPattern(
+            id="business_roles_departments",
+            title="部署名・役職名・社内用語を読み下す",
+            description="部署名、役職名、社内で使う定型語を、聞き取りやすい読みとして扱う方針です。",
+            examples=["経営企画部 -> けいえいきかくぶ", "執行役員 -> しっこうやくいん"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="business_abbreviations",
+            title="ビジネス略語をカタカナで読み下す",
+            description="KPI、ROI、B2B などのビジネス略語を、会議や研修で聞き取りやすい読みとして扱う方針です。",
+            examples=["KPI -> ケーピーアイ", "ROI -> アールオーアイ"],
+            recommended=False,
+        ),
+    ],
+    "language": [
+        ReadingPattern(
+            id="language_kanji_readings",
+            title="漢字語彙や難読語に読みを付ける",
+            description="日本語学習や国語教材で、漢字語彙や難読語を聞き取りやすい読みとして扱う方針です。",
+            examples=["語彙 -> ごい", "敬語 -> けいご"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="language_example_readings",
+            title="学習語彙や例文の読みを安定させる",
+            description="例文に出る学習語彙や表記ゆれしやすい語を、一定の読みとして扱う方針です。",
+            examples=["一昨日 -> おととい", "相槌 -> あいづち"],
+            recommended=False,
+        ),
+    ],
+    "generic": [
+        ReadingPattern(
+            id="generic_numbers_and_symbols",
+            title="数字・記号・区切りを聞き取りやすくする",
+            description="番号、スラッシュ、ハイフンなど、一般テーマでも読みがぶれやすい表記を整理する方針です。",
+            examples=["第3章 -> だいさんしょう", "A/Bテスト -> エー スラッシュ ビー テスト"],
+            recommended=True,
+        ),
+        ReadingPattern(
+            id="generic_proper_names",
+            title="固有名詞の読みを一定にする",
+            description="人名、地名、ブランド名などの固有名詞を一定の読みで扱う方針です。",
+            examples=["御茶ノ水 -> おちゃのみず", "重慶 -> じゅうけい"],
+            recommended=False,
+        ),
+    ],
+}
+
+CATEGORY_KEYWORDS = {
+    "technical": (
+        "git",
+        "github",
+        "npm",
+        "localStorage",
+        ".git",
+        ".env",
+        ".gitignore",
+        "API",
+        "CLI",
+        "JSON",
+        "YAML",
+        "JavaScript",
+        "TypeScript",
+        "Node.js",
+        "Docker",
+        "Kubernetes",
+        "ITパスポート",
+        "基本情報技術者",
+        "応用情報",
+        "プログラミング",
+        "ソフトウェア",
+        "Web開発",
+        "コマンド",
+        "ファイル名",
+        "環境変数",
+        "技術書",
+        "技術",
     ),
-    ReadingPattern(
-        id="dot_notation",
-        title="ドット記法やファイル名を読み下す",
-        description=".git、.env、.gitignore、app.config のようなドットや記号を含む表記を、読み上げで自然に聞こえるように扱う方針です。",
-        examples=[".git -> ドット ギット", ".env -> ドット イーエヌブイ", ".gitignore -> ドット ギットイグノア"],
-        recommended=True,
+    "literature": (
+        "歌詞",
+        "詩",
+        "短歌",
+        "俳句",
+        "文学",
+        "小説",
+        "古文",
+        "現代文",
+        "評論",
+        "随筆",
+        "読解",
+        "作品",
     ),
-    ReadingPattern(
-        id="technical_commands",
-        title="コマンドや技術用語を読み下す",
-        description="git checkout や npm install のようなコマンド・技術用語を、聞き取りやすい読みとして扱う方針です。",
-        examples=["git checkout -> ギット チェックアウト", "npm install -> エヌピーエム インストール"],
-        recommended=False,
+    "qualification": (
+        "資格",
+        "検定",
+        "試験対策",
+        "模擬試験",
+        "過去問",
+        "簿記",
+        "TOEIC",
+        "TOEFL",
+        "英検",
+        "宅建",
+        "社労士",
+        "中小企業診断士",
+        "ITパスポート",
+        "基本情報技術者",
+        "JLPT",
     ),
-    ReadingPattern(
-        id="camel_case_terms",
-        title="キャメルケースや区切り語を読みやすくする",
-        description="localStorage や accessToken のような区切りのある技術語を、自然なまとまりで読めるように扱う方針です。",
-        examples=["localStorage -> ローカルストレージ", "accessToken -> アクセストークン"],
-        recommended=False,
+    "business": (
+        "ビジネス",
+        "経営",
+        "営業",
+        "人事",
+        "採用",
+        "マーケティング",
+        "財務",
+        "経理",
+        "会議",
+        "社内",
+        "マネジメント",
+        "組織",
+        "部署",
+        "役職",
+        "KPI",
+        "ROI",
+        "OKR",
+        "B2B",
     ),
-    ReadingPattern(
-        id="symbols_and_versions",
-        title="記号・バージョン番号を聞き取りやすくする",
-        description="スラッシュ、ハイフン、バージョン番号などを、聞き取りやすい読みとして扱う方針です。",
-        examples=["v1.2 -> バージョン いち てん に", "A/B -> エー スラッシュ ビー"],
-        recommended=False,
+    "language": (
+        "日本語学習",
+        "英語学習",
+        "英会話",
+        "語学",
+        "国語",
+        "漢字",
+        "語彙",
+        "文法",
+        "JLPT",
+        "N1",
+        "N2",
+        "N3",
+        "N4",
+        "N5",
+        "日本語",
+        "英語",
     ),
-]
+    "generic": (
+        "読み方",
+        "音読",
+        "朗読",
+        "ナレーション",
+        "アナウンス",
+        "スピーチ",
+        "発声",
+    ),
+}
+
+CATEGORY_ORDER = ("technical", "literature", "qualification", "business", "language", "generic")
 
 
 def _language_base(language: str | None) -> str:
     return (language or "ja").split("-")[0].lower()
+
+
+def _compile_category_keyword(keyword: str) -> re.Pattern[str]:
+    if keyword.startswith("."):
+        return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(keyword)}(?![A-Za-z0-9_])", re.IGNORECASE)
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-_/ ]*", keyword):
+        escaped = re.escape(keyword).replace(r"\ ", r"\s+")
+        return re.compile(rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])", re.IGNORECASE)
+    return re.compile(re.escape(keyword), re.IGNORECASE)
+
+
+CATEGORY_KEYWORD_PATTERNS = {
+    category: tuple(_compile_category_keyword(keyword) for keyword in keywords)
+    for category, keywords in CATEGORY_KEYWORDS.items()
+}
 
 
 def _is_ja(language: str | None) -> bool:
@@ -416,6 +637,10 @@ def _planner_prompt(request: PlanPackRequest) -> str:
   - commands and technical phrases, e.g. "git checkout -> ギット チェックアウト".
   - camelCase or delimiter-separated terms, e.g. "localStorage -> ローカルストレージ".
 - Prioritize categories that match the theme/source text. Do not force unrelated patterns just to fill the list.
+- Judge genre primarily from theme and customInstructions. Use sourceText only as supporting evidence and never as the sole reason to add a genre-specific reading pattern.
+- Do not infer technical patterns from short general words such as "it", "ai", or "os" when they appear as ordinary words.
+- Do not propose command, file-name, camelCase, dot-notation, or version-number patterns unless the theme or customInstructions clearly indicate technical content.
+- For lyrics, literature, business, qualification, and language-learning themes, keep the proposed patterns inside that genre and avoid unrelated technical patterns.
 - Set recommended=true only when the notation is likely to appear in this theme, target user, source text, document titles, or key points. Set dot notation and command patterns to recommended=false unless dot files, commands, file names, or similar notation actually appear.
 - Examples must use the concrete "source -> reading" format so users can judge the pattern quickly.
 """.rstrip()
@@ -795,15 +1020,36 @@ def _title_quiz_packs(quiz_packs: list[PlanQuizPack], documents: list[PlanDocume
     return titled_quizzes
 
 
+def _fallback_category_context(request: PlanPackRequest) -> str:
+    return "\n".join(part for part in [request.theme, request.customInstructions or ""] if part).strip()
+
+
+def _matches_category_keywords(context: str, category: str) -> bool:
+    if not context:
+        return False
+    return any(pattern.search(context) for pattern in CATEGORY_KEYWORD_PATTERNS[category])
+
+
 def _fallback_reading_patterns(request: PlanPackRequest) -> list[ReadingPattern]:
-    patterns = [pattern.model_copy(deep=True) for pattern in FALLBACK_READING_PATTERNS]
-    theme_text = f"{request.theme} {request.sourceText or ''}".lower()
-    if not any(token in theme_text for token in ["git", "api", "it", "ai", "os", "."]):
-        return patterns[:1]
-    return patterns
+    """theme+customInstructions のカテゴリ判定でfallback候補を返す。"""
+    context = _fallback_category_context(request)
+    if not context:
+        return []
+    matched_patterns: list[ReadingPattern] = []
+    for category in CATEGORY_ORDER:
+        if not _matches_category_keywords(context, category):
+            continue
+        matched_patterns.extend(
+            pattern.model_copy(deep=True)
+            for pattern in FALLBACK_READING_PATTERNS_BY_CATEGORY[category]
+        )
+    if not matched_patterns:
+        return []
+    return _merge_reading_patterns([], matched_patterns, request, max_count=None)
 
 
 def _reading_pattern_signature(pattern: ReadingPattern) -> str:
+    """読み候補の意味的重複をまとめる署名を返す。"""
     text = " ".join([pattern.id, pattern.title, pattern.description, *pattern.examples]).lower()
     if any(token in text for token in [".git", ".env", ".gitignore", "dot notation", "ドット記法", "ドットファイル"]):
         return "dot_notation"
@@ -819,6 +1065,7 @@ def _reading_pattern_signature(pattern: ReadingPattern) -> str:
 
 
 def _reading_pattern_context(request: PlanPackRequest, documents: list[PlanDocument] | None = None) -> str:
+    """recommended 再判定用に theme/targetUser/sourceText/documents を文脈化する。"""
     document_text = ""
     if documents:
         document_text = " ".join(
@@ -829,6 +1076,7 @@ def _reading_pattern_context(request: PlanPackRequest, documents: list[PlanDocum
 
 
 def _recommended_allowed_for_pattern(pattern: ReadingPattern, request: PlanPackRequest, documents: list[PlanDocument] | None = None) -> bool:
+    """文脈に該当表記がなければ recommended を抑制してよいか判定。"""
     signature = _reading_pattern_signature(pattern)
     context = _reading_pattern_context(request, documents)
     if signature == "dot_notation":
@@ -848,8 +1096,9 @@ def _merge_reading_patterns(
     request: PlanPackRequest | None = None,
     documents: list[PlanDocument] | None = None,
     *,
-    max_count: int = MAX_READING_PATTERN_COUNT,
+    max_count: int | None = None,
 ) -> list[ReadingPattern]:
+    """fallback と LLM 候補を重複排除しつつ統合する。"""
     merged: list[ReadingPattern] = []
     seen_ids: set[str] = set()
     seen_titles: set[str] = set()
@@ -865,7 +1114,7 @@ def _merge_reading_patterns(
         seen_ids.add(pattern.id)
         seen_titles.add(title_key)
         seen_signatures.add(signature)
-    return merged[:max_count]
+    return merged[:max_count] if max_count is not None else merged
 
 
 def _apply_recommended_guard(
@@ -873,6 +1122,7 @@ def _apply_recommended_guard(
     request: PlanPackRequest,
     documents: list[PlanDocument] | None = None,
 ) -> list[ReadingPattern]:
+    """候補配列全体に recommended 抑制を適用する。"""
     guarded: list[ReadingPattern] = []
     for pattern in patterns:
         if pattern.recommended and not _recommended_allowed_for_pattern(pattern, request, documents):
@@ -917,7 +1167,7 @@ def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanP
     raw_patterns = data.get("proposedReadingPatterns")
     fallback_patterns = _fallback_reading_patterns(request)
     if not isinstance(raw_patterns, list):
-        return fallback_patterns[:MAX_READING_PATTERN_COUNT]
+        return fallback_patterns
 
     patterns: list[ReadingPattern] = []
     seen_ids: set[str] = set()

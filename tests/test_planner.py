@@ -454,6 +454,8 @@ def test_planner_prompt_names_common_reading_pattern_categories() -> None:
     assert "localStorage -> ローカルストレージ" in prompt
     assert "source and reading must not be identical" in prompt
     assert "Do not use already-natural katakana words as examples" in prompt
+    assert "Judge genre primarily from theme and customInstructions" in prompt
+    assert 'Do not infer technical patterns from short general words such as "it", "ai", or "os"' in prompt
 
 
 def test_fallback_reading_patterns_include_dot_notation_for_git_theme() -> None:
@@ -487,6 +489,92 @@ def test_theme_unrelated_dot_and_command_patterns_are_not_recommended() -> None:
     assert alphabet.recommended is True
     assert dot_pattern.recommended is False
     assert commands.recommended is False
+
+
+def test_non_technical_lyrics_theme_does_not_trigger_technical_fallback_from_it_in_source_text() -> None:
+    request = PlanPackRequest(
+        theme="歌詞教材",
+        targetUser="学習者",
+        scale="quick",
+        sourceText="I need it now.",
+    )
+    patterns = planner._fallback_reading_patterns(request)
+    ids = [pattern.id for pattern in patterns]
+
+    assert "literary_difficult_words" in ids
+    assert "dot_notation" not in ids
+    assert "technical_commands" not in ids
+    assert "camel_case_terms" not in ids
+
+
+def test_english_conversation_theme_does_not_trigger_technical_fallback_from_it_in_source_text() -> None:
+    request = PlanPackRequest(
+        theme="英会話 初級",
+        targetUser="初学者",
+        scale="quick",
+        sourceText="Save it for later.",
+    )
+    patterns = planner._fallback_reading_patterns(request)
+    ids = [pattern.id for pattern in patterns]
+
+    assert "language_kanji_readings" in ids
+    assert "alphabet_abbreviations" not in ids
+    assert "dot_notation" not in ids
+
+
+def test_source_text_alone_does_not_make_lyrics_theme_technical() -> None:
+    request = PlanPackRequest(
+        theme="歌詞教材",
+        targetUser="学習者",
+        scale="quick",
+        customInstructions="韻律を重視する。",
+        sourceText="npm localStorage .git",
+    )
+    patterns = planner._fallback_reading_patterns(request)
+    ids = [pattern.id for pattern in patterns]
+
+    assert "literary_difficult_words" in ids
+    assert "alphabet_abbreviations" not in ids
+    assert "dot_notation" not in ids
+
+
+def test_technical_theme_still_returns_technical_fallback_patterns() -> None:
+    request = PlanPackRequest(
+        theme="ITパスポート試験対策",
+        targetUser="IT初心者の社会人",
+        scale="quick",
+    )
+    patterns = planner._fallback_reading_patterns(request)
+    ids = [pattern.id for pattern in patterns]
+
+    assert "alphabet_abbreviations" in ids
+    assert "dot_notation" in ids
+    assert "exam_official_names" in ids
+
+
+def test_multi_category_theme_merges_language_and_technical_patterns_without_duplicates() -> None:
+    request = PlanPackRequest(
+        theme="英語の技術書",
+        targetUser="読者",
+        scale="quick",
+        customInstructions="API と localStorage の読みを安定させる",
+    )
+    patterns = planner._fallback_reading_patterns(request)
+    ids = [pattern.id for pattern in patterns]
+
+    assert "alphabet_abbreviations" in ids
+    assert "language_kanji_readings" in ids
+    assert len(ids) == len(set(ids))
+
+
+def test_unmatched_theme_returns_no_fallback_reading_patterns() -> None:
+    request = PlanPackRequest(
+        theme="心理学入門",
+        targetUser="初学者",
+        scale="quick",
+    )
+
+    assert planner._fallback_reading_patterns(request) == []
 
 
 def test_gemini_patterns_are_merged_with_dot_notation_fallback_when_missing() -> None:
@@ -535,7 +623,7 @@ def test_gemini_dot_pattern_does_not_duplicate_dot_fallback() -> None:
 
     dot_patterns = [pattern for pattern in patterns if planner._reading_pattern_signature(pattern) == "dot_notation"]
     assert len(dot_patterns) == 1
-    assert len(patterns) <= planner.MAX_READING_PATTERN_COUNT
+    assert len([pattern.id for pattern in patterns]) == len({pattern.id for pattern in patterns})
 
 
 def test_invalid_reading_pattern_examples_are_removed_and_recommended_is_downgraded() -> None:

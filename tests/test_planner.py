@@ -60,7 +60,7 @@ def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch)
     plan = planner.create_course_plan(
         PlanPackRequest(
             theme="APIとGitの基礎",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
         )
     )
@@ -114,7 +114,7 @@ def test_planner_defaults_quiz_choice_language_mode_to_learning_when_learning_la
         )
     )
     without_learning = planner.create_course_plan(
-        PlanPackRequest(theme="Git", targetUser="初学者", scale="quick", generationUnit="quiz")
+        PlanPackRequest(theme="Git", targetUser="社会人", scale="quick", generationUnit="quiz")
     )
 
     assert inferred.quizPacks[0].choiceLanguageMode == "learning"
@@ -180,19 +180,19 @@ def test_planner_keeps_reading_patterns_only_for_llm_mode(monkeypatch) -> None:
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
     llm_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="llm")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="llm")
     )
     auto_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="auto")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="auto")
     )
     rule_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="rule")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="rule")
     )
     multilingual_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", ttsReadingMode="multilingual")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="multilingual")
     )
     none_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="初学者", scale="quick", enableTtsOptimize=False)
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", enableTtsOptimize=False)
     )
 
     assert llm_plan.proposedReadingPatterns
@@ -237,7 +237,7 @@ def test_custom_instructions_are_recorded_and_prompted(monkeypatch) -> None:
 
     request = PlanPackRequest(
         theme="接客英語",
-        targetUser="初学者",
+        targetUser="社会人",
         scale="quick",
         customInstructions="会話例を多めにし、ホテル受付の場面を中心にする。",
     )
@@ -250,7 +250,7 @@ def test_custom_instructions_are_recorded_and_prompted(monkeypatch) -> None:
 
 
 def test_legacy_sequential_structure_policy_falls_back_to_standard() -> None:
-    request = PlanPackRequest(theme="Git", targetUser="初学者", structurePolicy="sequential")
+    request = PlanPackRequest(theme="Git", targetUser="社会人", structurePolicy="sequential")
 
     assert request.structurePolicy == "standard"
 
@@ -262,7 +262,7 @@ def test_listening_planner_uses_default_section_count_range(monkeypatch) -> None
     plan = planner.create_course_plan(
         PlanPackRequest(
             theme="セキュリティ基礎",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
             structurePolicy="listening",
         )
@@ -296,7 +296,7 @@ def test_planner_prompt_removes_42_midpoint_bias_for_section_counts() -> None:
     prompt = planner._planner_prompt(
         PlanPackRequest(
             theme="Git基礎",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
         )
     )
@@ -313,13 +313,13 @@ def test_generation_unit_and_counts_shape_plan(monkeypatch) -> None:
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
     docs_only = planner.create_course_plan(
-        PlanPackRequest(theme="Git", targetUser="初学者", generationUnit="document", docCount=1, quizCount=5)
+        PlanPackRequest(theme="Git", targetUser="社会人", generationUnit="document", docCount=1, quizCount=5)
     )
     quiz_only = planner.create_course_plan(
-        PlanPackRequest(theme="Git", targetUser="初学者", generationUnit="quiz", quizCount=1)
+        PlanPackRequest(theme="Git", targetUser="社会人", generationUnit="quiz", quizCount=1)
     )
     mixed = planner.create_course_plan(
-        PlanPackRequest(theme="Git", targetUser="初学者", generationUnit="pack", docCount=1, quizCount=1)
+        PlanPackRequest(theme="Git", targetUser="社会人", generationUnit="pack", docCount=1, quizCount=1)
     )
 
     assert docs_only.generationUnit == "document"
@@ -405,7 +405,7 @@ def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
     plan = planner.create_course_plan(
         PlanPackRequest(
             theme="Git入門",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
             documentCount=4,
         )
@@ -424,7 +424,7 @@ def test_mock_planner_prefixes_document_and_quiz_titles() -> None:
 
 def test_planner_sets_language_appropriate_course_global_tags() -> None:
     ja_plan = planner.create_course_plan(
-        PlanPackRequest(theme="ITパスポート 経営戦略", targetUser="初学者", scale="quick")
+        PlanPackRequest(theme="ITパスポート 経営戦略", targetUser="社会人", scale="quick")
     )
     en_plan = planner.create_course_plan(
         PlanPackRequest(theme="Security Strategy", targetUser="Learners", scale="quick", language="en")
@@ -440,7 +440,7 @@ def test_planner_prompt_names_common_reading_pattern_categories() -> None:
     prompt = planner._planner_prompt(
         PlanPackRequest(
             theme="Git基礎",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
         )
     )
@@ -461,7 +461,7 @@ def test_planner_prompt_names_common_reading_pattern_categories() -> None:
 def test_fallback_reading_patterns_include_dot_notation_for_git_theme() -> None:
     request = PlanPackRequest(
         theme="Gitと環境変数",
-        targetUser="初学者",
+        targetUser="社会人",
         scale="quick",
         sourceText=".env と .gitignore を扱います。",
     )
@@ -512,7 +512,7 @@ def test_non_technical_lyrics_theme_does_not_trigger_technical_fallback_from_it_
 def test_english_conversation_theme_does_not_trigger_technical_fallback_from_it_in_source_text() -> None:
     request = PlanPackRequest(
         theme="英会話 初級",
-        targetUser="初学者",
+        targetUser="社会人",
         scale="quick",
         sourceText="Save it for later.",
     )
@@ -572,7 +572,7 @@ def test_multi_category_theme_merges_language_and_technical_patterns_without_dup
 def test_unmatched_theme_returns_no_fallback_reading_patterns() -> None:
     request = PlanPackRequest(
         theme="心理学入門",
-        targetUser="初学者",
+        targetUser="社会人",
         scale="quick",
     )
 
@@ -594,7 +594,7 @@ def test_gemini_patterns_are_merged_with_dot_notation_fallback_when_missing() ->
         },
         PlanPackRequest(
             theme="Git入門",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
         ),
     )
@@ -618,7 +618,7 @@ def test_gemini_dot_pattern_does_not_duplicate_dot_fallback() -> None:
         },
         PlanPackRequest(
             theme="Git入門",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
         ),
     )
@@ -647,7 +647,7 @@ def test_invalid_reading_pattern_examples_are_removed_and_recommended_is_downgra
                 }
             ]
         },
-        PlanPackRequest(theme="セキュリティ", targetUser="初学者", scale="quick"),
+        PlanPackRequest(theme="セキュリティ", targetUser="社会人", scale="quick"),
     )
 
     security_pattern = next(pattern for pattern in patterns if pattern.id == "security_terms")
@@ -668,7 +668,7 @@ def test_reading_pattern_without_valid_examples_is_not_recommended() -> None:
                 }
             ]
         },
-        PlanPackRequest(theme="セキュリティ", targetUser="初学者", scale="quick"),
+        PlanPackRequest(theme="セキュリティ", targetUser="社会人", scale="quick"),
     )
 
     kana_pattern = next(pattern for pattern in patterns if pattern.id == "kana_only")
@@ -737,7 +737,7 @@ def test_llm_technical_recommended_is_overridden_to_false_for_non_technical_them
         },
         PlanPackRequest(
             theme="英会話 初級",
-            targetUser="初学者",
+            targetUser="社会人",
             scale="quick",
         ),
     )
@@ -770,3 +770,4 @@ def test_fallback_and_llm_same_signature_share_same_recommended_rule() -> None:
     llm_alphabet = llm_patterns[0]
     assert planner._reading_pattern_signature(fallback_alphabet) == planner._reading_pattern_signature(llm_alphabet)
     assert fallback_alphabet.recommended is llm_alphabet.recommended is True
+

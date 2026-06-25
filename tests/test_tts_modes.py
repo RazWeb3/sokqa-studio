@@ -219,7 +219,7 @@ def test_explicit_tts_reading_mode_overrides_default() -> None:
 def test_legacy_auto_tts_reading_mode_is_normalized_to_llm() -> None:
     plan_request = PlanPackRequest(
         theme="Git入門",
-        targetUser="初学者",
+        targetUser="社会人",
         ttsReadingMode="auto",
     )
     plan = CoursePlan(
@@ -227,7 +227,7 @@ def test_legacy_auto_tts_reading_mode_is_normalized_to_llm() -> None:
         title="Git入門",
         description="Gitを学ぶ",
         language="ja",
-        targetUser="初学者",
+        targetUser="社会人",
         difficulty="beginner",
         documents=[{"id": "doc_01", "title": "Git概要", "goal": "Gitを理解する"}],
         quizPacks=[{"id": "quiz_01", "title": "Git確認", "purpose": "key_concepts", "questionCount": 4}],
@@ -246,7 +246,7 @@ def test_disabled_legacy_tts_fields_normalize_to_none() -> None:
         title="TTSなし",
         description="TTSを作らない",
         language="ja",
-        targetUser="初学者",
+        targetUser="社会人",
         difficulty="beginner",
         documents=[{"id": "doc_01", "title": "概要", "goal": "理解する"}],
         quizPacks=[{"id": "quiz_01", "title": "確認", "purpose": "key_concepts", "questionCount": 4}],
@@ -258,7 +258,7 @@ def test_disabled_legacy_tts_fields_normalize_to_none() -> None:
 
 
 def test_language_codes_are_normalized_and_speech_defaults_are_known() -> None:
-    request = PlanPackRequest(theme="韓国語基礎", targetUser="初学者", language="pt-br")
+    request = PlanPackRequest(theme="韓国語基礎", targetUser="社会人", language="pt-br")
 
     assert request.language == "pt-BR"
     assert default_speech_language_code("ja") == "ja-JP"
@@ -1568,3 +1568,4 @@ def test_none_mode_skips_quiz_tts_generation(monkeypatch) -> None:
     assert report.mode == "none"
     assert report.issues == []
     assert report.llmGeneratedIds == []
+

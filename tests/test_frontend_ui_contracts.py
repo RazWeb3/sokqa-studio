@@ -258,8 +258,13 @@ def test_generation_form_metadata_controls_are_available() -> None:
     html = _html()
 
     assert "[hidden] { display: none !important; }" in html
-    for label in ["初学者", "小学生", "中学生", "高校生", "大学生", "資格学習者", "社会人", "実務担当者", "上級者"]:
+    for label in ["小学生", "中学生", "高校生", "大学生", "資格学習者", "社会人", "実務担当者"]:
         assert f"<option>{label}</option>" in html or f"<option selected>{label}</option>" in html
+    assert '<option selected>社会人</option>' in html
+    assert "<option>初学者</option>" not in html
+    assert "<option selected>初学者</option>" not in html
+    assert "<option>上級者</option>" not in html
+    assert "<option selected>上級者</option>" not in html
     for element_id in [
         "globalTagsMode",
         "manualGlobalTags",

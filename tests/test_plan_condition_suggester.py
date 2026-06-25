@@ -18,7 +18,7 @@ def test_mock_provider_does_not_return_fallback_suggestions(monkeypatch) -> None
         suggester.suggest_conditions(
             PlanSuggestConditionsRequest(
                 theme="ITパスポート",
-                targetUser="初学者",
+                targetUser="社会人",
                 difficulty="beginner",
                 language="ja",
             )
@@ -35,7 +35,7 @@ def test_gemini_response_is_used_without_fallback_completion(monkeypatch) -> Non
                     "id": "plain_examples",
                     "title": "例を短く",
                     "text": "各説明のあとに短い例を入れてください。",
-                    "reason": "初学者が理解しやすいため",
+                    "reason": "社会人が理解しやすいため",
                 }
             ]
         }
@@ -43,7 +43,7 @@ def test_gemini_response_is_used_without_fallback_completion(monkeypatch) -> Non
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
     suggestions = suggester.suggest_conditions(
-        PlanSuggestConditionsRequest(theme="英語学習", targetUser="初学者")
+        PlanSuggestConditionsRequest(theme="英語学習", targetUser="社会人")
     )
 
     assert [item.id for item in suggestions] == ["plain_examples"]
@@ -99,7 +99,7 @@ def test_empty_gemini_response_raises_without_fallback(monkeypatch) -> None:
 
 def test_prompt_excludes_tts_responsibilities() -> None:
     prompt = suggester._suggestion_prompt(
-        PlanSuggestConditionsRequest(theme="ITパスポート", targetUser="初学者")
+        PlanSuggestConditionsRequest(theme="ITパスポート", targetUser="社会人")
     )
 
     assert "教材内容・説明方法・出題方針のみ" in prompt
@@ -112,7 +112,7 @@ def test_prompt_requires_display_language_for_all_suggestion_fields() -> None:
     prompt = suggester._suggestion_prompt(
         PlanSuggestConditionsRequest(
             theme="日本語会話",
-            targetUser="初学者",
+            targetUser="社会人",
             language="id",
             displayLanguage="ja",
         )
@@ -131,7 +131,7 @@ def test_plan_suggest_conditions_endpoint_returns_503_without_gemini(monkeypatch
         "/api/plan-suggest-conditions",
         json={
             "theme": "ITパスポート",
-            "targetUser": "初学者",
+            "targetUser": "社会人",
             "difficulty": "beginner",
             "language": "ja",
             "customInstructions": "",
@@ -151,7 +151,7 @@ def test_plan_suggest_conditions_endpoint_returns_gemini_suggestions(monkeypatch
                 {
                     "id": "plain_terms",
                     "title": "専門用語を減らす",
-                    "text": "初学者向けに専門用語を減らし、必要な場合は短く言い換えてください。",
+                    "text": "社会人向けに専門用語を減らし、必要な場合は短く言い換えてください。",
                     "reason": "学習者が説明を追いやすくするため",
                 }
             ]
@@ -163,7 +163,7 @@ def test_plan_suggest_conditions_endpoint_returns_gemini_suggestions(monkeypatch
         "/api/plan-suggest-conditions",
         json={
             "theme": "ITパスポート",
-            "targetUser": "初学者",
+            "targetUser": "社会人",
             "difficulty": "beginner",
             "language": "ja",
             "customInstructions": "",
@@ -183,7 +183,7 @@ def test_source_material_injects_strict_japanese_notation_suggestion(monkeypatch
                 {
                     "id": "plain_terms",
                     "title": "専門用語を減らす",
-                    "text": "初学者向けに専門用語を減らし、必要な場合は短く言い換えてください。",
+                    "text": "社会人向けに専門用語を減らし、必要な場合は短く言い換えてください。",
                     "reason": "学習者が説明を追いやすくするため",
                 }
             ]

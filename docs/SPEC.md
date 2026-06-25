@@ -48,6 +48,7 @@ Sokqa Studio の基本生成フローは二段階である。
 - metadata
 
 Planner は pack language に基づいて title、description、document titles、quiz labels を生成する。
+`targetUser` は読者属性を表す。`difficulty` は教材レベルを表す。両者を同義に扱わない。
 
 ## テーマ別追加条件提案
 

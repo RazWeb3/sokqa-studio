@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 *.log
 tmp/tts_probe/
+tmp/failed_generations/
 *.mp3
 *.wav
 *.ogg

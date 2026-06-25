@@ -521,3 +521,32 @@ def test_request_get_uses_no_store_cache_policy() -> None:
 
     assert 'async function requestGet(url, { noStore = false } = {})' in html
     assert 'const response = await fetch(url, noStore ? { cache: "no-store" } : {});' in html
+
+
+def test_generated_result_delegates_share_url_and_qr_to_version_modal() -> None:
+    html = _html()
+    start = html.index("function renderGeneratedResult")
+    end = html.index("async function createPlan", start)
+    result_html = html[start:end]
+
+    assert "syncShareLinks" not in html
+    assert "shareManifestUrl" not in html
+    assert "shareImportUrl" not in html
+
+    assert 'id="openShareInfoBtn"' in result_html
+    assert 'id="openShareInfoHint"' in result_html
+    assert 'openVersionInfo({ force: true })' in result_html
+
+    assert 'id="shareUrl"' not in html
+    assert 'id="qrcode"' not in html
+    assert 'new QRCode($("qrcode")' not in html
+
+
+def test_generated_result_share_button_is_enabled_by_global_status() -> None:
+    html = _html()
+    start = html.index("function updateGlobalStatus()")
+    end = html.index("function updateStatusBadges()", start)
+    status_html = html[start:end]
+
+    assert "$(\"openShareInfoBtn\").disabled = true;" in status_html
+    assert "$(\"openShareInfoBtn\").disabled = !selectedPack.manifestUrl;" in status_html

@@ -377,10 +377,27 @@ def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_ba
     assert "position: fixed;" in action_bar_css
     assert "left: max(14px, calc((100vw - 1480px) / 2 + 28px));" in action_bar_css
     assert "body:has(#tab-generate:not([hidden])) .toast { display: none !important; }" in html
+    layout_css = html[html.index(".app {"):html.index(".workflow-label")]
+    assert "body {" in html
+    assert "height: 100%;" in html[html.index("body {"):html.index("button, input, select, textarea {")]
+    assert "overflow: hidden;" in html[html.index("body {"):html.index("button, input, select, textarea {")]
+    assert "display: grid;" in layout_css
+    assert "grid-template-rows: auto minmax(0, 1fr);" in layout_css
     workflow_css = html[html.index(".workflow-shell {"):html.index(".workflow-label")]
-    assert "height: calc(100vh - 178px);" in workflow_css
+    assert "position: static;" in workflow_css
+    assert "height: 100%;" in workflow_css
+    assert "min-height: 0;" in workflow_css
     assert "overflow-x: hidden;" in workflow_css
     assert "overflow-y: auto;" in workflow_css
+    main_css = html[html.index("main {"):html.index(".tab-panel[hidden]")]
+    assert "height: 100%;" in main_css
+    assert "overflow-y: auto;" in main_css
+    assert "scrollbar-gutter: stable;" in main_css
+    responsive_css = html[html.index("@media (max-width: 1060px) {"):html.index("@media (max-width: 760px) {")]
+    assert "body { overflow-y: auto; }" in responsive_css
+    assert ".app { height: auto; min-height: 100vh; padding-bottom: 48px; }" in responsive_css
+    assert ".studio-layout, main { overflow: visible; }" in responsive_css
+    assert "main { height: auto; padding-right: 0; }" in responsive_css
     assert ".workflow-shell { position: static; height: auto; min-height: 0; overflow-y: visible; }" in html
     assert 'id="generateActionBadge"' in html
     assert 'id="generateActionLoader" hidden' in html

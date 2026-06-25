@@ -28,8 +28,14 @@
 
       * { box-sizing: border-box; }
       [hidden] { display: none !important; }
-      html { background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.55; text-size-adjust: 100%; }
-      body { margin: 0; min-width: 320px; background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,0) 320px), var(--bg); }
+      html { height: 100%; background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.55; text-size-adjust: 100%; }
+      body {
+        height: 100%;
+        margin: 0;
+        min-width: 320px;
+        overflow: hidden;
+        background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,0) 320px), var(--bg);
+      }
       button, input, select, textarea { font: inherit; }
       button, a.button {
         min-height: 42px;
@@ -79,7 +85,14 @@
       textarea { min-height: 132px; resize: vertical; }
       summary { cursor: pointer; width: fit-content; }
 
-      .app { max-width: 1480px; margin: 0 auto; padding: 0 clamp(14px, 2vw, 28px) 48px; }
+      .app {
+        max-width: 1480px;
+        height: 100vh;
+        margin: 0 auto;
+        padding: 0 clamp(14px, 2vw, 28px) 14px;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
       .topbar {
         position: relative;
         z-index: 1;
@@ -100,14 +113,15 @@
         display: grid;
         grid-template-columns: 238px minmax(0, 1fr);
         gap: 18px;
-        align-items: start;
+        align-items: stretch;
+        min-height: 0;
         margin-top: 14px;
+        overflow: hidden;
       }
       .workflow-shell {
-        position: sticky;
-        top: 14px;
-        height: calc(100vh - 178px);
-        min-height: 420px;
+        position: static;
+        height: 100%;
+        min-height: 0;
         overflow-x: hidden;
         overflow-y: auto;
         margin: 0;
@@ -158,7 +172,15 @@
       .pack-meta p { margin: 3px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
       .pack-actions { display: grid; grid-template-columns: 1fr; gap: 7px; }
       .pack-actions button { min-height: 36px; padding-inline: 8px; font-size: 12px; }
-      main { display: block; min-width: 0; }
+      main {
+        display: block;
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+      }
       .tab-panel[hidden] { display: none; }
       #tab-generate { padding-bottom: 92px; }
       .grid { display: grid; grid-template-columns: minmax(340px, 410px) minmax(0, 1fr); gap: 20px; align-items: start; }
@@ -388,7 +410,11 @@
       .recording-result { overflow-wrap: anywhere; }
 
       @media (max-width: 1060px) {
+        body { overflow-y: auto; }
+        .app { height: auto; min-height: 100vh; padding-bottom: 48px; }
         .studio-layout { grid-template-columns: 1fr; }
+        .studio-layout, main { overflow: visible; }
+        main { height: auto; padding-right: 0; }
         .workflow-shell { position: static; height: auto; min-height: 0; overflow-y: visible; }
         .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .tab { min-height: 58px; }

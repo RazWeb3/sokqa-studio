@@ -53,7 +53,7 @@ def test_gemini_planned_title_and_description_are_used(monkeypatch) -> None:
     assert plan.proposedReadingPatterns[0].id == "git_dot_files"
 
 
-def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch) -> None:
+def test_mock_planner_returns_no_reading_patterns_without_selected_ids(monkeypatch) -> None:
     settings = planner.get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
@@ -65,9 +65,8 @@ def test_mock_planner_returns_reading_patterns_without_selected_ids(monkeypatch)
         )
     )
 
-    assert plan.proposedReadingPatterns
+    assert plan.proposedReadingPatterns == []
     assert plan.selectedReadingPatternIds == []
-    assert all(pattern.id for pattern in plan.proposedReadingPatterns)
 
 
 def test_planner_infers_learning_language_and_allows_override(monkeypatch) -> None:
@@ -177,27 +176,54 @@ def test_planner_applies_preplan_quiz_choice_language_modes_to_generated_quiz_pa
 
 def test_planner_keeps_reading_patterns_only_for_llm_mode(monkeypatch) -> None:
     settings = planner.get_settings()
-    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fake_gemini_plan_parts(request, model):
+        return (
+            request.theme,
+            "説明",
+            "短題",
+            [
+                PlanDocument(
+                    id="doc_01",
+                    title="導入",
+                    goal="基本を理解する",
+                    keyPoints=["概要", "前提", "確認"],
+                    targetSectionCount=35,
+                )
+            ],
+            [
+                ReadingPattern(
+                    id="api_terms",
+                    title="API表記を読み下す",
+                    description="API表記を自然に読む。",
+                    examples=["API -> エーピーアイ"],
+                    recommended=True,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(planner, "_gemini_plan_parts", fake_gemini_plan_parts)
 
     llm_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="llm")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", documentCount=1, ttsReadingMode="llm")
     )
     auto_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="auto")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", documentCount=1, ttsReadingMode="auto")
     )
     rule_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="rule")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", documentCount=1, ttsReadingMode="rule")
     )
     multilingual_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", ttsReadingMode="multilingual")
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", documentCount=1, ttsReadingMode="multilingual")
     )
     none_plan = planner.create_course_plan(
-        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", enableTtsOptimize=False)
+        PlanPackRequest(theme="APIとGitの基礎", targetUser="社会人", scale="quick", documentCount=1, enableTtsOptimize=False)
     )
 
-    assert llm_plan.proposedReadingPatterns
+    assert [pattern.id for pattern in llm_plan.proposedReadingPatterns] == ["api_terms"]
     assert auto_plan.ttsReadingMode == "llm"
-    assert auto_plan.proposedReadingPatterns
+    assert [pattern.id for pattern in auto_plan.proposedReadingPatterns] == ["api_terms"]
     assert rule_plan.proposedReadingPatterns == []
     assert multilingual_plan.proposedReadingPatterns == []
     assert none_plan.ttsReadingMode == "none"
@@ -458,316 +484,147 @@ def test_planner_prompt_names_common_reading_pattern_categories() -> None:
     assert 'Do not infer technical patterns from short general words such as "it", "ai", or "os"' in prompt
 
 
-def test_fallback_reading_patterns_include_dot_notation_for_git_theme() -> None:
-    request = PlanPackRequest(
-        theme="Gitと環境変数",
-        targetUser="社会人",
-        scale="quick",
-        sourceText=".env と .gitignore を扱います。",
-    )
-    patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
-
-    dot_pattern = next(pattern for pattern in patterns if pattern.id == "dot_notation")
-    alphabet = next(pattern for pattern in patterns if pattern.id == "alphabet_abbreviations")
-    assert alphabet.recommended is True
-    assert dot_pattern.recommended is False
-    assert ".git -> ドット ギット" in dot_pattern.examples
-    assert ".env -> ドット イーエヌブイ" in dot_pattern.examples
-    assert ".gitignore -> ドット ギットイグノア" in dot_pattern.examples
-
-
-def test_theme_unrelated_dot_and_command_patterns_are_not_recommended() -> None:
-    request = PlanPackRequest(
-        theme="ITパスポート試験対策",
-        targetUser="IT初心者の社会人",
-        scale="quick",
-    )
-    patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
-
-    alphabet = next(pattern for pattern in patterns if pattern.id == "alphabet_abbreviations")
-    dot_pattern = next(pattern for pattern in patterns if pattern.id == "dot_notation")
-    commands = next(pattern for pattern in patterns if pattern.id == "technical_commands")
-
-    assert alphabet.recommended is True
-    assert dot_pattern.recommended is False
-    assert commands.recommended is False
-
-
-def test_non_technical_lyrics_theme_does_not_trigger_technical_fallback_from_it_in_source_text() -> None:
-    request = PlanPackRequest(
-        theme="歌詞教材",
-        targetUser="学習者",
-        scale="quick",
-        sourceText="I need it now.",
-    )
-    patterns = planner._fallback_reading_patterns(request)
-    ids = [pattern.id for pattern in patterns]
-
-    assert "literary_difficult_words" in ids
-    assert "dot_notation" not in ids
-    assert "technical_commands" not in ids
-    assert "camel_case_terms" not in ids
-
-
-def test_english_conversation_theme_does_not_trigger_technical_fallback_from_it_in_source_text() -> None:
-    request = PlanPackRequest(
-        theme="英会話 初級",
-        targetUser="社会人",
-        scale="quick",
-        sourceText="Save it for later.",
-    )
-    patterns = planner._fallback_reading_patterns(request)
-    ids = [pattern.id for pattern in patterns]
-
-    assert "language_kanji_readings" in ids
-    assert "alphabet_abbreviations" not in ids
-    assert "dot_notation" not in ids
-
-
-def test_source_text_alone_does_not_make_lyrics_theme_technical() -> None:
-    request = PlanPackRequest(
-        theme="歌詞教材",
-        targetUser="学習者",
-        scale="quick",
-        customInstructions="韻律を重視する。",
-        sourceText="npm localStorage .git",
-    )
-    patterns = planner._fallback_reading_patterns(request)
-    ids = [pattern.id for pattern in patterns]
-
-    assert "literary_difficult_words" in ids
-    assert "alphabet_abbreviations" not in ids
-    assert "dot_notation" not in ids
-
-
-def test_technical_theme_still_returns_technical_fallback_patterns() -> None:
-    request = PlanPackRequest(
-        theme="ITパスポート試験対策",
-        targetUser="IT初心者の社会人",
-        scale="quick",
-    )
-    patterns = planner._fallback_reading_patterns(request)
-    ids = [pattern.id for pattern in patterns]
-
-    assert "alphabet_abbreviations" in ids
-    assert "dot_notation" in ids
-    assert "exam_official_names" in ids
-
-
-def test_multi_category_theme_merges_language_and_technical_patterns_without_duplicates() -> None:
-    request = PlanPackRequest(
-        theme="英語の技術書",
-        targetUser="読者",
-        scale="quick",
-        customInstructions="API と localStorage の読みを安定させる",
-    )
-    patterns = planner._fallback_reading_patterns(request)
-    ids = [pattern.id for pattern in patterns]
-
-    assert "alphabet_abbreviations" in ids
-    assert "language_kanji_readings" in ids
-    assert len(ids) == len(set(ids))
-
-
-def test_unmatched_theme_returns_no_fallback_reading_patterns() -> None:
-    request = PlanPackRequest(
-        theme="心理学入門",
-        targetUser="社会人",
-        scale="quick",
+def test_llm_success_does_not_merge_fallback_noise_for_lyrics_theme() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "lyrics_kanji",
+                    "title": "歌詞内の難読語を読み下す",
+                    "description": "歌詞で出る難読語の読みを安定させます。",
+                    "examples": ["黄昏 -> たそがれ"],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(theme="歌詞教材", targetUser="学習者", scale="quick"),
     )
 
-    assert planner._fallback_reading_patterns(request) == []
+    assert [pattern.id for pattern in patterns] == ["lyrics_kanji"]
+    assert all(pattern.id not in {"dot_notation", "technical_commands", "camel_case_terms"} for pattern in patterns)
+    assert all(
+        ".git" not in example and "npm install" not in example and "localStorage" not in example
+        for pattern in patterns
+        for example in pattern.examples
+    )
 
 
-def test_gemini_patterns_are_merged_with_dot_notation_fallback_when_missing() -> None:
+def test_it_passport_theme_does_not_add_technical_noise_when_llm_returns_exam_patterns() -> None:
+    patterns = planner._reading_patterns_from_planner_response(
+        {
+            "proposedReadingPatterns": [
+                {
+                    "id": "exam_terms",
+                    "title": "試験名と略語を読み下す",
+                    "description": "ITパスポート教材で頻出の試験名と略語を読みます。",
+                    "examples": ["ITパスポート -> アイティーパスポート", "CBT -> シービーティー"],
+                    "recommended": True,
+                }
+            ]
+        },
+        PlanPackRequest(theme="ITパスポート", targetUser="社会人", scale="quick"),
+    )
+
+    assert [pattern.id for pattern in patterns] == ["exam_terms"]
+    assert all(pattern.id not in {"dot_notation", "technical_commands", "camel_case_terms"} for pattern in patterns)
+    assert all(
+        ".git" not in example and "npm install" not in example and "localStorage" not in example and "v1.2" not in example
+        for pattern in patterns
+        for example in pattern.examples
+    )
+
+
+def test_missing_or_empty_proposed_reading_patterns_returns_empty_list() -> None:
+    request = PlanPackRequest(theme="ITパスポート", targetUser="社会人", scale="quick")
+
+    assert planner._reading_patterns_from_planner_response({}, request) == []
+    assert planner._reading_patterns_from_planner_response({"proposedReadingPatterns": []}, request) == []
+
+
+def test_llm_failure_returns_empty_reading_patterns_while_documents_fallback(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fail_gemini_plan_parts(request, model):
+        raise RuntimeError("planner failure")
+
+    monkeypatch.setattr(planner, "_gemini_plan_parts", fail_gemini_plan_parts)
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="ITパスポート",
+            targetUser="社会人",
+            scale="quick",
+            documentCount=1,
+        )
+    )
+
+    assert plan.proposedReadingPatterns == []
+    assert len(plan.documents) == 1
+    assert plan.documents[0].title == "ITパスポート 1. ITパスポートの重要領域 1"
+
+
+def test_recommended_value_from_llm_is_preserved() -> None:
     patterns = planner._reading_patterns_from_planner_response(
         {
             "proposedReadingPatterns": [
                 {
                     "id": "api_reading",
                     "title": "APIをアルファベット読みする",
-                    "description": "APIやURLをアルファベット読みで扱います。",
+                    "description": "APIの読みを安定させます。",
                     "examples": ["API -> エーピーアイ"],
                     "recommended": True,
                 }
             ]
         },
-        PlanPackRequest(
-            theme="Git入門",
-            targetUser="社会人",
-            scale="quick",
-        ),
+        PlanPackRequest(theme="英会話 初級", targetUser="社会人", scale="quick"),
     )
 
-    assert any(pattern.id == "dot_notation" for pattern in patterns)
-    assert any(".gitignore -> ドット ギットイグノア" in pattern.examples for pattern in patterns)
+    assert patterns[0].id == "api_reading"
+    assert patterns[0].recommended is True
 
 
-def test_gemini_dot_pattern_does_not_duplicate_dot_fallback() -> None:
+def test_examples_validation_filters_invalid_entries_and_keeps_valid_patterns() -> None:
     patterns = planner._reading_patterns_from_planner_response(
         {
             "proposedReadingPatterns": [
                 {
-                    "id": "git_dot_files",
-                    "title": "Gitのドットファイルを読み下す",
-                    "description": ".gitignore などのドットファイルを読みます。",
-                    "examples": [".gitignore -> ドット ギットイグノア"],
-                    "recommended": True,
-                }
-            ]
-        },
-        PlanPackRequest(
-            theme="Git入門",
-            targetUser="社会人",
-            scale="quick",
-        ),
-    )
-
-    dot_patterns = [pattern for pattern in patterns if planner._reading_pattern_signature(pattern) == "dot_notation"]
-    assert len(dot_patterns) == 1
-    assert len([pattern.id for pattern in patterns]) == len({pattern.id for pattern in patterns})
-
-
-def test_invalid_reading_pattern_examples_are_removed_and_recommended_is_downgraded() -> None:
-    patterns = planner._reading_patterns_from_planner_response(
-        {
-            "proposedReadingPatterns": [
-                {
-                    "id": "security_terms",
-                    "title": "IT用語の自然な読み上げ",
-                    "description": "専門用語を自然に読みます。",
+                    "id": "invalid_examples",
+                    "title": "不正例だけの候補",
+                    "description": "examples がすべて不正です。",
                     "examples": [
                         "フィッシング -> フィッシング",
-                        "マルウェア -> マルウェア",
-                        "サブネットマスク -> サブネットマスク制",
                         "broken example",
-                        "有線LAN -> ゆうせんラン",
+                        " -> よみ",
                     ],
                     "recommended": True,
-                }
-            ]
-        },
-        PlanPackRequest(theme="セキュリティ", targetUser="社会人", scale="quick"),
-    )
-
-    security_pattern = next(pattern for pattern in patterns if pattern.id == "security_terms")
-    assert security_pattern.examples == ["有線LAN -> ゆうせんラン"]
-    assert security_pattern.recommended is False
-
-
-def test_reading_pattern_without_valid_examples_is_not_recommended() -> None:
-    patterns = planner._reading_patterns_from_planner_response(
-        {
-            "proposedReadingPatterns": [
+                },
                 {
-                    "id": "kana_only",
-                    "title": "カタカナ語",
-                    "description": "すでにカタカナの語を読みます。",
-                    "examples": ["フィッシング -> フィッシング", "マルウェア -> マルウェア", "not an arrow"],
+                    "id": "valid_examples",
+                    "title": "有効な候補",
+                    "description": "有効な examples を持つ候補です。",
+                    "examples": [
+                        "有線LAN -> ゆうせんラン",
+                        "A/B -> エー ビー",
+                    ],
                     "recommended": True,
-                }
-            ]
-        },
-        PlanPackRequest(theme="セキュリティ", targetUser="社会人", scale="quick"),
-    )
-
-    kana_pattern = next(pattern for pattern in patterns if pattern.id == "kana_only")
-    assert kana_pattern.examples == []
-    assert kana_pattern.recommended is False
-
-
-def test_non_technical_theme_does_not_make_technical_candidates_recommended_from_source_text() -> None:
-    request = PlanPackRequest(
-        theme="歌詞教材",
-        targetUser="学習者",
-        scale="quick",
-        sourceText="API と Git を歌詞に含む。",
-    )
-
-    fallback_patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
-    merged_patterns = planner._reading_patterns_from_planner_response(
-        {
-            "proposedReadingPatterns": [
+                },
                 {
-                    "id": "api_reading",
-                    "title": "APIをアルファベット読みする",
-                    "description": "APIやURLをアルファベット読みで扱います。",
+                    "id": "missing_description",
+                    "title": "説明欠落",
                     "examples": ["API -> エーピーアイ"],
                     "recommended": True,
-                }
+                },
             ]
         },
-        request,
+        PlanPackRequest(theme="ネットワーク基礎", targetUser="社会人", scale="quick"),
     )
 
-    assert all(pattern.id not in {"alphabet_abbreviations", "dot_notation"} for pattern in fallback_patterns)
-    api_pattern = next(pattern for pattern in merged_patterns if pattern.id == "api_reading")
-    assert api_pattern.recommended is False
-
-
-def test_technical_theme_uses_fixed_recommended_rules() -> None:
-    request = PlanPackRequest(
-        theme="ITパスポート試験対策",
-        targetUser="IT初心者の社会人",
-        scale="quick",
-        sourceText="本文に技術語がなくてもよい。",
-    )
-    patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
-
-    recommended_by_id = {pattern.id: pattern.recommended for pattern in patterns}
-    assert recommended_by_id["alphabet_abbreviations"] is True
-    assert recommended_by_id["dot_notation"] is False
-    assert recommended_by_id["technical_commands"] is False
-    assert recommended_by_id["camel_case_terms"] is False
-    assert recommended_by_id["symbols_and_versions"] is False
-
-
-def test_llm_technical_recommended_is_overridden_to_false_for_non_technical_theme() -> None:
-    patterns = planner._reading_patterns_from_planner_response(
-        {
-            "proposedReadingPatterns": [
-                {
-                    "id": "api_reading",
-                    "title": "APIをアルファベット読みする",
-                    "description": "APIやURLをアルファベット読みで扱います。",
-                    "examples": ["API -> エーピーアイ"],
-                    "recommended": True,
-                }
-            ]
-        },
-        PlanPackRequest(
-            theme="英会話 初級",
-            targetUser="社会人",
-            scale="quick",
-        ),
-    )
-
-    api_pattern = next(pattern for pattern in patterns if pattern.id == "api_reading")
-    assert api_pattern.recommended is False
-
-
-def test_fallback_and_llm_same_signature_share_same_recommended_rule() -> None:
-    request = PlanPackRequest(
-        theme="ITパスポート試験対策",
-        targetUser="IT初心者の社会人",
-        scale="quick",
-    )
-    fallback_patterns = planner._apply_recommended_guard(planner._fallback_reading_patterns(request), request)
-    llm_patterns = planner._apply_recommended_guard(
-        [
-            ReadingPattern(
-                id="api_reading",
-                title="APIをアルファベット読みする",
-                description="APIやURLをアルファベット読みで扱います。",
-                examples=["API -> エーピーアイ"],
-                recommended=False,
-            )
-        ],
-        request,
-    )
-
-    fallback_alphabet = next(pattern for pattern in fallback_patterns if pattern.id == "alphabet_abbreviations")
-    llm_alphabet = llm_patterns[0]
-    assert planner._reading_pattern_signature(fallback_alphabet) == planner._reading_pattern_signature(llm_alphabet)
-    assert fallback_alphabet.recommended is llm_alphabet.recommended is True
+    assert [pattern.id for pattern in patterns] == ["invalid_examples", "valid_examples"]
+    invalid_pattern = patterns[0]
+    valid_pattern = patterns[1]
+    assert invalid_pattern.examples == []
+    assert invalid_pattern.recommended is False
+    assert valid_pattern.examples == ["有線LAN -> ゆうせんラン", "A/B -> エー ビー"]
+    assert valid_pattern.recommended is True
 

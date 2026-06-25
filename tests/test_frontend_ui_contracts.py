@@ -142,7 +142,7 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert "select.disabled = !active;" in html
     assert 'select.title = active ? "" : "「言語を選ぶ」を選んだ時だけ有効です。";' in html
     assert "syncTtsLanguageControls();" in html
-    assert '<button id="planBtn" type="button">プランを作成</button>' in html
+    assert '<button class="generate-primary" id="planBtn" type="button">プランを作成</button>' in html
     assert 'data-quiz-choice-language-mode' in html
     assert "パック言語" in html
     assert "学習言語" in html
@@ -346,7 +346,7 @@ def test_generate_flow_exposes_auto_quality_fix_opt_in_and_defaults_off() -> Non
     assert "生成後に自動品質チェック・修正提案を行う" in html
     assert "時間がかかります。修正は選択後に適用します。" in html
     assert html.index('id="customInstructions"') < html.index('id="suggestConditionsStandaloneBtn"') < html.index('id="planBtn"')
-    assert html.index('id="autoQualityFixAfterGenerate"') < html.index('id="planBtn"') < html.index('id="generateBtn"')
+    assert html.index('id="planBtn"') < html.index('id="autoQualityFixAfterGenerate"') < html.index('id="generateBtn"')
     assert html.index('id="ttsReadingMode"') < html.index('id="autoQualityFixAfterGenerate"')
     assert 'id="generateBtn" type="button" hidden disabled' in html
     assert '$("generateBtn").hidden = !hasPlan;' in html
@@ -376,6 +376,8 @@ def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_ba
     action_bar_css = html[html.index(".generate-action-bar {"):html.index(".generate-action-bar .actions")]
     assert "position: fixed;" in action_bar_css
     assert "left: max(14px, calc((100vw - 1480px) / 2 + 28px));" in action_bar_css
+    assert "grid-template-columns: 300px 220px 320px 188px;" in action_bar_css
+    assert "justify-content: space-between;" in action_bar_css
     assert "body:has(#tab-generate:not([hidden])) .toast { display: none !important; }" in html
     layout_css = html[html.index(".app {"):html.index(".workflow-label")]
     assert "body {" in html
@@ -401,11 +403,20 @@ def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_ba
     assert ".workflow-shell { position: static; height: auto; min-height: 0; overflow-y: visible; }" in html
     assert 'id="generateActionBadge"' in html
     assert 'id="generateActionLoader" hidden' in html
+    assert 'class="actions generate-plan-slot"' in html
+    assert 'class="actions generate-run-slot"' in html
+    option_css = html[html.index(".generate-action-option {"):html.index(".generate-action-option .hint { justify-self: start; max-width: 38ch; }")]
+    assert "width: min(100%, 280px);" in option_css
+    assert "justify-self: end;" in option_css
+    assert "text-align: left;" in option_css
+    assert "justify-content: flex-start;" in html[html.index(".generate-action-option .checkline {"):html.index(".generate-action-option .hint { justify-self: start; max-width: 38ch; }")]
     assert 'generationActionState = "planning";' in html
     assert 'generationActionState = "generating";' in html
     assert 'generationActionState = "quality";' in html
     assert 'generationActionState = "complete";' in html
     assert '$("planBtn").textContent = hasPlan ? "プランを再作成" : "プランを作成";' in html
+    assert '$("planBtn").classList.toggle("secondary", hasPlan);' in html
+    assert '$("planBtn").classList.toggle("generate-primary", !hasPlan);' in html
 
 
 def test_generate_flow_runs_batch_quality_after_success_when_enabled() -> None:

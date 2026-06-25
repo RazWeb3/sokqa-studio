@@ -228,8 +228,9 @@
         bottom: 12px;
         z-index: 50;
         display: grid;
-        grid-template-columns: minmax(190px, .8fr) minmax(330px, 1.2fr) minmax(270px, .9fr);
-        gap: 14px;
+        grid-template-columns: 300px 220px 320px 188px;
+        gap: 12px 16px;
+        justify-content: space-between;
         align-items: center;
         padding: 11px 14px;
         border: 1px solid color-mix(in oklch, var(--accent) 18%, var(--border));
@@ -238,18 +239,34 @@
         box-shadow: 0 14px 34px rgba(15,23,42,.12);
         backdrop-filter: blur(16px);
       }
-      .generate-action-bar .actions { display: flex; justify-content: flex-end; flex-wrap: nowrap; }
+      .generate-action-bar .actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; min-width: 0; }
       .generate-action-bar button { width: 100%; }
-      .generate-action-bar #planBtn { background: var(--surface); color: var(--fg); border-color: var(--border); }
+      .generate-plan-slot { justify-self: start; width: min(100%, 220px); }
+      .generate-run-slot { justify-self: end; width: min(100%, 188px); }
+      .generate-plan-slot #planBtn,
+      .generate-run-slot #generateBtn { min-height: 48px; font-size: 16px; }
       .generate-action-state { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; align-items: center; min-width: 0; }
       .generate-action-state .badge { grid-row: 1 / span 2; }
       .generate-action-state strong { font-size: 14px; }
       .generate-action-state .generate-action-status { overflow-wrap: anywhere; }
       .generate-action-loader { grid-column: 1 / -1; margin-top: 4px; }
-      .generate-action-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-      .generate-action-buttons.single { grid-template-columns: 1fr; }
-      .generate-action-option { display: grid; gap: 3px; min-width: 0; }
-      .generate-action-option .checkline { align-items: center; }
+      .generate-action-option {
+        display: grid;
+        gap: 3px;
+        width: min(100%, 280px);
+        min-width: 0;
+        justify-self: end;
+        align-items: start;
+        text-align: left;
+      }
+      .generate-action-option .checkline {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 9px;
+        text-align: left;
+      }
+      .generate-action-option .hint { justify-self: start; max-width: 38ch; }
       .generate-action-option .hint, .generate-action-status { margin: 0; }
       .generate-action-status:empty { display: none; }
       .generate-primary { min-height: 48px; font-size: 16px; }
@@ -423,14 +440,18 @@
         .pack-main { display: flex; }
         .pack-actions { grid-template-columns: repeat(3, auto); }
         .grid, .record, .quality-board { grid-template-columns: 1fr; }
-        .generate-action-bar { left: 14px; right: 14px; grid-template-columns: minmax(170px, .8fr) minmax(280px, 1.2fr) minmax(240px, .9fr); }
+        .generate-action-bar {
+          left: 14px;
+          right: 14px;
+          grid-template-columns: 260px 190px 260px 168px;
+        }
         .quality-controls { max-height: none; overflow: visible; padding-right: 0; }
         .quality-results { max-height: none; overflow: visible; }
         .record-operations { position: static; max-height: none; overflow: visible; padding-right: 0; }
         .record-units .panel-body { padding-right: 18px; }
       }
       @media (max-width: 760px) {
-        .topbar-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid, .generate-action-bar { grid-template-columns: 1fr; }
+        .topbar-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid { grid-template-columns: 1fr; }
         .brand p { display: none; }
         .top-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; width: 100%; }
         .top-actions label { grid-template-columns: 1fr; width: auto; gap: 3px; }
@@ -458,18 +479,27 @@
           left: 8px;
           right: 8px;
           bottom: 8px;
-          grid-template-columns: minmax(0, 1fr) minmax(122px, auto);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
           padding: 9px;
         }
-        .generate-action-bar .actions { display: grid; grid-column: 2; grid-row: 1; }
-        .generate-action-option { grid-column: 1 / -1; grid-row: 2; }
+        .generate-action-state { grid-column: 1 / -1; grid-template-columns: 1fr; }
+        .generate-action-bar .actions { display: grid; }
+        .generate-plan-slot, .generate-run-slot { width: 100%; justify-self: stretch; }
+        .generate-plan-slot { grid-column: 1; grid-row: 3; }
+        .generate-run-slot { grid-column: 2; grid-row: 3; }
+        .generate-action-option {
+          grid-column: 1 / -1;
+          grid-row: 2;
+          justify-self: stretch;
+          align-items: start;
+          text-align: left;
+        }
+        .generate-action-option .checkline { justify-content: flex-start; text-align: left; }
+        .generate-action-option .hint { justify-self: start; max-width: none; }
         .generate-action-option .hint { display: none; }
-        .generate-action-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .generate-action-buttons.single { grid-template-columns: 1fr; }
         .generate-action-state .generate-action-status { font-size: 11px; }
         .generate-action-state .badge { display: none; }
-        .generate-action-state { grid-template-columns: 1fr; }
         .generate-action-state strong { font-size: 13px; }
         .pack-option { grid-template-columns: 1fr; }
         .pack-option-title, .pack-option-detail { white-space: normal; }
@@ -710,12 +740,14 @@
               <p id="status" class="muted generate-action-status"></p>
               <div class="bar generate-action-loader" id="generateActionLoader" hidden><span></span></div>
             </div>
+            <div class="actions generate-plan-slot">
+              <button class="generate-primary" id="planBtn" type="button">プランを作成</button>
+            </div>
             <div class="generate-action-option" id="generateQualityOption" hidden>
               <label class="checkline"><input id="autoQualityFixAfterGenerate" type="checkbox" /> 生成後に自動品質チェック・修正提案を行う</label>
               <p class="hint">時間がかかります。修正は選択後に適用します。</p>
             </div>
-            <div class="actions generate-action-buttons single" id="generateActionButtons">
-              <button id="planBtn" type="button">プランを作成</button>
+            <div class="actions generate-run-slot">
               <button class="generate-primary" id="generateBtn" type="button" hidden disabled>生成</button>
             </div>
           </div>
@@ -1046,9 +1078,10 @@
         $("generateActionTitle").textContent = title;
         $("generateActionLoader").hidden = !active;
         $("planBtn").textContent = hasPlan ? "プランを再作成" : "プランを作成";
+        $("planBtn").classList.toggle("secondary", hasPlan);
+        $("planBtn").classList.toggle("generate-primary", !hasPlan);
         $("generateBtn").hidden = !hasPlan;
         $("generateQualityOption").hidden = !hasPlan;
-        $("generateActionButtons").classList.toggle("single", !hasPlan);
       }
 
       function normalizeRule(rule) {

@@ -378,7 +378,7 @@ def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_ba
     assert "left: max(14px, calc((100vw - 1480px) / 2 + 28px));" in action_bar_css
     assert "grid-template-columns: 300px 220px 320px 188px;" in action_bar_css
     assert "justify-content: space-between;" in action_bar_css
-    assert "body:has(#tab-generate:not([hidden])) .toast { display: none !important; }" in html
+    assert 'id="progressToast"' not in html
     layout_css = html[html.index(".app {"):html.index(".workflow-label")]
     assert "body {" in html
     assert "height: 100%;" in html[html.index("body {"):html.index("button, input, select, textarea {")]
@@ -417,6 +417,51 @@ def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_ba
     assert '$("planBtn").textContent = hasPlan ? "プランを再作成" : "プランを作成";' in html
     assert '$("planBtn").classList.toggle("secondary", hasPlan);' in html
     assert '$("planBtn").classList.toggle("generate-primary", !hasPlan);' in html
+
+
+def test_quality_screen_uses_text_and_reading_correction_tabs() -> None:
+    html = _html()
+
+    assert 'id="qualityTextTab"' in html
+    assert 'id="qualityTtsTab"' in html
+    assert 'data-quality-view="text"' in html
+    assert 'data-quality-view="tts"' in html
+    assert "テキスト品質" in html
+    assert "読み補正品質" in html
+    assert 'id="qualityPanelTitle"' in html
+    assert 'id="qualityPanelHint"' in html
+    assert 'id="qualityPanelBadge" hidden' in html
+    assert 'class="quality-action-bar"' in html
+    assert 'id="qualityActionBadge"' in html
+    assert 'id="qualityActionTitle"' in html
+    assert 'id="qualityActionText"' in html
+    assert 'id="qualityTextButtons"' in html
+    assert 'id="qualityTtsButtons"' in html
+    assert 'id="qualityTtsLockedButtons"' in html
+    assert '<button id="skipTextWorkflowBtn" type="button">テキスト工程をスキップ</button>' in html
+    assert "function setQualityResultPane(mode)" in html
+    assert 'activeQualityView = mode === "tts" ? "tts" : "text";' in html
+    assert 'button.setAttribute("aria-selected", String(button.dataset.qualityView === activeQualityView));' in html
+    assert '$("qualityPanelTitle").textContent = activeQualityView === "text" ? "テキスト品質チェック・修正" : "読み補正品質チェック・修正";' in html
+    assert '$("qualityPanelBadge").hidden = activeQualityView !== "tts";' in html
+    assert "function updateQualityActionBar()" in html
+    assert 'setActionButtonTone("textCheckBtn",' in html
+    assert 'setActionButtonTone("textFixBtn",' in html
+    assert 'setActionButtonTone("applyTextFixBtn",' in html
+    assert 'setActionButtonTone("saveTextFixBtn",' in html
+    assert 'setActionButtonTone("skipTextWorkflowBtn", true);' in html
+    assert 'setActionButtonTone("ttsCheckBtn",' in html
+    assert 'setActionButtonTone("ttsFixBtn",' in html
+    assert 'setActionButtonTone("saveTtsFixBtn",' in html
+    assert 'setQualityResultPane("text");' in html
+    assert 'setQualityResultPane("tts");' in html
+    assert '$$("[data-quality-view]").forEach((tab) => tab.addEventListener("click", () => setQualityResultPane(tab.dataset.qualityView)));' in html
+    assert "読み補正の品質チェックは未実行です。" in html
+    assert "補正実行" in html
+    assert "保存" in html
+    mobile_css = html[html.index("@media (max-width: 760px) {"):html.index(".pack-option {", html.index("@media (max-width: 760px) {"))]
+    assert ".quality-view-tab { min-width: 0; width: calc(100% / 2); }" in mobile_css
+    assert ".quality-action-bar {" in mobile_css
 
 
 def test_generate_flow_runs_batch_quality_after_success_when_enabled() -> None:

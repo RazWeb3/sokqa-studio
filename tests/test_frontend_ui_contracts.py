@@ -71,6 +71,7 @@ def test_tts_payload_uses_single_mode_field() -> None:
 
 def test_recording_ui_sends_one_record_request_without_client_chunking() -> None:
     html = _html()
+    record_units_html = html[html.index("function renderUnits() {"):html.index("function selectedUnits() {")]
 
     assert "RECORDING_CHUNK_SIZE" not in html
     assert "function chunkUnitIds" not in html
@@ -78,6 +79,70 @@ def test_recording_ui_sends_one_record_request_without_client_chunking() -> None
     assert 'requestJson("/tts/record", {' in html
     assert "unitIds," in html
     assert "件をサーバーで録音しています" in html
+    assert "--fixed-action-state-width: 320px;" in html
+    assert 'id="recordViewRecordTab"' in html
+    assert 'id="recordViewPlaybackTab"' in html
+    assert 'id="recordViewDeleteTab"' in html
+    assert '<label>録音するテキスト<select id="recordingTextSource"><option value="raw">生テキスト</option><option value="corrected">補正テキスト</option></select></label>' in html
+    assert 'id="recordActionBadge"' in html
+    assert 'id="recordActionTitle"' in html
+    assert 'id="recordActionText"' in html
+    assert 'function setRecordView(mode)' in html
+    assert 'activeRecordView = ["record", "play", "delete"].includes(mode) ? mode : "record";' in html
+    assert '$("recordRecordControls").classList.toggle("active", activeRecordView === "record");' in html
+    assert '$("recordPlaybackControls").classList.toggle("active", activeRecordView === "play");' in html
+    assert '$("recordDeleteButtons").classList.toggle("active", activeRecordView === "delete");' in html
+    assert 'id="playbackRateSelect"' in html
+    assert '<button class="danger-btn" id="resetSelectedRecordingBtn" type="button">選択した録音を削除</button>' in html
+    assert '<button class="danger-btn" id="resetAllRecordingBtn" type="button">すべての録音を削除</button>' in html
+    assert 'id="selectRecordedPlaybackBtn"' in html
+    assert 'id="selectRecordedDeleteBtn"' in html
+    assert '<button id="playSelectedBtn" type="button">連続再生</button>' in html
+    assert '<button class="secondary" id="prevTrackBtn" type="button">前</button><button id="playSelectedBtn" type="button">連続再生</button><button class="secondary" id="nextTrackBtn" type="button">次</button>' in html
+    assert 'id="playAllBtn"' not in html
+    assert 'id="pauseTrackBtn"' not in html
+    assert 'id="nowPlaying"' not in html
+    assert ".record-action-bar {" in html
+    assert "grid-template-columns: var(--fixed-action-state-width) minmax(250px, 300px) minmax(0, 1fr);" in html
+    assert ".record-action-controls.active { display: flex; align-items: center; min-width: 0; }" in html
+    assert ".record-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; width: 100%; }" in html
+    assert ".record-playback-grid .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }" in html
+    assert ".record-playback-grid audio { display: none; }" in html
+    assert ".record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; min-width: 0; }" in html
+    assert ".record-delete-buttons { width: 100%; margin-left: auto; justify-content: flex-end; gap: 6px; }" in html
+    assert ".unit-status-badge { padding: 6px 10px; font-size: 13px; font-weight: 700; }" in html
+    assert 'const allowPlayButton = activeRecordView === "play";' in record_units_html
+    assert 'const recorded = unit.isRecorded ? `<span class="badge success unit-status-badge">録音済み</span>` : `<span class="badge warn unit-status-badge">未録音</span>`;' in record_units_html
+    assert '<small><span class="badge">${escapeHtml(sourceBadge(unit))}</span> ${Number(unit.charCount || 0).toLocaleString("ja-JP")}字</small>' in record_units_html
+    assert '<span class="unit-actions">${recorded}${playButton}</span>' in record_units_html
+    assert '<small>${escapeHtml(String(unit.text || ""))}</small>' in record_units_html
+    assert 'target="_blank" rel="noreferrer"' not in record_units_html
+    assert '$("playSelectedBtn").textContent = currentPlayingUnitId && !isPlaybackPaused ? "一時停止" : "連続再生";' in html
+    assert 'playQueue(selectedUnits().length ? selectedUnits() : unitsForActiveRecordView());' in html
+    assert 'playQueueItems = unitsForActiveRecordView();' in html
+    assert "forceRecordSelectedBtn" not in html
+    assert "loadPacksBtn" not in html
+    assert "record-inline-player" not in html
+
+
+def test_pack_modal_places_import_next_to_refresh() -> None:
+    html = _html()
+
+    start = html.index('<div class="modal" id="packModal"')
+    end = html.index('<div class="modal" id="versionModal"', start)
+    modal_html = html[start:end]
+
+    assert '<button id="refreshPacksBtn" type="button">一覧更新</button><button class="secondary" id="importPackBtn" type="button">インポート</button>' in modal_html
+    assert 'class="pack-import-fields" id="packImportFields"' in modal_html
+    assert 'id="importFiles"' in modal_html
+    assert 'id="importTitle"' in modal_html
+    assert 'id="importContentId"' in modal_html
+    assert 'id="importSlug"' in modal_html
+    assert 'id="importPackSubmitBtn"' in modal_html
+    assert 'id="importStatus"' in modal_html
+    assert 'function togglePackImportFields(force = null)' in html
+    assert '$("packImportFields").classList.toggle("active", next);' in html
+    assert '$("importPackBtn").textContent = next ? "インポートを閉じる" : "インポート";' in html
 
 
 def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
@@ -376,7 +441,7 @@ def test_generate_screen_uses_settings_review_result_tabs_and_stateful_action_ba
     action_bar_css = html[html.index(".generate-action-bar {"):html.index(".generate-action-bar .actions")]
     assert "position: fixed;" in action_bar_css
     assert "left: max(14px, calc((100vw - 1480px) / 2 + 28px));" in action_bar_css
-    assert "grid-template-columns: 300px 220px 320px 188px;" in action_bar_css
+    assert "grid-template-columns: var(--fixed-action-state-width) 220px 320px 188px;" in action_bar_css
     assert "justify-content: space-between;" in action_bar_css
     assert 'id="progressToast"' not in html
     layout_css = html[html.index(".app {"):html.index(".workflow-label")]
@@ -435,6 +500,7 @@ def test_quality_screen_uses_text_and_reading_correction_tabs() -> None:
     assert 'id="qualityActionBadge"' in html
     assert 'id="qualityActionTitle"' in html
     assert 'id="qualityActionText"' in html
+    assert "grid-template-columns: var(--fixed-action-state-width) minmax(0, 1fr);" in html[html.index(".quality-action-bar {"):html.index(".quality-action-state {")]
     assert 'id="qualityTextButtons"' in html
     assert 'id="qualityTtsButtons"' in html
     assert 'id="qualityTtsLockedButtons"' in html

@@ -24,6 +24,7 @@
         --display: "Avenir Next", "Hiragino Sans", "Yu Gothic UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
         --body: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Segoe UI", system-ui, sans-serif;
         --mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
+        --fixed-action-state-width: 320px;
       }
 
       * { box-sizing: border-box; }
@@ -228,7 +229,7 @@
         bottom: 12px;
         z-index: 50;
         display: grid;
-        grid-template-columns: 300px 220px 320px 188px;
+        grid-template-columns: var(--fixed-action-state-width) 220px 320px 188px;
         gap: 12px 16px;
         justify-content: space-between;
         align-items: center;
@@ -362,7 +363,7 @@
         bottom: 12px;
         z-index: 50;
         display: grid;
-        grid-template-columns: 320px minmax(0, 1fr);
+        grid-template-columns: var(--fixed-action-state-width) minmax(0, 1fr);
         gap: 14px;
         align-items: center;
         padding: 11px 14px;
@@ -403,11 +404,61 @@
       .checkline input { width: 18px; height: 18px; margin-top: 2px; }
       .applied { display: grid; gap: 8px; padding: 11px; border-radius: 9px; background: color-mix(in oklch, var(--success) 7%, white); border: 1px solid color-mix(in oklch, var(--success) 22%, var(--border)); font-size: 13px; }
       .quality-skip-actions { justify-content: flex-end; }
-      .record { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(360px, 1.1fr); gap: 16px; align-items: start; }
-      .record-operations { position: sticky; top: 250px; max-height: calc(100vh - 250px); overflow: auto; align-self: start; padding-right: 2px; }
-      .record .step { grid-template-columns: minmax(0, 1fr); }
-      .record .step-num { display: none; }
+      #tab-record { padding-bottom: 108px; }
+      .record { display: grid; gap: 16px; }
+      .record-view-tabs {
+        display: flex;
+        align-items: stretch;
+        gap: 4px;
+        padding: 5px;
+        width: fit-content;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+      }
+      .record-view-tab { min-width: 120px; min-height: 38px; background: transparent; color: var(--muted); border-color: transparent; }
+      .record-view-tab[aria-selected="true"] { background: color-mix(in oklch, var(--accent) 10%, white); color: var(--accent-ink); border-color: color-mix(in oklch, var(--accent) 26%, var(--border)); }
       .record-units .panel-body { overflow: visible; padding-right: 18px; }
+      .record-action-bar {
+        position: fixed;
+        left: max(14px, calc((100vw - 1480px) / 2 + 28px));
+        right: max(14px, calc((100vw - 1480px) / 2 + 28px));
+        bottom: 12px;
+        z-index: 50;
+        display: grid;
+        grid-template-columns: var(--fixed-action-state-width) minmax(250px, 300px) minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        padding: 11px 14px;
+        border: 1px solid color-mix(in oklch, var(--accent) 18%, var(--border));
+        border-radius: 10px;
+        background: rgba(255,255,255,.96);
+        box-shadow: 0 14px 34px rgba(15,23,42,.12);
+        backdrop-filter: blur(16px);
+      }
+      .record-action-state { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; align-items: center; min-width: 0; }
+      .record-action-state .badge { grid-row: 1 / span 2; }
+      .record-action-state strong { font-size: 13px; }
+      .record-action-status { margin: 0; overflow-wrap: anywhere; }
+      .record-action-status:empty { display: none; }
+      .record-action-loader { grid-column: 1 / -1; margin-top: 4px; }
+      .record-action-controls { display: none; min-width: 0; }
+      .record-action-controls.active { display: flex; align-items: center; min-width: 0; }
+      .record-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; width: 100%; }
+      .record-playback-grid { display: grid; grid-template-columns: minmax(112px, 128px) minmax(0, 1fr); gap: 8px; align-items: center; width: 100%; }
+      .record-playback-grid .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+      .record-playback-grid audio { display: none; }
+      .record-playback-grid .player-controls button { min-height: 40px; min-width: 88px; font-size: 14px; white-space: nowrap; flex: 0 0 auto; }
+      .record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; min-width: 0; }
+      .record-action-buttons.active { display: flex; }
+      .record-action-buttons button { min-height: 46px; font-size: 15px; }
+      .record-record-buttons button { min-width: 108px; }
+      .record-playback-buttons button { min-width: 104px; }
+      .record-delete-buttons { width: 100%; margin-left: auto; justify-content: flex-end; gap: 6px; }
+      .record-delete-buttons button { min-width: 112px; }
+      .record-delete-buttons .danger-btn { min-width: 126px; }
+      .pack-import-fields { display: none; gap: 12px; }
+      .pack-import-fields.active { display: grid; }
       .credit-ui[hidden] { display: none !important; }
       .source-summary { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
       .step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
@@ -419,6 +470,7 @@
       .unit strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
       .unit small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
       .unit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 120px; }
+      .unit-status-badge { padding: 6px 10px; font-size: 13px; font-weight: 700; }
       .mini { width: 36px; min-width: 36px; min-height: 36px; padding: 0; border-radius: 8px; background: var(--soft); color: var(--fg); border-color: var(--border); font-family: var(--mono); }
       .meter { height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in oklch, var(--border) 62%, white); }
       .meter > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
@@ -463,20 +515,19 @@
         .pack-inner { grid-template-columns: auto minmax(0, 1fr) auto; }
         .pack-main { display: flex; }
         .pack-actions { grid-template-columns: repeat(3, auto); }
-        .grid, .record { grid-template-columns: 1fr; }
+        .grid { grid-template-columns: 1fr; }
         .generate-action-bar {
           left: 14px;
           right: 14px;
           grid-template-columns: 260px 190px 260px 168px;
         }
         .quality-action-bar { left: 14px; right: 14px; grid-template-columns: 280px minmax(0, 1fr); }
-        .quality-controls { max-height: none; overflow: visible; padding-right: 0; }
         .quality-results { max-height: none; overflow: visible; }
-        .record-operations { position: static; max-height: none; overflow: visible; padding-right: 0; }
+        .record-action-bar { left: 14px; right: 14px; grid-template-columns: minmax(210px, 230px) minmax(220px, 260px) minmax(0, 1fr); }
         .record-units .panel-body { padding-right: 18px; }
       }
       @media (max-width: 760px) {
-        .topbar-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid { grid-template-columns: 1fr; }
+        .topbar-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid, .record-settings-grid, .record-playback-grid { grid-template-columns: 1fr; }
         .brand p { display: none; }
         .top-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; width: 100%; }
         .top-actions label { grid-template-columns: 1fr; width: auto; gap: 3px; }
@@ -496,10 +547,11 @@
         .pack-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
         .pack-actions button { min-height: 38px; padding-inline: 8px; font-size: 12px; }
         .pack-actions .ghost { grid-column: 1 / -1; min-height: 32px; }
-        #tab-generate, #tab-quality { padding-bottom: 132px; }
-        .generate-view-tabs, .quality-view-tabs { width: 100%; }
+        #tab-generate, #tab-quality, #tab-record { padding-bottom: 132px; }
+        .generate-view-tabs, .quality-view-tabs, .record-view-tabs { width: 100%; }
         .generation-view-tab { min-width: 0; width: calc(100% / 3); }
         .quality-view-tab { min-width: 0; width: calc(100% / 2); }
+        .record-view-tab { min-width: 0; width: calc(100% / 3); }
         .generate-action-bar {
           position: fixed;
           left: 8px;
@@ -541,6 +593,22 @@
         .quality-action-state .badge { display: none; }
         .quality-action-state { grid-template-columns: 1fr; }
         .quality-action-state strong { font-size: 13px; }
+        .record-action-bar {
+          position: fixed;
+          left: 8px;
+          right: 8px;
+          bottom: 8px;
+          grid-template-columns: 1fr;
+          gap: 8px;
+          padding: 9px;
+        }
+        .record-action-controls.active { display: grid; }
+        .record-action-buttons { justify-content: stretch; flex-wrap: wrap; }
+        .record-action-buttons button { width: 100%; min-width: 0; }
+        .record-action-state .badge { display: none; }
+        .record-action-state { grid-template-columns: 1fr; }
+        .record-action-state strong { font-size: 13px; }
+        .record-playback-grid .player-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .pack-option { grid-template-columns: 1fr; }
         .pack-option-title, .pack-option-detail { white-space: normal; }
         .version-grid { grid-template-columns: 1fr; }
@@ -843,40 +911,59 @@
 
         <section class="tab-panel" id="tab-record" hidden>
           <div class="record">
-            <aside class="stack record-operations">
-              <section class="panel">
-                <div class="panel-head"><div><h3>実行と再生</h3><p class="hint">選択したユニットを録音し、音声がないユニットはOS TTSフォールバックで試聴できます。</p></div></div>
-                <div class="panel-body stack">
-                  <div class="field-grid"><label>読み上げテキスト元<select id="recordingTextSource"><option value="raw">raw</option><option value="corrected">corrected</option></select></label><label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label><label>再生速度<select id="playbackRateSelect"><option value="0.75">0.75x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2.0x</option></select></label></div>
-                  <div class="actions"><button id="recordSelectedBtn" type="button">選択分を録音</button><button class="secondary" id="forceRecordSelectedBtn" type="button">強制再録音</button><button class="danger-btn" id="resetSelectedRecordingBtn" type="button">選択リセット</button><button class="danger-btn" id="resetAllRecordingBtn" type="button">全リセット</button></div>
-                  <div class="player"><strong id="nowPlaying">未再生</strong><audio id="recordingAudio"></audio><div class="player-controls"><button class="secondary" id="prevTrackBtn" type="button">前</button><button id="pauseTrackBtn" type="button">再生</button><button class="secondary" id="nextTrackBtn" type="button">次</button><button class="secondary" id="playAllBtn" type="button">全体再生</button></div><button class="secondary" id="playSelectedBtn" type="button">選択分を連続再生</button></div>
-                  <div class="recording-result applied" id="recordingResult"><strong>録音結果</strong><span>まだ実行していません。</span></div>
-                </div>
-              </section>
-              <section class="panel">
-                <div class="panel-head"><div><h3>JSONインポート</h3><p class="hint">手元のJSONを録音対象パックとして取り込みます。</p></div></div>
-                <div class="panel-body stack">
-                    <label>インポートJSON<input id="importFiles" type="file" accept="application/json,.json" multiple /></label>
-                    <div class="field-grid"><label>title<input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" /></label><label>contentId<input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" /></label></div>
-                    <label>slug<input id="importSlug" maxlength="160" placeholder="任意" /></label>
-                    <div class="actions"><button id="importPackBtn" type="button" class="secondary">JSONをインポート</button><button class="secondary" id="loadPacksBtn" type="button">一覧更新</button></div>
-                    <p id="importStatus" class="muted"></p>
-                </div>
-              </section>
-              <section class="panel credit-ui" hidden>
-                <div class="panel-head"><div><h3>見積もり</h3><p class="hint">選択分の概算クレジットと残高を確認します。</p></div></div>
-                <div class="panel-body stack">
-                  <div class="stats"><div class="stat"><span>UNITS</span><strong id="selectedUnitCount">0</strong></div><div class="stat"><span>CHARS</span><strong id="selectedChars">0</strong></div><div class="stat"><span>CREDITS</span><strong id="selectedCredits">0.0000</strong></div></div>
-                  <div class="tight"><div class="issue-top"><strong>残高</strong><span class="mono"><span id="creditBalance">0.0000</span> credits</span></div><div class="meter"><span id="creditMeter"></span></div><p class="muted" id="creditWarning"></p></div>
-                  <button class="secondary" id="resetCreditsBtn" type="button">残高リセット</button>
-                </div>
-              </section>
-            </aside>
+            <div class="record-view-tabs" role="tablist" aria-label="録音画面">
+              <button class="record-view-tab" id="recordViewRecordTab" role="tab" aria-selected="true" data-record-view="record" type="button">録音</button>
+              <button class="record-view-tab" id="recordViewPlaybackTab" role="tab" aria-selected="false" data-record-view="play" type="button">再生</button>
+              <button class="record-view-tab" id="recordViewDeleteTab" role="tab" aria-selected="false" data-record-view="delete" type="button">削除</button>
+            </div>
             <section class="panel record-units">
-              <div class="panel-head"><div><h3>録音するユニット</h3><p class="hint">録音状態と使用テキスト元を見ながら選択します。</p></div><span class="badge warn" id="selectionBadge">0件選択中</span></div>
+              <div class="panel-head"><div><h3 id="recordPanelTitle">録音するユニット</h3><p class="hint" id="recordPanelHint">録音状態と使用テキスト元を見ながら選択します。</p></div><span class="badge warn" id="selectionBadge">0件選択中</span></div>
               <div class="panel-body stack">
-                <div class="actions"><button class="secondary" id="selectUnrecordedBtn" type="button">未録音をすべて選択</button><button class="ghost" id="clearUnitSelectionBtn" type="button">選択解除</button></div>
+                <div class="recording-result applied" id="recordingResult"><strong>録音結果</strong><span>まだ実行していません。</span></div>
                 <div class="units" id="unitList"><p class="muted">パックを選択するとユニットが表示されます。</p></div>
+              </div>
+            </section>
+            <div class="record-action-bar" aria-label="録音操作">
+              <div class="record-action-state">
+                <span class="badge" id="recordActionBadge">未選択</span>
+                <strong id="recordActionTitle">対象パックを選択してください</strong>
+                <p class="muted record-action-status" id="recordActionText">録音・再生・削除の対象パックが必要です。</p>
+                <div class="bar record-action-loader" id="recordActionLoader" hidden><span></span></div>
+              </div>
+              <div class="record-action-controls active" id="recordRecordControls">
+                <div class="record-settings-grid">
+                  <label>録音するテキスト<select id="recordingTextSource"><option value="raw">生テキスト</option><option value="corrected">補正テキスト</option></select></label>
+                  <label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label>
+                </div>
+              </div>
+              <div class="record-action-controls" id="recordPlaybackControls">
+                <div class="record-playback-grid">
+                  <label>再生速度<select id="playbackRateSelect"><option value="0.75">0.75x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2.0x</option></select></label>
+                  <div><audio id="recordingAudio"></audio><div class="player-controls"><button class="secondary" id="prevTrackBtn" type="button">前</button><button id="playSelectedBtn" type="button">連続再生</button><button class="secondary" id="nextTrackBtn" type="button">次</button></div></div>
+                </div>
+              </div>
+              <div class="record-action-buttons record-record-buttons active" id="recordRecordButtons">
+                <button class="secondary" id="selectUnrecordedBtn" type="button">未録音を選択</button>
+                <button class="ghost" id="clearUnitSelectionBtn" type="button">選択解除</button>
+                <button id="recordSelectedBtn" type="button">録音</button>
+              </div>
+              <div class="record-action-buttons record-playback-buttons" id="recordPlaybackButtons">
+                <button class="secondary" id="selectRecordedPlaybackBtn" type="button">録音済みを選択</button>
+                <button class="ghost" id="clearPlaybackSelectionBtn" type="button">選択解除</button>
+              </div>
+              <div class="record-action-buttons record-delete-buttons" id="recordDeleteButtons">
+                <button class="secondary" id="selectRecordedDeleteBtn" type="button">録音済みを選択</button>
+                <button class="ghost" id="clearDeleteSelectionBtn" type="button">選択解除</button>
+                <button class="danger-btn" id="resetSelectedRecordingBtn" type="button">選択した録音を削除</button>
+                <button class="danger-btn" id="resetAllRecordingBtn" type="button">すべての録音を削除</button>
+              </div>
+            </div>
+            <section class="panel credit-ui" hidden>
+              <div class="panel-head"><div><h3>見積もり</h3><p class="hint">選択分の概算クレジットと残高を確認します。</p></div></div>
+              <div class="panel-body stack">
+                <div class="stats"><div class="stat"><span>UNITS</span><strong id="selectedUnitCount">0</strong></div><div class="stat"><span>CHARS</span><strong id="selectedChars">0</strong></div><div class="stat"><span>CREDITS</span><strong id="selectedCredits">0.0000</strong></div></div>
+                <div class="tight"><div class="issue-top"><strong>残高</strong><span class="mono"><span id="creditBalance">0.0000</span> credits</span></div><div class="meter"><span id="creditMeter"></span></div><p class="muted" id="creditWarning"></p></div>
+                <button class="secondary" id="resetCreditsBtn" type="button">残高リセット</button>
               </div>
             </section>
           </div>
@@ -889,7 +976,14 @@
       <div class="dialog">
         <div class="panel-head"><div><h3>対象パックを切り替え</h3><p class="hint">3タブで共有される対象パックです。既存パックだけを使う単独運用もできます。</p></div><button class="ghost" id="closePack" type="button">閉じる</button></div>
         <div class="panel-body stack">
-          <div class="actions"><button id="refreshPacksBtn" type="button">一覧更新</button></div>
+          <div class="actions"><button id="refreshPacksBtn" type="button">一覧更新</button><button class="secondary" id="importPackBtn" type="button">インポート</button></div>
+          <div class="pack-import-fields" id="packImportFields">
+            <label>インポートJSON<input id="importFiles" type="file" accept="application/json,.json" multiple /></label>
+            <div class="field-grid"><label>title<input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" /></label><label>contentId<input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" /></label></div>
+            <label>slug<input id="importSlug" maxlength="160" placeholder="任意" /></label>
+            <div class="actions"><button class="secondary" id="importPackSubmitBtn" type="button">この内容で取り込む</button></div>
+            <p id="importStatus" class="muted"></p>
+          </div>
           <div id="packList" class="stack"><p class="muted">一覧を取得してください。</p></div>
         </div>
       </div>
@@ -1006,6 +1100,7 @@
       let playIndex = -1;
       let currentPlayingUnitId = null;
       let isPlaybackPaused = true;
+      let activeRecordView = "record";
       let selectedReadingPatternIds = new Set();
       let planConditionSuggestions = [];
       let quizChoiceLanguageModes = [];
@@ -1974,6 +2069,36 @@
         updateQualityActionBar();
       }
 
+      function setRecordView(mode) {
+        activeRecordView = ["record", "play", "delete"].includes(mode) ? mode : "record";
+        $$("[data-record-view]").forEach((button) => {
+          button.setAttribute("aria-selected", String(button.dataset.recordView === activeRecordView));
+        });
+        $("recordRecordControls").classList.toggle("active", activeRecordView === "record");
+        $("recordPlaybackControls").classList.toggle("active", activeRecordView === "play");
+        $("recordRecordButtons").classList.toggle("active", activeRecordView === "record");
+        $("recordPlaybackButtons").classList.toggle("active", activeRecordView === "play");
+        $("recordDeleteButtons").classList.toggle("active", activeRecordView === "delete");
+        $("recordPanelTitle").textContent = activeRecordView === "record"
+          ? "録音するユニット"
+          : activeRecordView === "play"
+            ? "再生するユニット"
+            : "削除するユニット";
+        $("recordPanelHint").textContent = activeRecordView === "record"
+          ? "録音状態と使用テキスト元を見ながら選択します。"
+          : activeRecordView === "play"
+            ? "録音済みユニットを再生確認します。再生速度は下部固定バーで調整します。"
+            : "削除対象を選択します。削除後は録音タブで再収録できます。";
+        renderUnits();
+        updateRecordActionBar();
+      }
+
+      function togglePackImportFields(force = null) {
+        const next = force ?? !$("packImportFields").classList.contains("active");
+        $("packImportFields").classList.toggle("active", next);
+        $("importPackBtn").textContent = next ? "インポートを閉じる" : "インポート";
+      }
+
       function updateQualityActionBar() {
         const textChecked = Boolean(lastTextCheckResult);
         const textFixGenerated = Boolean(lastTextFixResult);
@@ -2074,14 +2199,80 @@
         $("packStatusText").textContent = `録音 ${recorded}/${total} / ${selectedPack?.contentId || "-"}`;
       }
 
+      function updateRecordActionBar() {
+        const units = fullEstimate?.units || [];
+        const selected = selectedUnits();
+        const recordedCount = units.filter((unit) => unit.isRecorded).length;
+        const selectedCount = selected.length;
+        const selectedChars = selected.reduce((total, unit) => total + Number(unit.charCount || 0), 0);
+        const hasSelectedRecorded = selected.some((unit) => unit.isRecorded);
+        const canPlayback = activeRecordView === "play" && recordedCount > 0;
+
+        $("recordActionLoader").hidden = !(isBusy && activeTab === "record");
+
+        if (!selectedPack) {
+          setBadge("recordActionBadge", "未選択", "warn");
+          $("recordActionTitle").textContent = "対象パックを選択してください";
+          $("recordActionText").textContent = "録音・再生・削除の対象パックが必要です。";
+        } else if (activeRecordView === "record") {
+          const title = selectedCount
+            ? "録音を実行できます"
+            : "未録音ユニットを選択してください";
+          const text = selectedCount
+            ? `${selectedCount}件選択中 / 推定 ${selectedChars.toLocaleString("ja-JP")} 字`
+            : "下の一覧で個別選択するか、未録音を選択してください。";
+          setBadge("recordActionBadge", selectedCount ? "録音可能" : "未選択", selectedCount ? "info" : "warn");
+          $("recordActionTitle").textContent = title;
+          $("recordActionText").textContent = text;
+          $("recordSelectedBtn").textContent = hasSelectedRecorded ? "再実行" : "録音";
+          setActionButtonTone("selectUnrecordedBtn", !selectedCount);
+          setActionButtonTone("recordSelectedBtn", selectedCount > 0);
+        } else if (activeRecordView === "play") {
+          const title = currentPlayingUnitId
+            ? "連続再生中です"
+            : selectedCount
+              ? "選択分を連続再生できます"
+              : "録音済みユニットを選択してください";
+          const text = currentPlayingUnitId
+            ? "再生中です。必要なら一時停止できます。"
+            : selectedCount
+              ? `${selectedCount}件選択中 / 再生速度 ${$("playbackRateSelect").value || "1"}x`
+              : canPlayback
+                ? "選択がない場合は表示中の録音済みユニットを先頭から連続再生します。"
+                : "再生できる録音がまだありません。";
+          setBadge("recordActionBadge", currentPlayingUnitId ? "再生中" : selectedCount ? "再生準備完了" : canPlayback ? "未選択" : "未録音", currentPlayingUnitId ? "info" : selectedCount ? "info" : canPlayback ? "warn" : "warn");
+          $("recordActionTitle").textContent = title;
+          $("recordActionText").textContent = text;
+          $("playSelectedBtn").textContent = currentPlayingUnitId && !isPlaybackPaused ? "一時停止" : "連続再生";
+          setActionButtonTone("playSelectedBtn", canPlayback || Boolean(currentPlayingUnitId));
+        } else {
+          const title = selectedCount
+            ? "選択した録音を削除できます"
+            : recordedCount
+              ? "削除する録音を選択してください"
+              : "削除できる録音がありません";
+          const text = selectedCount
+            ? `${selectedCount}件選択中 / 削除後は録音タブで再収録できます。`
+            : recordedCount
+              ? "録音済みを選択するか、一覧で個別選択してください。"
+              : "先に録音タブで録音してください。";
+          setBadge("recordActionBadge", selectedCount ? "削除待ち" : recordedCount ? "未選択" : "未録音", selectedCount ? "warn" : recordedCount ? "warn" : "warn");
+          $("recordActionTitle").textContent = title;
+          $("recordActionText").textContent = text;
+          setActionButtonTone("selectRecordedDeleteBtn", !selectedCount && recordedCount > 0);
+        }
+      }
+
       function setBusy(flag, message = "") {
         isBusy = flag;
         setStatusMessage(message);
         [
           "planBtn", "generateBtn", "reviseBtn", "textCheckBtn", "textFixBtn", "applyTextFixBtn",
           "saveTextFixBtn", "skipTextWorkflowBtn", "ttsCheckBtn", "ttsFixBtn", "saveTtsFixBtn",
-          "recordSelectedBtn", "forceRecordSelectedBtn", "resetSelectedRecordingBtn", "resetAllRecordingBtn",
-          "loadPacksBtn", "importPackBtn", "openImportQr", "exportJsonZipBtn", "openSelectedJsonBtn"
+          "recordSelectedBtn", "resetSelectedRecordingBtn", "resetAllRecordingBtn",
+          "refreshPacksBtn", "importPackBtn", "importPackSubmitBtn", "openImportQr", "exportJsonZipBtn", "openSelectedJsonBtn",
+          "selectRecordedPlaybackBtn", "clearPlaybackSelectionBtn", "playSelectedBtn", "prevTrackBtn", "nextTrackBtn",
+          "selectRecordedDeleteBtn", "clearDeleteSelectionBtn"
         ].forEach((id) => {
           const el = $(id);
           if (!el) return;
@@ -2120,10 +2311,17 @@
         const selectedCount = selectedUnitIds.size;
         const credits = selectedEstimate?.estimatedCredits || 0;
         const insufficient = CREDIT_UI_ENABLED && credits > creditBalance;
+        const selectedRecordedCount = selectedUnits().filter((unit) => unit.isRecorded).length;
         $("recordSelectedBtn").disabled = isBusy || !selectedCount;
-        $("forceRecordSelectedBtn").disabled = isBusy || !selectedCount;
-        $("resetSelectedRecordingBtn").disabled = isBusy || !selectedCount;
+        $("resetSelectedRecordingBtn").disabled = isBusy || !selectedRecordedCount;
         $("resetAllRecordingBtn").disabled = isBusy || !selectedPack;
+        $("selectRecordedPlaybackBtn").disabled = isBusy || !(fullEstimate?.units || []).some((unit) => unit.isRecorded);
+        $("clearPlaybackSelectionBtn").disabled = isBusy || !selectedCount;
+        $("playSelectedBtn").disabled = isBusy || !(fullEstimate?.units || []).some((unit) => unit.isRecorded);
+        $("prevTrackBtn").disabled = isBusy || playQueueItems.length < 2 || playIndex <= 0;
+        $("nextTrackBtn").disabled = isBusy || playQueueItems.length < 2 || playIndex >= playQueueItems.length - 1;
+        $("selectRecordedDeleteBtn").disabled = isBusy || !(fullEstimate?.units || []).some((unit) => unit.isRecorded);
+        $("clearDeleteSelectionBtn").disabled = isBusy || !selectedCount;
         if ($("openImportQr")) $("openImportQr").disabled = isBusy || !selectedPack?.manifestUrl;
         $("exportJsonZipBtn").disabled = isBusy || !selectedPack;
         $("openSelectedJsonBtn").disabled = isBusy || !selectedFileJsonUrl(selectedPack);
@@ -2132,6 +2330,7 @@
         updateBatchQualityApplyAvailability();
         updateGenerateActionBar();
         updateQualityActionBar();
+        updateRecordActionBar();
       }
 
       function scaleValue() {
@@ -2706,31 +2905,45 @@
         return unit.hasCorrected ? "補正テキスト" : "生テキスト（補正なし）";
       }
 
-      function renderUnits() {
+      function unitsForActiveRecordView() {
         const units = fullEstimate?.units || [];
+        if (activeRecordView === "play" || activeRecordView === "delete") {
+          return units.filter((unit) => unit.isRecorded);
+        }
+        return units;
+      }
+
+      function renderUnits() {
+        const units = unitsForActiveRecordView();
         if (!units.length) {
-          $("unitList").innerHTML = `<p class="muted">${selectedPack ? "録音ユニットがありません。" : "パックを選択するとユニットが表示されます。"}</p>`;
+          const emptyMessage = !selectedPack
+            ? "パックを選択するとユニットが表示されます。"
+            : activeRecordView === "play"
+              ? "再生できる録音済みユニットがありません。"
+              : activeRecordView === "delete"
+                ? "削除できる録音済みユニットがありません。"
+                : "録音ユニットがありません。";
+          $("unitList").innerHTML = `<p class="muted">${emptyMessage}</p>`;
           $("selectionBadge").textContent = "0件選択中";
           updateActionAvailability();
           return;
         }
         $("unitList").innerHTML = units.map((unit) => {
           const checked = selectedUnitIds.has(unit.itemId) ? "checked" : "";
-          const recorded = unit.isRecorded ? `<span class="badge success">録音済み</span>` : `<span class="badge warn">未録音</span>`;
+          const recorded = unit.isRecorded ? `<span class="badge success unit-status-badge">録音済み</span>` : `<span class="badge warn unit-status-badge">未録音</span>`;
           const url = unitAudioUrl(unit);
-          const playButton = url || unit.text ? `<button type="button" class="mini" data-play-unit="${escapeHtml(unit.itemId)}">${url ? (currentPlayingUnitId === unit.itemId && !isPlaybackPaused ? "⏸" : "▶") : "試聴"}</button>` : "";
+          const allowPlayButton = activeRecordView === "play";
+          const playButton = allowPlayButton && (url || unit.text) ? `<button type="button" class="mini" data-play-unit="${escapeHtml(unit.itemId)}">${url ? (currentPlayingUnitId === unit.itemId && !isPlaybackPaused ? "⏸" : "▶") : "試聴"}</button>` : "";
           const playing = currentPlayingUnitId === unit.itemId ? " playing" : "";
-          const fixedSource = knownUsedTextSources.get(packAudioKey(unit.itemId));
           return `
             <label class="unit${playing}">
               <input type="checkbox" data-unit-id="${escapeHtml(unit.itemId)}" ${checked} />
               <span>
                 <strong>${escapeHtml(unit.itemId)} · ${escapeHtml(unit.kind || "")}</strong>
-                <small>${recorded} <span class="badge">${escapeHtml(sourceBadge(unit))}</span> ${fixedSource ? `<span class="badge source-corrected">${escapeHtml(fixedSource === "corrected" ? "補正で録音" : "生で録音")}</span>` : ""} ${Number(unit.charCount || 0).toLocaleString("ja-JP")}字</small>
-                <small>${escapeHtml(String(unit.text || "").slice(0, 120))}</small>
-                ${url ? `<small><a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a></small>` : ""}
+                <small><span class="badge">${escapeHtml(sourceBadge(unit))}</span> ${Number(unit.charCount || 0).toLocaleString("ja-JP")}字</small>
+                <small>${escapeHtml(String(unit.text || ""))}</small>
               </span>
-              <span class="unit-actions">${playButton}</span>
+              <span class="unit-actions">${recorded}${playButton}</span>
             </label>`;
         }).join("");
         $("selectionBadge").textContent = `${selectedUnitIds.size}件選択中`;
@@ -3393,8 +3606,8 @@
           if (refreshed) await selectPack(refreshed);
           await refreshVersionInfoIfOpen();
           await refreshImportQrIfOpen();
-          $("recordingResult").innerHTML = `<strong>録音状態リセット</strong><span>cleared=${data.clearedCount || 0}, requested=${data.requestedUnitCount || 0}</span>`;
-          finishProgress("録音状態リセット", "録音状態をリセットしました。");
+          $("recordingResult").innerHTML = `<strong>録音削除</strong><span>cleared=${data.clearedCount || 0}, requested=${data.requestedUnitCount || 0}</span>`;
+          finishProgress("録音削除", "録音状態を削除しました。");
         } catch (error) {
           $("recordingResult").innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
         } finally {
@@ -3435,7 +3648,6 @@
         if (!unit) return;
         const url = unitAudioUrl(unit);
         currentPlayingUnitId = unit.itemId;
-        $("nowPlaying").textContent = `${unit.itemId} / ${unit.kind}`;
         if (url) {
           const audio = $("recordingAudio");
           if (audio.src !== url) audio.src = url;
@@ -3447,17 +3659,28 @@
           isPlaybackPaused = false;
         }
         renderUnits();
+        updateRecordActionBar();
       }
 
       function playQueue(units) {
         playQueueItems = (units || []).filter((unit) => unitAudioUrl(unit) || unit.text);
+        if (!playQueueItems.length) {
+          stopPlayback();
+          updateRecordActionBar();
+          return;
+        }
         playIndex = 0;
         playUnit(playQueueItems[playIndex]);
       }
 
       function playNextTrack() {
         if (!playQueueItems.length) return;
-        playIndex = Math.min(playQueueItems.length - 1, playIndex + 1);
+        if (playIndex >= playQueueItems.length - 1) {
+          stopPlayback();
+          renderUnits();
+          return;
+        }
+        playIndex += 1;
         playUnit(playQueueItems[playIndex]);
       }
 
@@ -3470,7 +3693,7 @@
       function togglePauseTrack() {
         const audio = $("recordingAudio");
         if (!currentPlayingUnitId) {
-          playQueue(fullEstimate?.units || []);
+          playQueue(selectedUnits().length ? selectedUnits() : unitsForActiveRecordView());
           return;
         }
         if (audio.src) {
@@ -3490,6 +3713,9 @@
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         currentPlayingUnitId = null;
         isPlaybackPaused = true;
+        playQueueItems = [];
+        playIndex = -1;
+        updateRecordActionBar();
       }
 
       async function loadTtsVoices(languageCode = "ja-JP") {
@@ -3746,7 +3972,7 @@
         if (playButton) {
           const unit = (fullEstimate?.units || []).find((candidate) => candidate.itemId === playButton.dataset.playUnit);
           if (unit) {
-            playQueueItems = fullEstimate.units;
+            playQueueItems = unitsForActiveRecordView();
             playIndex = playQueueItems.findIndex((candidate) => candidate.itemId === unit.itemId);
             playUnit(unit);
           }
@@ -3916,8 +4142,8 @@
       $("importQrModal").addEventListener("click", (event) => { if (event.target.id === "importQrModal") closeImportQrModal(); });
       $("clearPack").addEventListener("click", clearSelectedPack);
       $("refreshPacksBtn").addEventListener("click", () => loadPacks());
-      $("loadPacksBtn").addEventListener("click", () => loadPacks());
-      $("importPackBtn").addEventListener("click", importSelectedJsonFiles);
+      $("importPackBtn").addEventListener("click", () => togglePackImportFields());
+      $("importPackSubmitBtn").addEventListener("click", importSelectedJsonFiles);
       $("textCheckBtn").addEventListener("click", runTextCheck);
       $("textFixBtn").addEventListener("click", runTextFix);
       $("applyTextFixBtn").addEventListener("click", applyTextFixes);
@@ -3926,8 +4152,8 @@
       $("ttsCheckBtn").addEventListener("click", runTtsCheck);
       $("ttsFixBtn").addEventListener("click", runTtsFix);
       $("saveTtsFixBtn").addEventListener("click", saveTtsFixVersion);
+      $$("[data-record-view]").forEach((tab) => tab.addEventListener("click", () => setRecordView(tab.dataset.recordView)));
       $("recordSelectedBtn").addEventListener("click", () => recordSelectedUnits(false));
-      $("forceRecordSelectedBtn").addEventListener("click", () => recordSelectedUnits(true));
       $("resetSelectedRecordingBtn").addEventListener("click", () => resetRecordingState(Array.from(selectedUnitIds)));
       $("resetAllRecordingBtn").addEventListener("click", () => resetRecordingState());
       $("selectUnrecordedBtn").addEventListener("click", () => {
@@ -3936,6 +4162,26 @@
         updateSelectedEstimate();
       });
       $("clearUnitSelectionBtn").addEventListener("click", () => {
+        selectedUnitIds = new Set();
+        renderUnits();
+        updateSelectedEstimate();
+      });
+      $("selectRecordedPlaybackBtn").addEventListener("click", () => {
+        selectedUnitIds = new Set((fullEstimate?.units || []).filter((unit) => unit.isRecorded).map((unit) => unit.itemId));
+        renderUnits();
+        updateSelectedEstimate();
+      });
+      $("clearPlaybackSelectionBtn").addEventListener("click", () => {
+        selectedUnitIds = new Set();
+        renderUnits();
+        updateSelectedEstimate();
+      });
+      $("selectRecordedDeleteBtn").addEventListener("click", () => {
+        selectedUnitIds = new Set((fullEstimate?.units || []).filter((unit) => unit.isRecorded).map((unit) => unit.itemId));
+        renderUnits();
+        updateSelectedEstimate();
+      });
+      $("clearDeleteSelectionBtn").addEventListener("click", () => {
         selectedUnitIds = new Set();
         renderUnits();
         updateSelectedEstimate();
@@ -3956,14 +4202,12 @@
           updateRecordingBadge();
         }
       });
-      $("playSelectedBtn").addEventListener("click", () => playQueue(selectedUnits()));
-      $("playAllBtn").addEventListener("click", () => playQueue(fullEstimate?.units || []));
+      $("playSelectedBtn").addEventListener("click", togglePauseTrack);
       $("prevTrackBtn").addEventListener("click", playPreviousTrack);
-      $("pauseTrackBtn").addEventListener("click", togglePauseTrack);
       $("nextTrackBtn").addEventListener("click", playNextTrack);
       $("playbackRateSelect").addEventListener("change", applyPlaybackRate);
-      $("recordingAudio").addEventListener("play", () => { applyPlaybackRate(); isPlaybackPaused = false; renderUnits(); $("pauseTrackBtn").textContent = "一時停止"; });
-      $("recordingAudio").addEventListener("pause", () => { isPlaybackPaused = true; renderUnits(); $("pauseTrackBtn").textContent = "再生"; });
+      $("recordingAudio").addEventListener("play", () => { applyPlaybackRate(); isPlaybackPaused = false; renderUnits(); updateRecordActionBar(); });
+      $("recordingAudio").addEventListener("pause", () => { isPlaybackPaused = true; renderUnits(); updateRecordActionBar(); });
       $("recordingAudio").addEventListener("ended", playNextTrack);
       $("resetCreditsBtn").addEventListener("click", () => saveCredits(INITIAL_CREDITS));
 
@@ -3972,6 +4216,7 @@
       syncMaterialModeUi();
       syncMetadataModeUi();
       syncPackLanguageUi();
+      setRecordView("record");
       populateTtsLanguageSelects();
       syncTtsModeUi();
       renderQuizChoiceLanguageSettings();

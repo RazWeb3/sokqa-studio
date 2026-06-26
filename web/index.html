@@ -240,7 +240,7 @@
         box-shadow: 0 14px 34px rgba(15,23,42,.12);
         backdrop-filter: blur(16px);
       }
-      .generate-action-bar .actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; min-width: 0; }
+      .generate-action-bar .actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; min-width: 0; }
       .generate-action-bar button { width: 100%; }
       .generate-plan-slot { justify-self: start; width: min(100%, 220px); }
       .generate-run-slot { justify-self: end; width: min(100%, 188px); }
@@ -379,7 +379,7 @@
       .quality-action-status { margin: 0; overflow-wrap: anywhere; }
       .quality-action-status:empty { display: none; }
       .quality-action-loader { grid-column: 1 / -1; margin-top: 4px; }
-      .quality-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 9px; min-width: 0; }
+      .quality-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 9px; min-width: 0; flex-wrap: wrap; }
       .quality-action-buttons.active { display: flex; }
       .quality-action-buttons button { min-height: 48px; font-size: 16px; }
       .quality-text-buttons button { min-width: 138px; }
@@ -436,6 +436,12 @@
         box-shadow: 0 14px 34px rgba(15,23,42,.12);
         backdrop-filter: blur(16px);
       }
+      @media (min-width: 1061px) {
+        .record-action-bar:has(.record-delete-buttons.active) {
+          grid-template-columns: var(--fixed-action-state-width) minmax(0, 1fr);
+        }
+        .record-delete-buttons.active { grid-column: 2; }
+      }
       .record-action-state { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; align-items: center; min-width: 0; }
       .record-action-state .badge { grid-row: 1 / span 2; }
       .record-action-state strong { font-size: 13px; }
@@ -449,12 +455,12 @@
       .record-playback-grid .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
       .record-playback-grid audio { display: none; }
       .record-playback-grid .player-controls button { min-height: 40px; min-width: 88px; font-size: 14px; white-space: nowrap; flex: 0 0 auto; }
-      .record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; min-width: 0; }
+      .record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }
       .record-action-buttons.active { display: flex; }
       .record-action-buttons button { min-height: 46px; font-size: 15px; }
       .record-record-buttons button { min-width: 108px; }
       .record-playback-buttons button { min-width: 104px; }
-      .record-delete-buttons { width: 100%; margin-left: auto; justify-content: flex-end; gap: 6px; }
+      .record-delete-buttons { width: 100%; margin-left: auto; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }
       .record-delete-buttons button { min-width: 112px; }
       .record-delete-buttons .danger-btn { min-width: 126px; }
       .pack-import-fields { display: none; gap: 12px; }
@@ -502,6 +508,15 @@
       @keyframes sweep { 0% { transform: translateX(-105%); } 100% { transform: translateX(250%); } }
       .recording-result { overflow-wrap: anywhere; }
 
+      @media (max-width: 1180px) {
+        .generate-action-bar {
+          grid-template-columns: 1fr 1fr;
+          gap: 12px 16px;
+        }
+        .generate-action-option { width: 100%; max-width: none; justify-self: stretch; }
+        .generate-plan-slot, .generate-run-slot { width: 100%; justify-self: stretch; }
+      }
+
       @media (max-width: 1060px) {
         body { overflow-y: auto; }
         .app { height: auto; min-height: 100vh; padding-bottom: 48px; }
@@ -519,15 +534,19 @@
         .generate-action-bar {
           left: 14px;
           right: 14px;
-          grid-template-columns: 260px 190px 260px 168px;
         }
-        .quality-action-bar { left: 14px; right: 14px; grid-template-columns: 280px minmax(0, 1fr); }
+        .quality-action-bar { left: 14px; right: 14px; grid-template-columns: 1fr; gap: 12px; }
+        .quality-action-buttons { justify-content: flex-start; }
         .quality-results { max-height: none; overflow: visible; }
-        .record-action-bar { left: 14px; right: 14px; grid-template-columns: minmax(210px, 230px) minmax(220px, 260px) minmax(0, 1fr); }
+        .record-action-bar { left: 14px; right: 14px; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .record-action-state { grid-column: 1 / -1; }
+        .record-action-buttons { justify-content: flex-start; }
+        .record-delete-buttons { justify-content: flex-end; }
         .record-units .panel-body { padding-right: 18px; }
       }
       @media (max-width: 760px) {
         .topbar-inner, .url, .field-grid, .quality-stepper, .stats, .plan-meta-grid, .record-settings-grid, .record-playback-grid { grid-template-columns: 1fr; }
+        .generate-action-bar, .record-action-bar { grid-template-columns: 1fr; }
         .brand p { display: none; }
         .top-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; width: 100%; }
         .top-actions label { grid-template-columns: 1fr; width: auto; gap: 3px; }
@@ -948,7 +967,7 @@
                 <button id="recordSelectedBtn" type="button">録音</button>
               </div>
               <div class="record-action-buttons record-playback-buttons" id="recordPlaybackButtons">
-                <button class="secondary" id="selectRecordedPlaybackBtn" type="button">録音済みを選択</button>
+                <button class="secondary" id="selectRecordedPlaybackBtn" type="button">選択済みを連続再生する</button>
                 <button class="ghost" id="clearPlaybackSelectionBtn" type="button">選択解除</button>
               </div>
               <div class="record-action-buttons record-delete-buttons" id="recordDeleteButtons">
@@ -4167,9 +4186,7 @@
         updateSelectedEstimate();
       });
       $("selectRecordedPlaybackBtn").addEventListener("click", () => {
-        selectedUnitIds = new Set((fullEstimate?.units || []).filter((unit) => unit.isRecorded).map((unit) => unit.itemId));
-        renderUnits();
-        updateSelectedEstimate();
+        playQueue(selectedUnits());
       });
       $("clearPlaybackSelectionBtn").addEventListener("click", () => {
         selectedUnitIds = new Set();

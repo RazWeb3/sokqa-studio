@@ -24,7 +24,9 @@ AIチャットだけでも教材は作れますが、Sokqa Studio は教材制�
 
 ## Demo
 
-スクリーンショットとシステム構成図は後日追加予定です。
+スクリーンショットは後日追加予定です。
+
+システム構成図は Architecture セクションに掲載しています。
 
 現時点では、アプリケーション本体は `web/index.html` を FastAPI から配信し、生成、品質チェック、録音、URL/QR 共有までの操作画面を提供しています。
 
@@ -53,6 +55,10 @@ Sokqa Studio の基本的な制作フローは次の通りです。
 8. Manifest URL または QR コードで共有する
 
 ## Architecture
+
+### System Architecture
+
+![Sokqa Studio system architecture](docs/images/sokqa-studio-architecture.png)
 
 Sokqa Studio は、HTML/JavaScript フロントエンド、FastAPI バックエンド、Google Cloud を組み合わせた制作支援システムです。
 
@@ -161,6 +167,12 @@ python -m pytest tests/ --basetemp .pytest_tmp -ra
 - Auth: Workload Identity Provider と Service Account を GitHub Secrets から利用
 
 README 上のプロジェクト名は `Sokqa Studio` ですが、Cloud Run サービス名は現在 `sokqa-course-pack-agent` として定義されています。
+
+## Related Project
+
+Sokqa Studio は、学習アプリ **Sokqa** 向けの学習パック制作ツールです。
+
+- Sokqa App: https://convly.jp/sokqa/
 
 ## Hackathon
 

@@ -2753,6 +2753,11 @@
           });
           if (isSelected) option.classList.add("active");
         });
+        $$("#packList [data-pack-key]").forEach((button) => {
+          const pack = findPackFromButton(button);
+          const isSelected = packIdentityMatches(pack, selectedPack, false);
+          button.classList.toggle("secondary", !isSelected);
+        });
       }
 
       function findPackFromButton(button) {

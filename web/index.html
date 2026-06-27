@@ -436,12 +436,6 @@
         box-shadow: 0 14px 34px rgba(15,23,42,.12);
         backdrop-filter: blur(16px);
       }
-      @media (min-width: 1061px) {
-        .record-action-bar:has(.record-delete-buttons.active) {
-          grid-template-columns: var(--fixed-action-state-width) minmax(0, 1fr);
-        }
-        .record-delete-buttons.active { grid-column: 2; }
-      }
       .record-action-state { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; align-items: center; min-width: 0; }
       .record-action-state .badge { grid-row: 1 / span 2; }
       .record-action-state strong { font-size: 13px; }
@@ -457,6 +451,7 @@
       .record-playback-grid .player-controls button { min-height: 40px; min-width: 88px; font-size: 14px; white-space: nowrap; flex: 0 0 auto; }
       .record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }
       .record-action-buttons.active { display: flex; }
+      .record-record-buttons, .record-playback-buttons, .record-delete-buttons { grid-column: 3; }
       .record-action-buttons button { min-height: 46px; font-size: 15px; }
       .record-record-buttons button { min-width: 108px; }
       .record-playback-buttons button { min-width: 104px; }
@@ -540,8 +535,7 @@
         .quality-results { max-height: none; overflow: visible; }
         .record-action-bar { left: 14px; right: 14px; grid-template-columns: 1fr 1fr; gap: 12px; }
         .record-action-state { grid-column: 1 / -1; }
-        .record-action-buttons { justify-content: flex-start; }
-        .record-delete-buttons { justify-content: flex-end; }
+        .record-action-buttons { grid-column: 2; }
         .record-units .panel-body { padding-right: 18px; }
       }
       @media (max-width: 760px) {
@@ -624,6 +618,7 @@
         .record-action-controls.active { display: grid; }
         .record-action-buttons { justify-content: stretch; flex-wrap: wrap; }
         .record-action-buttons button { width: 100%; min-width: 0; }
+        .record-delete-buttons { flex-wrap: wrap; }
         .record-action-state .badge { display: none; }
         .record-action-state { grid-template-columns: 1fr; }
         .record-action-state strong { font-size: 13px; }

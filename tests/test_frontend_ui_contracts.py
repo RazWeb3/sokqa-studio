@@ -108,8 +108,8 @@ def test_recording_ui_sends_one_record_request_without_client_chunking() -> None
     assert ".record-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; width: 100%; }" in html
     assert ".record-playback-grid .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }" in html
     assert ".record-playback-grid audio { display: none; }" in html
-    assert ".record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; min-width: 0; }" in html
-    assert ".record-delete-buttons { width: 100%; margin-left: auto; justify-content: flex-end; gap: 6px; }" in html
+    assert ".record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }" in html
+    assert ".record-delete-buttons { width: 100%; margin-left: auto; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }" in html
     assert ".unit-status-badge { padding: 6px 10px; font-size: 13px; font-weight: 700; }" in html
     assert 'const allowPlayButton = activeRecordView === "play";' in record_units_html
     assert 'const recorded = unit.isRecorded ? `<span class="badge success unit-status-badge">録音済み</span>` : `<span class="badge warn unit-status-badge">未録音</span>`;' in record_units_html

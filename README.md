@@ -1,360 +1,185 @@
-# Sokqa Course Pack Agent
+# Sokqa Studio - AIエージェントで教材制作を支援するプラットフォーム
 
-Sokqa Studioの前段となる、Sokqa学習パック生成AgentのMVPです。
+## Overview
 
-このMVPは単体JSON生成ではなく、構成案から複数document/quiz JSONを生成し、検証、修復、TTS最適化、保存、manifest化までを1つの制作ラインとして扱います。
+### Project
+
+AIが教材制作の各工程を支援し、人は内容の確認や修正に集中できる制作プラットフォームです。
+
+企画から教材設計、生成、品質チェック、音声化までを段階的に支援します。
+
+Sokqa Studio は、Sokqa 向けの学習パックを作るための Web スタジオです。AIチャットでも教材の一部は作れますが、教材制作全体を進めるには、設計、生成、確認、音声化、共有を手作業でつなぐ必要があります。
+
+Sokqa Studio では、テーマを決めるだけで教材制作を開始できます。教材の構成案を作り、ドキュメントやクイズを生成し、品質チェックと修正、読み上げ用テキストの最適化、音声録音、Manifest による共有までをひとつの制作ラインとして扱います。
+
+### Problem
+
+教材制作は、本文やクイズを生成して終わる作業ではありません。教材設計、生成、品質確認、音声化、共有まで続く工程があり、それぞれの結果を確認しながら次の工程へ進める必要があります。
+
+AIチャットだけでこのワークフロー全体を効率よく進めようとすると、プロンプト、出力管理、品質確認、音声化、共有準備が分断されます。そのため、作る人が工程ごとのつなぎ込みや確認作業に時間を使いやすくなります。
+
+### Solution
+
+Sokqa Studio は、テーマを決めるだけで教材制作を開始できるようにします。教材設計、生成、品質確認、音声化、Manifest、QRコード、URL共有までを一つの制作ワークフローとして扱います。
+
+人は生成結果を確認し、必要な修正を判断し、学習者に届ける品質へ改善することに集中できます。
+
+## Demo
+
+スクリーンショットは後日追加予定です。
+
+システム構成図は Architecture セクションに掲載しています。
+
+現時点では、アプリケーション本体は `web/index.html` を FastAPI から配信し、生成、品質チェック、録音、URL/QR 共有までの操作画面を提供しています。
 
 ## Features
 
-- `GET /health`
-- `POST /plan-pack`
-- `POST /generate-pack`
-- `GET /jobs/{jobId}`
-- `GET /jobs/{jobId}/manifest`
-- Debug/Admin:
-  - `POST /debug/validate-pack`
-  - `POST /debug/repair-pack`
-  - `POST /debug/optimize-tts`
-  - `POST /debug/revise-tts`
-  - `GET /debug/test-gemini`
+- **AIによる教材設計**: テーマ、対象ユーザー、難易度などから教材パックの構成案を作成します。
+- **ドキュメント・クイズの一括生成**: 構成案をもとに Sokqa の document / quiz JSON と Manifest を生成します。
+- **品質チェック**: 生成済みパックの本文品質と読み補正品質を確認します。
+- **音声教材生成**: 読み上げ用テキストを補正し、Google Cloud Text-to-Speech で音声を生成します。
+- **QRコード共有**: Manifest URL を QR コードとして表示し、Sokqa アプリへ渡す導線を提供します。
+- **Learning Pack 出力**: Document、Quiz、Manifest、Audio をまとめて学習パックとして扱えます。
 
-## Run Locally
+## Workflow
+
+企画 → 教材設計 → 生成 → 品質チェック → 音声化
+
+Sokqa Studio の基本的な制作フローは次の通りです。
+
+1. テーマや対象ユーザーを入力する
+2. AI が教材構成案を作る
+3. 人が構成案を確認し、必要に応じて調整する
+4. ドキュメント、クイズ、Manifest を生成する
+5. 本文品質と読み補正品質をチェックする
+6. 修正候補を確認して保存する
+7. 音声化し、録音状態を確認する
+8. Manifest URL または QR コードで共有する
+
+## Architecture
+
+### System Architecture
+
+![Sokqa Studio system architecture](docs/images/sokqa-studio-architecture.png)
+
+Sokqa Studio は、HTML/JavaScript フロントエンド、FastAPI バックエンド、Google Cloud を組み合わせた制作支援システムです。
+
+| Area | Role |
+| --- | --- |
+| Frontend | `web/index.html` が生成、品質チェック、録音、共有の操作画面を提供します。 |
+| Backend | FastAPI が計画作成、生成、品質チェック、録音、パック管理の API を提供します。 |
+| Storage | local と Google Cloud Storage に対応し、生成物と Manifest を保存します。 |
+| LLM | Google GenAI / Vertex AI 経由で Gemini を利用できます。mock provider も用意されています。 |
+| Cloud | GitHub Actions から Cloud Run へデプロイする構成です。 |
+
+制作フローの中では、主に次の役割が連携します。
+
+- **Planner**: 教材パックの構成案を作成します。
+- **Generator**: ドキュメント、クイズ、Manifest を生成します。
+- **Quality**: 本文と読み補正の品質問題を検出し、修正候補を作ります。
+- **TTS**: 読み上げ用テキストの補正と音声生成を扱います。
+
+詳細な仕様は `docs/SPEC.md` と `docs/AGENT_DESIGN.md` を参照してください。
+
+## Tech Stack
+
+| Technology | Purpose |
+| --- | --- |
+| Python | バックエンド実装 |
+| FastAPI | API と Web UI 配信 |
+| HTML / JavaScript | フロントエンド |
+| Google GenAI / Vertex AI | Gemini による計画、生成、品質チェック、補正 |
+| Google Cloud Text-to-Speech | 音声生成 |
+| Google Cloud Storage | 生成物と Manifest の保存 |
+| Cloud Run | アプリケーション実行環境 |
+| GitHub Actions | main ブランチへの push と手動実行による Cloud Run デプロイ |
+| pytest | 自動テスト |
+
+## Local Setup
+
+### Install
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`.
+### Environment Variables
 
-## Quick Flow
+設定値は `.env.example` と `app/config.py` で確認できます。主な環境変数は次の通りです。
 
-1. Call `POST /plan-pack` with `scale: "quick"`.
-2. Review/edit the returned plan.
-3. Call `POST /generate-pack` with the plan.
-4. Read the manifest from `GET /jobs/{jobId}/manifest`.
-5. If device testing finds a TTS issue later, call `POST /debug/revise-tts` with extra reading rules. The agent keeps display content fixed, regenerates TTS fields, and bumps the manifest patch version.
-
-Generated local files are saved under `generated/{pack_id}` by default.
-
-## Practical Two-Step Flow
-
-The intended production flow is two steps:
-
-```text
-POST /plan-pack
-  theme / targetUser / difficulty / documentCount / quizPacks
-  -> returns CoursePlan
-
-Review or edit CoursePlan
-
-POST /generate-pack
-  plan: CoursePlan
-  -> generates document JSON, quiz JSON, and manifest.json
+```env
+APP_ENV
+SOKQA_AUTHOR
+PUBLIC_BASE_URL
+STORAGE_BACKEND
+LOCAL_STORAGE_DIR
+TTS_RULES_PATH
+TTS_USER_RULES_PATH
+TTS_READING_MODE
+TTS_CREDIT_PER_CHAR
+CLOUD_TTS_LANGUAGE_CODE
+CLOUD_TTS_VOICE
+CLOUD_TTS_SPEAKING_RATE
+CLOUD_TTS_PITCH
+CLOUD_TTS_MAX_CONCURRENCY
+CLOUD_TTS_RECORDING_REQUEST_MAX_UNITS
+GCS_BUCKET
+GCS_PREFIX
+DEFAULT_CREATOR_ID
+ALLOWED_MANIFEST_DOMAINS
+GEMINI_PROVIDER
+GEMINI_MODEL
+GEMINI_MODEL_DOC
+GEMINI_MODEL_QUIZ
+GEMINI_MODEL_PLANNER
+GEMINI_MODEL_QUALITY
+GEMINI_MODEL_FIX
+GOOGLE_CLOUD_PROJECT
+GOOGLE_CLOUD_LOCATION
+GOOGLE_GENAI_USE_VERTEXAI
 ```
 
-### 1. Create a Plan
-
-Example: IT Passport study pack.
-
-```json
-{
-  "theme": "ITパスポート試験対策",
-  "targetUser": "IT初心者の社会人・試験直前の学習者",
-  "difficulty": "beginner",
-  "scale": "standard",
-  "language": "ja",
-  "includeTts": true,
-  "documentCount": 10,
-  "quizPacks": [
-    {
-      "id": "quiz_key_concepts",
-      "title": "基礎理解チェック",
-      "purpose": "key_concepts",
-      "questionCount": 30,
-      "difficulty": "beginner"
-    },
-    {
-      "id": "quiz_application",
-      "title": "実践理解チェック",
-      "purpose": "application",
-      "questionCount": 30,
-      "difficulty": "standard"
-    },
-    {
-      "id": "quiz_integrated_review",
-      "title": "総合復習クイズ",
-      "purpose": "integrated_review",
-      "questionCount": 30,
-      "difficulty": "standard"
-    }
-  ],
-  "userTtsRules": [
-    { "source": "IT", "reading": "アイティー" },
-    { "source": "API", "reading": "エーピーアイ" },
-    { "source": "SQL", "reading": "エスキューエル" }
-  ]
-}
-```
-
-### 2. Generate a Pack
-
-Use the full JSON returned by `/plan-pack` as `plan`.
-
-```json
-{
-  "plan": {
-    "...": "CoursePlan returned from /plan-pack"
-  },
-  "outputMode": "manifest",
-  "persist": true
-}
-```
-
-Expected output files:
-
-```text
-generated/{pack_id}/doc_01.json
-generated/{pack_id}/doc_02.json
-generated/{pack_id}/{pack_id}_quiz_key_concepts.json
-generated/{pack_id}/manifest.json
-```
-
-Standard mode creates 10 document files, 3 quiz files, and `manifest.json`.
-
-### Source Text
-
-`/plan-pack` and `/generate-pack` accept optional source material fields for pasted text references:
-
-```json
-{
-  "theme": "社内手順の学習",
-  "targetUser": "新入社員",
-  "sourceText": "ここに参考資料テキストを貼り付けます。",
-  "sourceMode": "document_reference"
-}
-```
-
-- `sourceText` empty or omitted: use the existing theme-only generation flow.
-- `sourceText` present and `sourceMode` omitted: defaults to `document_reference`.
-- `document_only`: generate the outline and document content only from the pasted material; do not add facts or terms that are absent from it.
-- `document_reference`: use the pasted material as the primary foundation and supplement it when useful without drifting from its intent.
-
-`sourceText` and `sourceMode` are internal generation inputs. They are not written into generated Sokqa document, quiz, or manifest JSON files.
-
-### Manifest Shape
-
-`generated/{pack_id}/manifest.json` uses the Sokqa pack manifest format:
-
-```json
-{
-  "id": "pack_git_manifest_01",
-  "type": "pack_manifest",
-  "schemaVersion": 1,
-  "title": "Git 基礎講座（12ドキュメント + 3クイズ）",
-  "globalTags": ["Git", "Git基礎講座", "一括インポート"],
-  "description": "Git基礎講座を一括でインポートするためのマニフェストです。",
-  "language": "ja",
-  "author": "Sokqa Team",
-  "items": [
-    {
-      "kind": "document",
-      "url": "https://convly.jp/sokqa/data/it-dev/git/doc_git_01.json"
-    },
-    {
-      "kind": "quiz",
-      "url": "https://convly.jp/sokqa/data/it-dev/git/quiz_git_01.json"
-    }
-  ]
-}
-```
-
-Local development uses:
-
-```text
-PUBLIC_BASE_URL/{pack_id}/{filename}
-```
-
-For example:
-
-```text
-http://localhost:8000/generated/it/doc_01.json
-```
-
-### Local Verification
-
-1. Start the API.
+### Run
 
 ```bash
 uvicorn main:app --reload
 ```
 
-2. Open Swagger.
+ローカルでは `http://127.0.0.1:8000/` で Studio UI、`http://127.0.0.1:8000/docs` で Swagger UI を開けます。
 
-```text
-http://127.0.0.1:8000/docs
-```
+Dockerfile では Cloud Run 向けに `uvicorn main:app --host 0.0.0.0 --port 8080` で起動します。
 
-3. Call `/plan-pack` with one of the Swagger examples.
-4. Copy the response into `/generate-pack`.
-5. Check generated files under `generated/{pack_id}/`.
-
-Expected logs:
-
-```text
-Document doc_01 generated by Gemini
-Document doc_02 generated by Gemini
-Quiz quiz_key_concepts generated by Gemini
-local saved: doc_01.json
-local saved: doc_02.json
-local saved: {pack_id}_quiz_key_concepts.json
-local saved: manifest.json
-```
-
-## Storage
-
-Default storage is local. For Cloud Storage:
-
-```env
-STORAGE_BACKEND=gcs
-GCS_BUCKET=your-bucket
-GCS_PREFIX=sokqa/packs
-PUBLIC_BASE_URL=https://cdn.convly.jp/sokqa/packs
-```
-
-The app should only import manifest URLs from Sokqa-managed domains.
-
-## TTS Dictionaries
-
-TTS reading rules are split into two configured dictionary files plus plan-specific rules.
-
-```env
-TTS_RULES_PATH=tts_rules.json
-TTS_USER_RULES_PATH=tts_user_rules.json
-TTS_READING_MODE=rule
-```
-
-- System dictionary: `TTS_RULES_PATH`. Shared rules shipped with the repository, such as `Sokqa -> ソッカ` and `git init -> ギット イニット`. Keep only context-independent fixed readings here.
-- User dictionary: `TTS_USER_RULES_PATH`. Local/user-maintained rules for device differences, private terms, project-specific readings, context-dependent readings, or preference-dependent readings.
-- Plan rules: `plan.ttsRules`, usually from the request or later TTS revision flow.
-
-Rules are merged in this order, with later sources overriding earlier ones:
-
-```text
-system dictionary -> user dictionary -> plan.ttsRules
-```
-
-If either dictionary file is missing or empty, it is treated as an empty dictionary and generation continues.
-
-Do not put generic numeric/counter/time/age replacements such as `1本`, `1時`, `9時`, or `20歳` in the system dictionary. Those readings depend on context and should be left to the device TTS engine unless a user adds a narrow user dictionary rule for their own pack.
-
-Replacement is applied after dictionary merging, with longer `source` strings applied first. This prevents shorter rules from breaking more specific rules, such as `git` before `git init` or `.git` before `.gitignore`.
-
-The system dictionary may include context-independent file and extension readings that are useful for technical learning packs, such as `.git`, `.gitignore`, `.env`, and `.json`. Casing remains significant: uppercase `JSON` is treated as the general term `ジェイソン`, while lowercase file extension `.json` is treated as `ドット ジェイソン`.
-
-Acronym rules are device-dependent and should be kept only when real-device checks, using iPhone as the baseline, show unstable or incorrect readings.
-
-Japanese misreadings with a single correct reading, such as `設定値 -> せっていち`, belong in the system dictionary; context-dependent or preference-dependent readings, such as `20歳 -> にじゅっさい/はたち`, belong in the user dictionary.
-
-Device TTS improves over time, so rules that become unnecessary should be periodically rechecked on real devices and removed from the dictionary.
-
-TTS reading generation is controlled separately from whether TTS is enabled:
-
-```text
-enableTtsOptimize=false -> no TTS fields are added
-enableTtsOptimize=true  -> use ttsReadingMode
-```
-
-`ttsReadingMode` can be set by `.env` as `TTS_READING_MODE` or per `/generate-pack` request. Supported modes:
-
-- `rule`: dictionary replacement only. This is fastest and cheapest, and never calls Gemini during TTS optimization.
-- `llm`: sends selected text to Gemini to produce reading-friendly `tts` text, then applies system/user/plan dictionary correction.
-- `auto`: starts with `rule`, runs a rule-based TTS report, and only sends problematic items such as `ドット ギットconfig` or raw `.` leftovers to Gemini.
-
-Gemini reading prompts treat a dot as `ドット` only for dot-prefixed ASCII words such as `.gitignore`. Sentence periods and Japanese full stops are normalized to `、`, and numeric dots such as `1.2` are not treated as file-name dots.
-
-## Gemini Hook
-
-The MVP uses deterministic mock generators by default. When `GEMINI_PROVIDER=gemini`,
-document and quiz generation try Gemini first, then fall back to the deterministic mock
-generators if the call fails.
-
-The Gemini boundary is in `app/services/gemini_client.py` and prompt builders live in
-`app/services/prompts.py`.
-
-Set these when wiring real generation:
-
-```env
-GEMINI_PROVIDER=gemini
-GEMINI_MODEL=gemini-3-flash-preview
-GEMINI_MODEL_DOC=gemini-3-flash-preview
-GEMINI_MODEL_QUIZ=gemini-3-flash-preview
-GEMINI_MODEL_PLANNER=gemini-3-flash-preview
-GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
-GOOGLE_CLOUD_LOCATION=global
-GOOGLE_GENAI_USE_VERTEXAI=true
-```
-
-`GEMINI_MODEL` is kept for backward compatibility. If a task-specific model is not set,
-the app falls back to `GEMINI_MODEL`.
-
-Task-specific model usage:
-
-```text
-GEMINI_MODEL_PLANNER -> /plan-pack planning model reservation
-GEMINI_MODEL_DOC     -> document generation
-GEMINI_MODEL_QUIZ    -> quiz generation
-```
-
-At startup, the API logs the provider and all three task model names so you can confirm
-that `.env` changes were picked up after restart.
-
-You can also override models per request. `model` applies to planner/document/quiz unless
-the task-specific fields are set:
-
-```json
-{
-  "model": "gemini-3.5-flash",
-  "docModel": "gemini-3-flash-preview",
-  "quizModel": "gemini-3.5-flash",
-  "plannerModel": "gemini-3-flash-preview"
-}
-```
-
-For local Google auth, use Application Default Credentials:
+### Test
 
 ```bash
-gcloud auth application-default login
-gcloud config set project YOUR_PROJECT_ID
+python -m pytest tests/ --basetemp .pytest_tmp -ra
 ```
 
-Then verify the connection:
+## Deployment
 
-```bash
-curl http://127.0.0.1:8000/debug/test-gemini
-```
+デプロイは GitHub Actions で定義されています。
 
-Or run the direct client test:
+- Workflow: `.github/workflows/deploy-cloud-run.yml`
+- Trigger: `main` ブランチへの push、または手動実行
+- Deploy target: Cloud Run
+- Cloud Run サービス名: `sokqa-course-pack-agent`
+- Region: `asia-northeast1`
+- Auth: Workload Identity Provider と Service Account を GitHub Secrets から利用
 
-```bash
-python scripts/test_gemini_connection.py
-```
+README 上のプロジェクト名は `Sokqa Studio` ですが、Cloud Run サービス名は現在 `sokqa-course-pack-agent` として定義されています。
 
-## Compare Gemini Document Models
+## Related Project
 
-Run the same document-generation task across multiple Gemini models without editing `.env`:
+Sokqa Studio は、学習アプリ **Sokqa** 向けの学習パック制作ツールです。
 
-```bash
-python scripts/compare_gemini_document_models.py --sections 50
-```
+Studio で作成した学習パックは Sokqa アプリへインポートできます。Sokqa アプリはログイン不要で、端末内に保存した学習パックを使ってローカル完結・オフライン学習できます。
 
-Optional:
+- Sokqa App: https://convly.jp/sokqa/
 
-```bash
-python scripts/compare_gemini_document_models.py --theme "Git基礎講座" --sections 50 --models gemini-2.5-flash gemini-3-flash-preview gemini-3.5-flash
-```
+## Hackathon
 
-The script prints a comparison table and saves each generated document JSON under
-`model_comparison_outputs/`.
+Sokqa Studio は、教材制作を単発の生成ではなく、設計、生成、確認、音声化、共有まで続くワークフローとして扱うために作りました。
+
+Cloud Run と GitHub Actions によるデプロイ構成を採用し、AIを使った制作体験と運用しやすい開発フローの両方を意識しています。DevOps × AI Agent Hackathon 提出作品です。

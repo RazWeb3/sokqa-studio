@@ -2740,6 +2740,19 @@
               </article>
             `).join("")
           : `<p class="muted">パックがありません。</p>`;
+        syncPackSelectionHighlight();
+      }
+
+      function syncPackSelectionHighlight() {
+        $$("#packList .pack-option").forEach((option) => {
+          option.classList.remove("active");
+          if (!selectedPack) return;
+          const isSelected = Array.from(option.querySelectorAll("[data-pack-key]")).some((button) => {
+            const pack = findPackFromButton(button);
+            return packIdentityMatches(pack, selectedPack, false);
+          });
+          if (isSelected) option.classList.add("active");
+        });
       }
 
       function findPackFromButton(button) {
@@ -2837,6 +2850,7 @@
         updateStatusBadges();
         updateQualityWorkflowUI();
         if (switchTab) setTab(switchTab);
+        syncPackSelectionHighlight();
         closePackModal();
         finishProgress("対象パック", `${pack.title || pack.packName} を対象にしました。`);
       }
@@ -2859,6 +2873,7 @@
         updateGlobalStatus();
         updateStatusBadges();
         updateQualityWorkflowUI();
+        syncPackSelectionHighlight();
         updateSelectedEstimate();
         if ($("versionModal").classList.contains("open")) {
           $("versionInfoBody").innerHTML = `<p class="muted">対象パックを選択してください。</p>`;

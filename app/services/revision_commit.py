@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from app.config import get_settings
@@ -93,7 +93,7 @@ def build_revision_commit(
     revision = (current_manifest.revision + 1) if current_manifest else 1
     version_id = generate_version_id(now)
     build_id = generate_build_id(version_id)
-    generated_at = (now or datetime.now().astimezone()).isoformat(timespec="seconds")
+    generated_at = (now or datetime.now(timezone(timedelta(hours=9)))).isoformat(timespec="seconds")
     item_list = _ordered_items(current_manifest.items if current_manifest else [], items, request.addedFiles)
     change = ManifestChange(
         operation=request.operation,

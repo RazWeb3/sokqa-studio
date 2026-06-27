@@ -3851,7 +3851,7 @@
           </div>
           <p class="muted" id="openShareInfoHint"></p>
           <div id="autoTextQualityResult" class="stack"><div class="applied"><strong>品質チェック</strong><span>${isAutoQualityFixEnabled() ? "生成成功後に実行します。" : "自動品質チェックはOFFです。"}</span></div></div>
-          <div class="actions"><a class="button" href="/jobs/${escapeHtml(generated.jobId)}" target="_blank" rel="noreferrer">job JSONを見る</a><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
+          <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
           <ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`;
         if (!selectedPack?.manifestUrl && manifestUrl) {
           $("openShareInfoHint").textContent = "生成結果を対象パックとして選択するとURL・QRを表示できます。";

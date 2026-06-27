@@ -1,60 +1,54 @@
-# Sokqa Studio - AIエージェントで教材制作を支援するプラットフォーム
+# Sokqa Studio
 
-## Overview
+![Sokqa Studio Hero](docs/images/sokqa-studio-hero.png)
 
-### Project
+## 概要
 
-AIが教材制作の各工程を支援し、人は内容の確認や修正に集中できる制作プラットフォームです。
+**Sokqa Studio** は、AIエージェントで教材制作を支援する Web プラットフォームです。  
+テーマを入力するだけで、教材設計・生成・品質チェック・音声化・QR/Manifest共有までを一括で行えます。
 
-企画から教材設計、生成、品質チェック、音声化までを段階的に支援します。
+AIが各工程を支援し、人は内容の確認と修正に集中できます。
 
-Sokqa Studio は、Sokqa 向けの学習パックを作るための Web スタジオです。AIチャットでも教材の一部は作れますが、教材制作全体を進めるには、設計、生成、確認、音声化、共有を手作業でつなぐ必要があります。
+## 主な特徴
 
-Sokqa Studio では、テーマを決めるだけで教材制作を開始できます。教材の構成案を作り、ドキュメントやクイズを生成し、品質チェックと修正、読み上げ用テキストの最適化、音声録音、Manifest による共有までをひとつの制作ラインとして扱います。
-
-### Problem
-
-教材制作は、本文やクイズを生成して終わる作業ではありません。教材設計、生成、品質確認、音声化、共有まで続く工程があり、それぞれの結果を確認しながら次の工程へ進める必要があります。
-
-AIチャットだけでこのワークフロー全体を効率よく進めようとすると、プロンプト、出力管理、品質確認、音声化、共有準備が分断されます。そのため、作る人が工程ごとのつなぎ込みや確認作業に時間を使いやすくなります。
-
-### Solution
-
-Sokqa Studio は、テーマを決めるだけで教材制作を開始できるようにします。教材設計、生成、品質確認、音声化、Manifest、QRコード、URL共有までを一つの制作ワークフローとして扱います。
-
-人は生成結果を確認し、必要な修正を判断し、学習者に届ける品質へ改善することに集中できます。
-
-## Demo
-
-スクリーンショットは後日追加予定です。
-
-システム構成図は Architecture セクションに掲載しています。
-
-現時点では、アプリケーション本体は `web/index.html` を FastAPI から配信し、生成、品質チェック、録音、URL/QR 共有までの操作画面を提供しています。
-
-## Features
-
-- **AIによる教材設計**: テーマ、対象ユーザー、難易度などから教材パックの構成案を作成します。
-- **ドキュメント・クイズの一括生成**: 構成案をもとに Sokqa の document / quiz JSON と Manifest を生成します。
-- **品質チェック**: 生成済みパックの本文品質と読み補正品質を確認します。
-- **音声教材生成**: 読み上げ用テキストを補正し、Google Cloud Text-to-Speech で音声を生成します。
-- **QRコード共有**: Manifest URL を QR コードとして表示し、Sokqa アプリへ渡す導線を提供します。
-- **Learning Pack 出力**: Document、Quiz、Manifest、Audio をまとめて学習パックとして扱えます。
+- **AIによる教材設計**: テーマ、対象ユーザー、難易度から構成案を作成
+- **ドキュメント・クイズの一括生成**: Sokqa 形式の document / quiz JSON と Manifest を生成
+- **品質チェック**: 本文品質と読み補正品質を確認
+- **音声教材生成**: 読み上げ用テキストを補正し、Google Cloud Text-to-Speech で音声を生成
+- **QRコード共有**: Manifest URL を QR コード化し、Sokqa アプリへ導線を提供
+- **Learning Pack 出力**: Document、Quiz、Manifest、Audio をまとめて学習パックとして管理
 
 ## Workflow
 
-企画 → 教材設計 → 生成 → 品質チェック → 音声化
+Sokqa Studioでは、教材制作を次の4ステップで進めます。
 
-Sokqa Studio の基本的な制作フローは次の通りです。
+教材制作は「生成 → 品質チェック → 録音」の流れで進めます。学習パックは生成直後から共有でき、品質チェックや録音後もいつでも共有できます。
 
-1. テーマや対象ユーザーを入力する
-2. AI が教材構成案を作る
-3. 人が構成案を確認し、必要に応じて調整する
-4. ドキュメント、クイズ、Manifest を生成する
-5. 本文品質と読み補正品質をチェックする
-6. 修正候補を確認して保存する
-7. 音声化し、録音状態を確認する
-8. Manifest URL または QR コードで共有する
+### 1. Generate Learning Pack
+
+学習テーマを入力するだけで、AIが教材構成を設計し、ドキュメント・クイズを生成します。
+
+![Generate Learning Pack](docs/images/01-generate-learning-pack.png)
+
+### 2. Share Learning Pack
+
+生成完了後はすぐにQRコードまたは共有URLを利用して学習パックを配布できます。  
+品質チェックや録音は必要に応じて実行できます。
+
+![Share Learning Pack](docs/images/02-share-learning-pack.png)
+
+### 3. Quality Check & Fix
+
+AIが本文・クイズ・読み上げテキストをチェックし、必要に応じて修正候補を提案します。
+
+![Quality Check & Fix](docs/images/03-quality-check-and-fix.png)
+
+### 4. Generate Audio
+
+Cloud Text-to-Speechを利用して録音対象を一括音声化します。  
+高品質なMP3を教材へ反映できます。
+
+![Generate Audio](docs/images/04-recording-workflow.png)
 
 ## Architecture
 
@@ -183,3 +177,7 @@ Studio で作成した学習パックは Sokqa アプリへインポートでき
 Sokqa Studio は、教材制作を単発の生成ではなく、設計、生成、確認、音声化、共有まで続くワークフローとして扱うために作りました。
 
 Cloud Run と GitHub Actions によるデプロイ構成を採用し、AIを使った制作体験と運用しやすい開発フローの両方を意識しています。DevOps × AI Agent Hackathon 提出作品です。
+
+## License
+
+MIT License

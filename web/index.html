@@ -2621,7 +2621,13 @@
         if (!container) return;
         container.innerHTML = "";
         if (!text) return;
-        if (window.QRCode) new QRCode(container, { text, width: 180, height: 180 });
+        if (window.QRCode) new QRCode(container, {
+          text,
+          width: 180,
+          height: 180,
+          typeNumber: 0, // auto: qrcodejs picks the smallest version that fits the data
+          correctLevel: QRCode.CorrectLevel.M, // ~15% redundancy; balance capacity & scan reliability
+        });
       }
 
       function updateVersionQrSection() {
@@ -2679,7 +2685,13 @@
           <div class="qr-box"><div id="importQrCode"></div><p class="muted">Sokqaアプリで読み込むと同一contentIdのパックを最新リビジョンで更新します。</p></div>
           <div class="url"><code id="importUrlText">${escapeHtml(importUrl)}</code><button class="secondary" id="copyImportUrlBtn" type="button">URLコピー</button></div>
         `;
-        if (window.QRCode) new QRCode($("importQrCode"), { text: importUrl, width: 180, height: 180 });
+        if (window.QRCode) new QRCode($("importQrCode"), {
+          text: importUrl,
+          width: 180,
+          height: 180,
+          typeNumber: 0,
+          correctLevel: QRCode.CorrectLevel.M,
+        });
         $("copyImportUrlBtn")?.addEventListener("click", async () => navigator.clipboard?.writeText(importUrl));
       }
 

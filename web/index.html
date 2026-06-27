@@ -1184,6 +1184,7 @@
         $$("[data-generation-view-panel]").forEach((panel) => {
           panel.hidden = panel.dataset.generationViewPanel !== activeGenerationView;
         });
+        scrollContentToTop();
       }
 
       function updateGenerateActionBar() {
@@ -1981,11 +1982,19 @@
         el.textContent = text;
       }
 
+      function scrollContentToTop() {
+        const main = document.querySelector("main");
+        if (main) main.scrollTop = 0;
+        const qualityResults = document.querySelector(".quality-results");
+        if (qualityResults) qualityResults.scrollTop = 0;
+      }
+
       function setTab(name) {
         activeTab = name;
         $$(".tab").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
         $$(".tab-panel").forEach((panel) => { panel.hidden = panel.id !== `tab-${name}`; });
         if (name === "quality") setQualityResultPane(activeQualityView);
+        scrollContentToTop();
       }
 
       function updateGlobalStatus() {
@@ -2081,6 +2090,7 @@
           : "読み補正の品質チェック指摘、未適用の警告、補正結果を表示します。";
         $("qualityPanelBadge").hidden = activeQualityView !== "tts";
         updateQualityActionBar();
+        scrollContentToTop();
       }
 
       function setRecordView(mode) {
@@ -2105,6 +2115,7 @@
             : "削除対象を選択します。削除後は録音タブで再収録できます。";
         renderUnits();
         updateRecordActionBar();
+        scrollContentToTop();
       }
 
       function togglePackImportFields(force = null) {

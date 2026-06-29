@@ -50,7 +50,7 @@ class PlanQuizPack(BaseModel):
     questionCount: int = Field(..., ge=1, le=30)
     difficulty: Difficulty = "standard"
     sourceDocumentIds: list[str] = Field(default_factory=list)
-    choiceLanguageMode: Literal["pack", "learning", "auto"] = "auto"
+    choiceLanguageMode: Literal["pack", "learning", "auto"] = "pack"
 
 
 class CoursePlan(BaseModel):
@@ -246,7 +246,7 @@ class SokqaQuizPack(BaseModel):
     description: str = ""
     language: str = "ja"
     learningLanguage: str | None = None
-    choiceLanguageMode: Literal["pack", "learning", "auto"] = "auto"
+    choiceLanguageMode: Literal["pack", "learning", "auto"] = "pack"
     author: str | None = None
     assetBaseUrl: str | None = None
     globalTags: list[str] = Field(default_factory=list)

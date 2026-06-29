@@ -116,9 +116,9 @@ def test_planner_defaults_quiz_choice_language_mode_to_learning_when_learning_la
         PlanPackRequest(theme="Git", targetUser="社会人", scale="quick", generationUnit="quiz")
     )
 
-    assert inferred.quizPacks[0].choiceLanguageMode == "learning"
-    assert explicit.quizPacks[0].choiceLanguageMode == "learning"
-    assert without_learning.quizPacks[0].choiceLanguageMode == "auto"
+    assert inferred.quizPacks[0].choiceLanguageMode == "pack"
+    assert explicit.quizPacks[0].choiceLanguageMode == "pack"
+    assert without_learning.quizPacks[0].choiceLanguageMode == "pack"
 
 
 def test_planner_preserves_explicit_quiz_choice_language_mode(monkeypatch) -> None:

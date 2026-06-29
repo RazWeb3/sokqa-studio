@@ -202,7 +202,7 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert "クイズ選択肢の表示言語" in html
     assert "Quiz ${quizIndex + 1}" in html
     assert "function normalizeQuizChoiceLanguageModes(plan)" in html
-    assert 'return plan?.learningLanguage ? "learning" : "auto";' in html
+    assert 'return "pack";' in html
     assert 'type="radio"' in html
     assert "select.disabled = !active;" in html
     assert 'select.title = active ? "" : "「言語を選ぶ」を選んだ時だけ有効です。";' in html

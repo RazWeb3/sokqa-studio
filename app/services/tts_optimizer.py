@@ -325,6 +325,7 @@ Create a Sokqa TTS reading text for the fixed source text.
 Rules:
 - Preserve the meaning and sentence order.
 - Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
+- This kana conversion is only for pronunciation-sensitive terms, acronyms, symbols, and proper nouns. Do not transliterate a full English sentence or phrase into katakana; keep English phrases in the original English text.
 - A dot is read as "ドット" only when it is immediately followed by an ASCII letter, matching \\.[a-zA-Z].
 - Keep the original Japanese punctuation as-is. Do not convert sentence-ending "。" to "、", and do not add or remove punctuation.
 - A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
@@ -358,6 +359,7 @@ def _tts_reading_rules_block(rules: list[TtsRule]) -> str:
 Rules:
 - Preserve the meaning and sentence order.
 - Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
+- This kana conversion is only for pronunciation-sensitive terms, acronyms, symbols, and proper nouns. Do not transliterate a full English sentence or phrase into katakana; keep English phrases in the original English text.
 - A dot is read as "ドット" only when it is immediately followed by an ASCII letter, matching \\.[a-zA-Z].
 - Keep the original Japanese punctuation as-is. Do not convert sentence-ending "。" to "、", and do not add or remove punctuation.
 - A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
@@ -623,6 +625,7 @@ Create Sokqa TTS reading texts for one fixed quiz question.
 Quiz punctuation rules:
 - Keep questionText and explanationText punctuation as natural speech cues. Do not remove sentence-final "?", "？", "!", "！", "." or Japanese punctuation.
 - Choice readings are independent tracks. Do not add trailing separator commas to choice texts, but keep meaningful final ".", "?", "？", "!", and "！".
+- For English learning phrases, keep the original English text. In multilingual mode, output English spans as [en-US]original English[ja-JP] when returning to Japanese. Bad: [en-US]ウィッチ グリーティング... Good: [en-US]Which greeting is...[ja-JP]
 
 {_language_tag_rules(language, allow_language_tags)}
 
@@ -896,6 +899,7 @@ Create Sokqa TTS reading texts for the fixed quiz questions.
 Quiz punctuation rules:
 - Keep questionText and explanationText punctuation as natural speech cues. Do not remove sentence-final "?", "？", "!", "！", "." or Japanese punctuation.
 - Choice readings are independent tracks. Do not add trailing separator commas to choice texts, but keep meaningful final ".", "?", "？", "!", and "！".
+- For English learning phrases, keep the original English text. In multilingual mode, output English spans as [en-US]original English[ja-JP] when returning to Japanese. Bad: [en-US]ウィッチ グリーティング... Good: [en-US]Which greeting is...[ja-JP]
 
 {_language_tag_rules(language, allow_language_tags)}
 

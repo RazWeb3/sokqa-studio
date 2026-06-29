@@ -213,6 +213,7 @@ Rules:
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
 - Do not add pronunciation-only parentheticals in body text; parentheses may be used only for meaning explanations, not readings.
+- Do not use square-bracket placeholders such as [場所], [名前], [出身地], or [商品] in learner-facing text because square brackets are reserved for TTS language tags. Use 〜 or ◯◯ for variable parts instead. Bad: "I'm from [出身地]." Good: "I'm from 〜."
 - Each text must be real explanatory learning content, not just a title or label.
 - {text_length_rule[2:]}
 - The documents[] array should follow the document's key points in order.{listening_rule}

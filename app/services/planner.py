@@ -190,7 +190,7 @@ def _range_quiz_pack_count(scale: str, document_count: int) -> int:
 
 
 def _default_choice_language_mode(learning_language: str | None) -> str:
-    return "learning" if learning_language else "auto"
+    return "pack"
 
 
 def _apply_requested_choice_language_modes(

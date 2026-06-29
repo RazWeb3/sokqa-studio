@@ -4,8 +4,9 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.schemas.sokqa import SokqaDocumentItem, SokqaDocumentPack
+from app.services.document_generator import generate_document_pack
 from app.services.gemini_client import GeminiClient
-from app.services.llm_json import parse_llm_json_or_raise
+from app.services.llm_json import LlmJsonParseError, parse_llm_json_or_raise
 from app.services.pack_agent import generate_pack, plan_pack
 from app.services.quiz_generator import generate_quiz_pack
 from main import app
@@ -122,3 +123,152 @@ def test_document_parse_failure_saves_raw_and_does_not_persist_pack(tmp_path, mo
     failed_dir = tmp_path / "tmp" / "failed_generations"
     assert list(failed_dir.glob("*_raw.txt"))
     assert not (tmp_path / "generated").exists()
+
+
+def test_document_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    sleep_calls = []
+    monkeypatch.setattr("app.services.document_generator.time.sleep", sleep_calls.append)
+
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="JSON再試行",
+            targetUser="学習者",
+            scale="quick",
+            docCount=1,
+            quizCount=0,
+            ttsReadingMode="none",
+        )
+    )
+    attempts = {"count": 0}
+
+    def flaky_generate_json(self, _prompt, **_kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise LlmJsonParseError("broken json", attempts=[{"method": "direct", "error": "broken json"}])
+        return {"documents": [{"text": "再試行後に成功した本文です。"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", flaky_generate_json)
+
+    pack = generate_document_pack(plan, plan.documents[0])
+
+    assert attempts["count"] == 2
+    assert sleep_calls == [0.5]
+    assert pack.documents[0].text == "再試行後に成功した本文です。"
+
+
+def test_document_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    sleep_calls = []
+    monkeypatch.setattr("app.services.document_generator.time.sleep", sleep_calls.append)
+
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="JSON再試行失敗",
+            targetUser="学習者",
+            scale="quick",
+            docCount=1,
+            quizCount=0,
+            ttsReadingMode="none",
+        )
+    )
+    attempts = {"count": 0}
+
+    def broken_generate_json(self, _prompt, **_kwargs):
+        attempts["count"] += 1
+        raise LlmJsonParseError("broken json", attempts=[{"method": "direct", "error": "broken json"}])
+
+    monkeypatch.setattr(GeminiClient, "generate_json", broken_generate_json)
+
+    with pytest.raises(RuntimeError, match="ドキュメント生成に失敗しました"):
+        generate_document_pack(plan, plan.documents[0])
+
+    assert attempts["count"] == 3
+    assert sleep_calls == [0.5, 1.5]
+
+
+def test_quiz_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    sleep_calls = []
+    monkeypatch.setattr("app.services.quiz_generator.time.sleep", sleep_calls.append)
+
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="JSON再試行",
+            targetUser="学習者",
+            scale="quick",
+            docCount=1,
+            quizCount=1,
+            ttsReadingMode="none",
+        )
+    )
+    source_document = SokqaDocumentPack(
+        id="doc_pack",
+        title="基礎",
+        language=plan.language,
+        documents=[SokqaDocumentItem(id="doc-1", text="二要素認証を確認します。")],
+    )
+    attempts = {"count": 0}
+
+    def flaky_generate_json(self, _prompt, **_kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise LlmJsonParseError("broken json", attempts=[{"method": "direct", "error": "broken json"}])
+        return {
+            "questions": [
+                {
+                    "question": "最も適切な説明はどれですか？",
+                    "choices": ["正答", "誤答1", "誤答2", "誤答3"],
+                    "answerIndex": 0,
+                    "explanation": "正答は本文の説明と一致します。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", flaky_generate_json)
+
+    pack = generate_quiz_pack(plan, plan.quizPacks[0], [source_document])
+
+    assert attempts["count"] == 2
+    assert sleep_calls == [0.5]
+    assert pack.questions[0].question == "最も適切な説明はどれですか？"
+
+
+def test_quiz_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    sleep_calls = []
+    monkeypatch.setattr("app.services.quiz_generator.time.sleep", sleep_calls.append)
+
+    plan = plan_pack(
+        PlanPackRequest(
+            theme="JSON再試行失敗",
+            targetUser="学習者",
+            scale="quick",
+            docCount=1,
+            quizCount=1,
+            ttsReadingMode="none",
+        )
+    )
+    source_document = SokqaDocumentPack(
+        id="doc_pack",
+        title="基礎",
+        language=plan.language,
+        documents=[SokqaDocumentItem(id="doc-1", text="二要素認証を確認します。")],
+    )
+    attempts = {"count": 0}
+
+    def broken_generate_json(self, _prompt, **_kwargs):
+        attempts["count"] += 1
+        raise RuntimeError("temporary backend failure")
+
+    monkeypatch.setattr(GeminiClient, "generate_json", broken_generate_json)
+
+    with pytest.raises(RuntimeError, match="クイズ生成に失敗しました"):
+        generate_quiz_pack(plan, plan.quizPacks[0], [source_document])
+
+    assert attempts["count"] == 3
+    assert sleep_calls == [0.5, 1.5]

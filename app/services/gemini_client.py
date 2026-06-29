@@ -52,30 +52,36 @@ class GeminiClient:
         try:
             response = client.models.generate_content(**request)
         except Exception as exc:
+            logger.warning("gemini.generate finish_reason=%s", None)
             logger.warning(
                 "gemini.generate_content_failed error_type=%s error=%s",
                 type(exc).__name__,
                 repr(exc),
             )
             raise
+        finish_reason = _finish_reason(response)
         text = getattr(response, "text", "") or ""
         if not text.strip():
             logger.warning(
                 "Gemini returned empty text. model=%s finish_reason=%s response=%r",
                 request["model"],
-                _finish_reason(response),
+                finish_reason,
                 repr(response)[:500],
             )
         else:
             logger.debug(
                 "Gemini raw text prefix. model=%s finish_reason=%s text=%r",
                 request["model"],
-                _finish_reason(response),
+                finish_reason,
                 text[:500],
             )
         context = parse_context or LlmJsonParseContext()
         context.model = context.model or request["model"]
-        parsed, method = parse_llm_json_or_raise(text, context)
+        try:
+            parsed, method = parse_llm_json_or_raise(text, context)
+        except Exception:
+            logger.warning("gemini.generate finish_reason=%s", finish_reason)
+            raise
         logger.debug("Gemini JSON parsed. model=%s method=%s", request["model"], method)
         return parsed
 

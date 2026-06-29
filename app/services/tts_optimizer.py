@@ -394,14 +394,34 @@ Language tag rules:
 """.strip()
 
 
-LANGUAGE_TAG_RE = re.compile(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]")
+LANGUAGE_TAG_RE = re.compile(r"\[[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*\]")
 XML_LANGUAGE_TAG_RE = re.compile(r"<lang\s+xml:lang=[\"']([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)[\"']\s*>", re.IGNORECASE)
 XML_LANGUAGE_CLOSE_RE = re.compile(r"</lang\s*>|\[/lang\]", re.IGNORECASE)
+BRACKET_LANGUAGE_CLOSE_RE = re.compile(r"\[/[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*\]")
 
 
 def _normalize_language_tag_markup(value: str) -> str:
     value = XML_LANGUAGE_TAG_RE.sub(lambda match: f"[{default_speech_language_code(match.group(1))}]", value)
-    return XML_LANGUAGE_CLOSE_RE.sub("", value)
+    value = XML_LANGUAGE_CLOSE_RE.sub("", value)
+    value = BRACKET_LANGUAGE_CLOSE_RE.sub("", value)
+    matches = list(LANGUAGE_TAG_RE.finditer(value))
+    if not matches:
+        return value
+    first_match = matches[0]
+    if first_match.start() == 0:
+        after = first_match.end()
+        while after < len(value) and value[after] == " ":
+            after += 1
+        value = value[: first_match.end()] + value[after:]
+        matches = list(LANGUAGE_TAG_RE.finditer(value))
+    if matches:
+        last_match = matches[-1]
+        if last_match.end() == len(value):
+            before = last_match.start()
+            while before > 0 and value[before - 1] == " ":
+                before -= 1
+            value = value[:before] + value[last_match.start() :]
+    return value
 
 
 def _language_tag(language: str | None) -> str:

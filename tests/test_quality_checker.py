@@ -130,6 +130,28 @@ def test_text_quality_prompt_limits_targets_and_excludes_tts_fields() -> None:
     assert "tts.questionText" in prompt
 
 
+def test_text_quality_prompt_disallows_square_bracket_placeholder_suggestions() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_quiz.json",
+        {
+            "type": "quiz",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "あなたの出身地を言ってください。",
+                    "choices": ["東京", "大阪", "名古屋", "福岡"],
+                    "explanation": "「私は〜出身です。」を使います。",
+                }
+            ],
+        },
+        50,
+        mode="text",
+    )
+
+    assert "square-bracket placeholders such as [名前], [場所], or [自分の名前]" in prompt
+    assert "Do not report the presence of 〜 or ◯◯ itself as a leak or style issue." in prompt
+
+
 def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatch) -> None:
     target = _write_document_pack(tmp_path, monkeypatch)
     settings = get_settings()
@@ -146,6 +168,31 @@ def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatc
         "tts_text_mismatch",
     }
     assert all(issue["severity"] != "high" for issue in data["issues"] if issue["category"] == "tts_text_mismatch")
+
+
+def test_tts_quality_prompt_declares_switch_tags_and_forbids_closing_tags() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_quiz.json",
+        {
+            "type": "quiz",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "Good morning はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "explanation": "朝の挨拶です。",
+                    "tts": {"choiceTexts": ["[en-US]Good morning"]},
+                }
+            ],
+        },
+        50,
+        mode="tts",
+    )
+
+    assert "The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]." in prompt
+    assert "Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa." in prompt
+    assert "square-bracket placeholders such as [名前], [場所], or [自分の名前]" in prompt
 
 
 def test_tts_quality_check_detects_missing_learning_language_choice_texts(monkeypatch) -> None:
@@ -458,6 +505,62 @@ def test_tts_quality_response_does_not_filter_non_reading_categories() -> None:
     )
 
     assert [issue.category for issue in response.issues] == ["tts_text_mismatch"]
+
+
+def test_quality_response_filters_same_excerpt_and_suggestion_after_normalization() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "短い フレーズ",
+                    "issue": "同じ内容を繰り返しています。",
+                    "suggestion": "短いフレーズ",
+                }
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+    )
+
+    assert response.issues == []
+
+
+def test_quality_response_filters_duplicate_location_and_excerpt() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-5", "field": "text"},
+                    "excerpt": "短いフレーズ",
+                    "issue": "少し冗長です。",
+                    "suggestion": "短い文にします。",
+                },
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.55,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-5", "field": "text"},
+                    "excerpt": "短いフレーズ",
+                    "issue": "ほぼ同じ指摘です。",
+                    "suggestion": "表現を簡潔にします。",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].issue == "少し冗長です。"
 
 
 def test_tts_quality_response_filters_already_corrected_choice_reading_issue() -> None:

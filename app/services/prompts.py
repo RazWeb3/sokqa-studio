@@ -318,6 +318,7 @@ Rules:
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 - Do not add pronunciation-only parentheticals in question, choices, or explanation; parentheses may be used only for meaning explanations, not readings.
+- Do not use square-bracket placeholders such as [場所], [名前], [出身地], or [商品] in learner-facing text because square brackets are reserved for TTS language tags. Use 〜 or ◯◯ for variable parts instead. Bad: "I'm from [出身地]." Good: "I'm from 〜."
 - Every question must be grounded in the quiz context.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".

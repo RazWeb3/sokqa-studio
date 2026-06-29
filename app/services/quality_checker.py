@@ -143,6 +143,16 @@ def _quality_response_from_data(
             filtered_count = before_count - len(issues)
             if filtered_count:
                 _logger.info("quality_check.filtered_already_corrected_reading_issues count=%s file=%s", filtered_count, file_name)
+    before_count = len(issues)
+    issues = [issue for issue in issues if not _is_same_excerpt_and_suggestion_issue(issue)]
+    filtered_count = before_count - len(issues)
+    if filtered_count:
+        _logger.info("quality_check.filtered_same_excerpt_suggestion_issues count=%s file=%s", filtered_count, file_name)
+    before_count = len(issues)
+    issues = _dedupe_quality_issues(issues)
+    filtered_count = before_count - len(issues)
+    if filtered_count:
+        _logger.info("quality_check.filtered_duplicate_issues count=%s file=%s", filtered_count, file_name)
     truncated = bool(data.get("truncated")) or input_truncated or len(issues) > max_issues
     return QualityCheckResponse(
         fileName=str(data.get("fileName") or file_name),
@@ -429,6 +439,32 @@ def _normalize_reading_match_text(value: str) -> str:
     return "".join(char for char in normalized if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】")
 
 
+def _is_same_excerpt_and_suggestion_issue(issue: QualityIssue) -> bool:
+    normalized_excerpt = _normalize_reading_match_text(issue.excerpt)
+    normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
+    return bool(normalized_excerpt and normalized_excerpt == normalized_suggestion)
+
+
+def _quality_issue_dedupe_key(issue: QualityIssue) -> tuple[str, str, str]:
+    return (
+        str(issue.location.unitId or ""),
+        str(issue.location.field or ""),
+        unicodedata.normalize("NFKC", issue.excerpt).strip(),
+    )
+
+
+def _dedupe_quality_issues(issues: list[QualityIssue]) -> list[QualityIssue]:
+    seen: set[tuple[str, str, str]] = set()
+    deduped: list[QualityIssue] = []
+    for issue in issues:
+        key = _quality_issue_dedupe_key(issue)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(issue)
+    return deduped
+
+
 def _quality_prompt(file_name: str, content: dict[str, Any], max_issues: int, *, mode: str) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     truncated = len(source_json) > MAX_QUALITY_INPUT_CHARS
@@ -450,6 +486,11 @@ TTS null rules:
 
 TTS fix suggestion rules:
 - TTS suggestions are limited to pronunciation/readability changes: readings, kana/phonetic spelling, symbol readings, and language tags.
+- The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]. Each language span continues until the next tag, and each new item starts in the default pack language automatically.
+- Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa. Never suggest converting a switch tag into any [/...] closing tag.
+- If the input already contains a [/...] closing tag, treat it as an invalid tag markup. Prefer the canonical switch-tag format or simple removal, and do not over-report minor tag cleanup.
+- Treat the presence or absence of a trailing default-language return tag at the very end of a text item as a non-issue.
+- In learner-facing text, 〜 and ◯◯ are the correct placeholder forms. Do not suggest square-bracket placeholders such as [名前], [場所], or [自分の名前], because square brackets are reserved for TTS language tags.
 - Never change the original word, vocabulary, meaning, answer, quantity, proper noun, or technical term.
 - Do not suggest paraphrases or semantic substitutions. For example, do not replace 有線LAN with LANケーブル.
 - If a term needs a better spoken form, replace only that exact term with its reading (for example, 有線LAN -> ゆうせんラン), not with another word.
@@ -477,6 +518,8 @@ Target fields:
 
 Notation rule:
 - Report notation only when it is a display text quality issue by describing it under style/leak if appropriate. Spoken-reading notation belongs to the TTS quality check, not this check.
+- In learner-facing text, 〜 and ◯◯ are the correct placeholder forms. Do not suggest square-bracket placeholders such as [名前], [場所], or [自分の名前], because square brackets are reserved for TTS language tags.
+- Do not report the presence of 〜 or ◯◯ itself as a leak or style issue.
 """.strip()
         focus = "Inspect only source/display text quality. Do not report TTS pronunciation issues here."
 

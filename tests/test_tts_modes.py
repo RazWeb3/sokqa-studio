@@ -3,7 +3,14 @@ from app.schemas.common import TtsLanguageSettings, TtsRule, default_speech_lang
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
-from app.services.tts_optimizer import _mode_or_default, _tts_reading_prompt, _tts_reading_rules_block, optimize_generated_files_with_report, validate_tts_files
+from app.services.tts_optimizer import (
+    _mode_or_default,
+    _normalize_language_tag_markup,
+    _tts_reading_prompt,
+    _tts_reading_rules_block,
+    optimize_generated_files_with_report,
+    validate_tts_files,
+)
 
 
 def _doc_file() -> GeneratedFile:
@@ -1233,6 +1240,18 @@ def test_multilingual_document_mixed_normalizes_language_tags(monkeypatch) -> No
     assert "<lang" not in tts["text"]
     assert "</lang>" not in tts["text"]
     assert not any(issue.issueType == "unexpected_script" for issue in report.issues)
+
+
+def test_normalize_language_tag_markup_removes_bracket_closing_tags() -> None:
+    assert _normalize_language_tag_markup("[en-US]Can you[/en-US]") == "[en-US]Can you"
+
+
+def test_normalize_language_tag_markup_trims_spaces_adjacent_to_tags() -> None:
+    assert _normalize_language_tag_markup("[en-US] Hello [ja-JP]") == "[en-US]Hello[ja-JP]"
+
+
+def test_normalize_language_tag_markup_keeps_valid_switch_tags_unchanged() -> None:
+    assert _normalize_language_tag_markup("[en-US]Hello[ja-JP]世界") == "[en-US]Hello[ja-JP]世界"
 
 
 def test_multilingual_document_does_not_apply_katakana_dictionary_rules(monkeypatch) -> None:

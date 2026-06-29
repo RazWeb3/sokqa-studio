@@ -56,6 +56,15 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "推奨されています" in prompt
 
 
+def test_quiz_generation_prompt_forbids_square_bracket_placeholders() -> None:
+    plan = _plan()
+
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "Do not use square-bracket placeholders such as [場所], [名前], [出身地], or [商品]" in prompt
+    assert "Use 〜 or ◯◯ for variable parts instead." in prompt
+
+
 def test_generation_prompts_include_structure_and_material_policies() -> None:
     plan = _plan()
     plan.structurePolicy = "standard"

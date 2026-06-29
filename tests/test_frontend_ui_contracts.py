@@ -547,13 +547,16 @@ def test_batch_quality_uses_existing_text_and_tts_check_fix_apis() -> None:
     assert "loadPackJson" not in auto_check_html
     assert "requestGet" not in auto_check_html
     assert "selectedFileJsonUrl" not in auto_check_html
-    assert 'requestJson("/quality/text-check", { target: recordingTarget(pack) })' in auto_check_html
-    assert 'requestJson("/quality/tts-check", { target: recordingTarget(pack) })' in auto_check_html
-    assert 'requestJson("/quality/text-fix", { target: recordingTarget(pack), issues: textIssues })' in auto_check_html
-    assert 'requestJson("/quality/tts-fix", { target: recordingTarget(pack), issues: ttsIssues })' in auto_check_html
-    assert "console.error(\"auto quality check failed\"" in auto_check_html
-    assert "品質チェックを実行できませんでした。" in auto_check_html
-    assert 'setProgress("品質チェック", "失敗", "品質チェックを実行できませんでした。", 1);' in auto_check_html
+    assert "const stepDelayMs = targets.length >= 8 ? 2500 : 1500;" in auto_check_html
+    assert 'const textCheck = await requestJsonWithRetry("/quality/text-check", { target });' in auto_check_html
+    assert 'const ttsCheck = await requestJsonWithRetry("/quality/tts-check", { target });' in auto_check_html
+    assert 'const textFix = textIssues.length ? await requestJsonWithRetry("/quality/text-fix", { target, issues: textIssues }) : null;' in auto_check_html
+    assert 'const ttsFix = ttsIssues.length ? await requestJsonWithRetry("/quality/tts-fix", { target, issues: ttsIssues }) : null;' in auto_check_html
+    assert "await sleep(stepDelayMs);" in auto_check_html
+    assert 'const state = { generated, records: [], textFixes: [], ttsFixes: [], failedFiles: [] };' in auto_check_html
+    assert 'state.failedFiles.push({' in auto_check_html
+    assert "console.error(\"auto quality check failed for file\"" in auto_check_html
+    assert "品質チェックを実行できませんでした。" not in auto_check_html
 
 
 def test_batch_quality_does_not_fetch_public_pack_json_for_gcs_or_localhost_urls() -> None:
@@ -579,6 +582,10 @@ def test_batch_quality_displays_text_and_tts_fix_candidates() -> None:
     assert "修正候補 0件" in render_html
     assert "修正候補 ${total}件" in render_html
     assert "Text ${textCount}件 / TTS ${ttsCount}件" in render_html
+    assert "一部のファイルで品質チェックに失敗しました" in render_html
+    assert "STEP 02「品質チェック・修正」画面で個別に選んで再実行してください。" in render_html
+    assert 'const failed = state.failedFiles || [];' in render_html
+    assert '${failedHtml}' in render_html
     assert 'data-batch-fix' in render_html
     assert "選択した修正を適用" in render_html
 

@@ -49,7 +49,15 @@ class GeminiClient:
         }
         if temperature is not None:
             request["config"] = {"temperature": temperature}
-        response = client.models.generate_content(**request)
+        try:
+            response = client.models.generate_content(**request)
+        except Exception as exc:
+            logger.warning(
+                "gemini.generate_content_failed error_type=%s error=%s",
+                type(exc).__name__,
+                repr(exc),
+            )
+            raise
         text = getattr(response, "text", "") or ""
         if not text.strip():
             logger.warning(

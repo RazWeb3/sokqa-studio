@@ -104,6 +104,7 @@ def _generate_json_with_retry(
             return generate()
         except Exception as exc:
             last_error = exc
+            _logger.warning("quality_check.retry attempt=%s error=%s", attempt, repr(exc))
             if attempt == attempts - 1:
                 break
             sleep(initial_delay * (2**attempt))

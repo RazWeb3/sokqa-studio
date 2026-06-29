@@ -1862,6 +1862,24 @@
         return data;
       }
 
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function requestJsonWithRetry(url, payload, { retries = 3, baseDelayMs = 2000 } = {}) {
+        let lastError;
+        for (let attempt = 0; attempt <= retries; attempt += 1) {
+          try {
+            return await requestJson(url, payload);
+          } catch (error) {
+            lastError = error;
+            if (attempt === retries) break;
+            await sleep(baseDelayMs * (2 ** attempt));
+          }
+        }
+        throw lastError;
+      }
+
       async function requestPutJson(url, payload) {
         const response = await fetch(url, {
           method: "PUT",
@@ -3116,12 +3134,35 @@
       function renderBatchQualityResult(state = batchQualityState) {
         if (!state) return;
         const { textCount, ttsCount, total } = batchQualityCounts(state);
-        if (!total) {
+        const failed = state.failedFiles || [];
+        const failedHtml = failed.length ? `
+          <div class="applied warn">
+            <strong>一部のファイルで品質チェックに失敗しました（${failed.length}件）</strong>
+            <span>下記ファイルは STEP 02「品質チェック・修正」画面で個別に選んで再実行してください。</span>
+            <ul class="logs">
+              ${failed.map((file) => `
+                <li>
+                  <strong>${escapeHtml(file.title || "-")}</strong>
+                  <span class="badge info">${escapeHtml(file.kind || "")}</span>
+                  <span class="muted mono">${escapeHtml(file.packName || "")}</span>
+                  ${file.message ? `<span class="muted">: ${escapeHtml(file.message)}</span>` : ""}
+                </li>
+              `).join("")}
+            </ul>
+          </div>
+        ` : "";
+        if (!total && !failed.length) {
           renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック結果</strong><span>修正候補 0件</span></div>`);
           return;
         }
-        renderAutoTextQualityStatus(`
+        const summaryHtml = total
+          ? `
           <div class="applied warn"><strong>品質チェック結果</strong><span>修正候補 ${total}件</span><span>Text ${textCount}件 / TTS ${ttsCount}件</span></div>
+        `
+          : `<div class="applied"><strong>品質チェック結果</strong><span>修正候補 0件</span></div>`;
+        renderAutoTextQualityStatus(`
+          ${failedHtml}
+          ${summaryHtml}
           <div class="issues">
             ${state.textFixes.map(({ fileName, fix }) => `
               <article class="issue warning">
@@ -3138,7 +3179,7 @@
               </article>
             `).join("")}
           </div>
-          <div class="actions"><button id="applyBatchQualityFixBtn" type="button">選択した修正を適用</button></div>
+          ${total ? `<div class="actions"><button id="applyBatchQualityFixBtn" type="button">選択した修正を適用</button></div>` : ""}
         `);
         $("applyBatchQualityFixBtn")?.addEventListener("click", applySelectedBatchQualityFixes);
         $$("[data-batch-fix]").forEach((input) => input.addEventListener("change", updateBatchQualityApplyAvailability));
@@ -3211,8 +3252,9 @@
         }
         renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック実行中...</strong><span>保存済みパックを確認しています。</span></div>`);
         setProgress("品質チェック", "実行中", "生成成功後の一次チェックを実行しています。");
+        const state = { generated, records: [], textFixes: [], ttsFixes: [], failedFiles: [] };
+        const stepDelayMs = targets.length >= 8 ? 2500 : 1500;
         try {
-          const state = { generated, records: [], textFixes: [], ttsFixes: [] };
           console.info("auto quality check started", {
             generationUnit: generated?.plan?.generationUnit,
             contentId: generated?.manifest?.contentId,
@@ -3222,44 +3264,63 @@
             targets: targets.map(autoQualityTargetLog)
           });
           for (const pack of targets) {
-            console.info("auto quality text-check request", {
-              fileType: pack.kind,
-              fileId: pack.logicalId || pack.packName,
-              target: recordingTarget(pack)
-            });
-            const textCheck = await requestJson("/quality/text-check", { target: recordingTarget(pack) });
-            console.info("auto quality text-check response", { fileId: pack.logicalId || pack.packName, issueCount: textCheck.issues?.length || 0 });
-            const ttsCheck = await requestJson("/quality/tts-check", { target: recordingTarget(pack) });
-            const textIssues = textCheck.issues || [];
-            const ttsIssues = ttsCheck.issues || [];
-            const textFix = textIssues.length ? await requestJson("/quality/text-fix", { target: recordingTarget(pack), issues: textIssues }) : null;
-            const ttsFix = ttsIssues.length ? await requestJson("/quality/tts-fix", { target: recordingTarget(pack), issues: ttsIssues }) : null;
-            const record = { pack, textCheck, ttsCheck, textFix, ttsFix };
-            state.records.push(record);
-            (textFix?.pendingFixes || []).forEach((fix) => state.textFixes.push({ fileName: pack.packName, pack, record, fix }));
-            (ttsFix?.appliedFixes || []).forEach((fix) => state.ttsFixes.push({ fileName: pack.packName, pack, record, fix }));
-            if (selectedPack && packIdentityMatches(pack, selectedPack, true)) {
-              lastTextCheckResult = textCheck;
-              lastTtsCheckResult = ttsCheck;
-              lastTextFixResult = null;
-              lastTextApplyResult = null;
-              lastTtsFixResult = null;
-              renderQualityIssues("textQualityResult", textCheck, "text");
+            try {
+              const target = recordingTarget(pack);
+              console.info("auto quality text-check request", {
+                fileType: pack.kind,
+                fileId: pack.logicalId || pack.packName,
+                target
+              });
+              const textCheck = await requestJsonWithRetry("/quality/text-check", { target });
+              console.info("auto quality text-check response", { fileId: pack.logicalId || pack.packName, issueCount: textCheck.issues?.length || 0 });
+              await sleep(stepDelayMs);
+              const ttsCheck = await requestJsonWithRetry("/quality/tts-check", { target });
+              await sleep(stepDelayMs);
+              const textIssues = textCheck.issues || [];
+              const ttsIssues = ttsCheck.issues || [];
+              const textFix = textIssues.length ? await requestJsonWithRetry("/quality/text-fix", { target, issues: textIssues }) : null;
+              if (textIssues.length) await sleep(stepDelayMs);
+              const ttsFix = ttsIssues.length ? await requestJsonWithRetry("/quality/tts-fix", { target, issues: ttsIssues }) : null;
+              if (ttsIssues.length) await sleep(stepDelayMs);
+              const record = { pack, textCheck, ttsCheck, textFix, ttsFix };
+              state.records.push(record);
+              (textFix?.pendingFixes || []).forEach((fix) => state.textFixes.push({ fileName: pack.packName, pack, record, fix }));
+              (ttsFix?.appliedFixes || []).forEach((fix) => state.ttsFixes.push({ fileName: pack.packName, pack, record, fix }));
+              if (selectedPack && packIdentityMatches(pack, selectedPack, true)) {
+                lastTextCheckResult = textCheck;
+                lastTtsCheckResult = ttsCheck;
+                lastTextFixResult = null;
+                lastTextApplyResult = null;
+                lastTtsFixResult = null;
+                renderQualityIssues("textQualityResult", textCheck, "text");
+              }
+            } catch (error) {
+              console.error("auto quality check failed for file", {
+                title: pack.title || pack.manifestTitle,
+                kind: pack.kind,
+                packName: pack.packName,
+                logicalId: pack.logicalId,
+                contentId: pack.contentId,
+                versionId: pack.versionId,
+                message: error?.message
+              });
+              state.failedFiles.push({
+                title: pack.title || pack.manifestTitle || pack.packName,
+                kind: pack.kind,
+                packName: pack.packName,
+                logicalId: pack.logicalId || "",
+                contentId: pack.contentId || "",
+                versionId: pack.versionId || "",
+                message: error?.message || ""
+              });
             }
           }
           batchQualityState = state;
           renderBatchQualityResult(state);
           setBadge("qualityBadge", "チェック済み", "info");
           const { total } = batchQualityCounts(state);
-          finishProgress("品質チェック", `${total}件の修正候補を取得しました。`);
-        } catch (error) {
-          console.error("auto quality check failed", {
-            message: error?.message,
-            stack: error?.stack,
-            targets: targets.map(autoQualityTargetLog)
-          });
-          renderAutoTextQualityStatus(`<p class="error">品質チェックを実行できませんでした。</p>`);
-          setProgress("品質チェック", "失敗", "品質チェックを実行できませんでした。", 1);
+          const failedCount = state.failedFiles.length;
+          finishProgress("品質チェック", failedCount ? `${total}件の修正候補を取得 / ${failedCount}件の失敗を記録しました。` : `${total}件の修正候補を取得しました。`);
         } finally {
           updateQualityWorkflowUI();
         }

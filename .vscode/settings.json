@@ -1,0 +1,9 @@
+﻿{
+  "files.watcherExclude": {
+    "**/.pytest_tmp/**": true,
+    "**/.pytest_cache/**": true
+  },
+  "files.exclude": {
+    "**/.pytest_tmp": true
+  }
+}

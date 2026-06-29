@@ -686,6 +686,45 @@ def test_llm_quiz_batches_questions_and_reuses_answer_choice(monkeypatch) -> Non
     assert report.llmGeneratedIds == ["q-1", "q-2"]
 
 
+def test_llm_quiz_batch_accepts_top_level_item_array(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> list:
+        return [
+            {
+                "id": "q-1",
+                "questionText": "ギット イニット の説明として正しいものはどれですか？",
+                "choices": [
+                    {"index": 0, "text": "リポジトリを初期化する"},
+                    {"index": 1, "text": "ドット ギットイグノア を削除する"},
+                    {"index": 2, "text": "設定値を表示する"},
+                    {"index": 3, "text": "データベースを作成する"},
+                ],
+                "explanationText": "ギット イニット の解説です。",
+            },
+            {
+                "id": "q-2",
+                "questionText": "ドット ギットコンフィグ を確認する理由は何ですか？",
+                "choices": [
+                    {"index": 0, "text": "ユーザー設定を確認するため"},
+                    {"index": 1, "text": "ジェイソンを削除するため"},
+                    {"index": 2, "text": "CPUを交換するため"},
+                    {"index": 3, "text": "ユーアイを隠すため"},
+                ],
+                "explanationText": "ドット ギットコンフィグ にはギットのユーザー設定などが保存されます。",
+            },
+        ]
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([_quiz_file()], [], mode="llm")
+    questions = files[0].content["questions"]
+
+    assert questions[1]["tts"]["choiceTexts"][1] == "ジェイソンを削除するため"
+    assert report.llmGeneratedIds == ["q-1", "q-2"]
+
+
 def test_llm_quiz_uses_chunk_count_instead_of_question_count(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
@@ -729,6 +768,46 @@ def test_llm_quiz_uses_chunk_count_instead_of_question_count(monkeypatch) -> Non
     assert all("番" not in "".join(question["tts"]["choiceTexts"]) for question in questions)
     assert all("answerText" not in question["tts"] for question in questions)
     assert report.llmGeneratedIds == sorted(f"q-{index}" for index in range(1, 13))
+
+
+def test_llm_single_question_path_falls_back_on_top_level_array(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    big_question = GeneratedFile(
+        name="quiz_big.json",
+        kind="quiz",
+        content={
+            "id": "pack_quiz_big",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "長文クイズ",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-big",
+                    "question": " ".join(["CRM"] * 5000),
+                    "choices": ["CRM", "保存", "削除", "確認"],
+                    "answerIndex": 0,
+                    "explanation": "CRM を確認します。",
+                }
+            ],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> list:
+        return [{"text": "invalid"}]
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report(
+        [big_question],
+        [TtsRule(source="CRM", reading="シーアールエム")],
+        mode="llm",
+    )
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts["questionText"].startswith("シーアールエム")
+    assert report.llmGeneratedIds == []
 
 
 def test_llm_quiz_omits_choice_texts_when_choices_match_source(monkeypatch) -> None:

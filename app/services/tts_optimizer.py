@@ -541,8 +541,33 @@ def _language_policy_block(settings: TtsLanguageSettings | None, fields: list[tu
     return "Field language policy:\n" + "\n".join(lines)
 
 
+def _llm_response_items(data) -> list:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        items = data.get("items", [])
+        return items if isinstance(items, list) else []
+    return []
+
+
+def _llm_response_ids(data) -> list:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        ids = data.get("ids", [])
+        return ids if isinstance(ids, list) else []
+    return []
+
+
+def _llm_response_object_or_raise(data, *, context: str) -> dict:
+    if isinstance(data, dict):
+        return data
+    raise ValueError(f"{context} response must be an object")
+
+
 def _gemini_speech_text(value: str, rules: list[TtsRule]) -> str:
     data = GeminiClient().generate_json(_tts_reading_prompt(value, rules))
+    data = _llm_response_object_or_raise(data, context="tts reading")
     text = data.get("text", "")
     if not isinstance(text, str) or not text.strip():
         return _speech_text(value, rules)
@@ -609,9 +634,7 @@ def _gemini_document_speech_map(
     source_by_id = {entry_id: text for entry_id, text in entries}
     for chunk in _chunk_entries(entries):
         data = GeminiClient().generate_json(_tts_batch_document_prompt(chunk, rules, language, allow_language_tags, language_settings))
-        items = data.get("items", [])
-        if not isinstance(items, list):
-            items = []
+        items = _llm_response_items(data)
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -854,6 +877,7 @@ def _gemini_quiz_question_tts(
     data = GeminiClient().generate_json(
         _tts_quiz_question_prompt(question.id, question.question, question.choices, question.explanation, rules, language, allow_language_tags, language_settings)
     )
+    data = _llm_response_object_or_raise(data, context="quiz tts")
     question_text = data.get("questionText", "")
     explanation_text = data.get("explanationText", "")
     choices = data.get("choices", [])
@@ -1025,9 +1049,7 @@ def _gemini_quiz_tts_map(
             continue
 
         data = GeminiClient().generate_json(_tts_batch_quiz_prompt(chunk, rules, language, allow_language_tags, language_settings))
-        items = data.get("items", [])
-        if not isinstance(items, list):
-            items = []
+        items = _llm_response_items(data)
         source_by_id = {question.id: question for question in chunk}
         for item in items:
             if not isinstance(item, dict):
@@ -1084,9 +1106,7 @@ def _gemini_tts_ids(kind: str, entries: list[tuple[str, str]], rules: list[TtsRu
     if not entries or get_settings().gemini_provider != "gemini":
         return set()
     data = GeminiClient().generate_json(_tts_decision_prompt(kind, entries, rules))
-    ids = data.get("ids", [])
-    if not isinstance(ids, list):
-        return set()
+    ids = _llm_response_ids(data)
     valid_ids = {entry_id for entry_id, _ in entries}
     return {str(item) for item in ids if str(item) in valid_ids}
 

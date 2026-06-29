@@ -89,15 +89,17 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         return response
     except (TypeError, ValidationError, ValueError) as exc:
         raise QualityCheckError(f"quality check response validation failed: {exc}") from exc
+    except Exception as exc:
+        raise QualityCheckError(f"quality check unexpected error: {exc}") from exc
 
 
 def _generate_json_with_retry(
-    generate: Callable[[], dict[str, Any]],
+    generate: Callable[[], Any],
     *,
     attempts: int = 3,
     initial_delay: float = 0.5,
     sleep: Callable[[float], None] = time.sleep,
-) -> dict[str, Any]:
+) -> Any:
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
@@ -112,7 +114,7 @@ def _generate_json_with_retry(
 
 
 def _quality_response_from_data(
-    data: dict[str, Any],
+    data: Any,
     *,
     file_name: str,
     model: str,
@@ -122,7 +124,7 @@ def _quality_response_from_data(
     input_truncated: bool = False,
     source_content: dict[str, Any] | None = None,
 ) -> QualityCheckResponse:
-    raw_issues = data.get("issues")
+    raw_issues, response_truncated, response_file_name = _quality_response_parts(data, file_name)
     if not isinstance(raw_issues, list):
         raise ValueError("response must contain an issues array")
 
@@ -153,13 +155,21 @@ def _quality_response_from_data(
     filtered_count = before_count - len(issues)
     if filtered_count:
         _logger.info("quality_check.filtered_duplicate_issues count=%s file=%s", filtered_count, file_name)
-    truncated = bool(data.get("truncated")) or input_truncated or len(issues) > max_issues
+    truncated = response_truncated or input_truncated or len(issues) > max_issues
     return QualityCheckResponse(
-        fileName=str(data.get("fileName") or file_name),
+        fileName=response_file_name,
         model=model,
         issues=issues[:max_issues],
         truncated=truncated,
     )
+
+
+def _quality_response_parts(data: Any, file_name: str) -> tuple[Any, bool, str]:
+    if isinstance(data, list):
+        return data, False, file_name
+    if isinstance(data, dict):
+        return data.get("issues"), bool(data.get("truncated")), str(data.get("fileName") or file_name)
+    return [], False, file_name
 
 
 def _normalize_quality_field(field: str | None) -> str | None:

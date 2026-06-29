@@ -604,7 +604,8 @@ def _sanitize_section_count(value: Any, request: PlanPackRequest, *, index: int 
     return max(SECTION_COUNT_MIN, min(SECTION_COUNT_MAX, count))
 
 
-def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[PlanDocument]:
+def _documents_from_planner_response(data: Any, request: PlanPackRequest) -> list[PlanDocument]:
+    data = data if isinstance(data, dict) else {}
     raw_documents = data.get("documents")
     if not isinstance(raw_documents, list):
         return []
@@ -643,7 +644,8 @@ def _documents_from_planner_response(data: dict[str, Any], request: PlanPackRequ
     return documents
 
 
-def _short_title_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> str:
+def _short_title_from_planner_response(data: Any, request: PlanPackRequest) -> str:
+    data = data if isinstance(data, dict) else {}
     short_title = str(data.get("shortTitle") or "").strip()
     if not short_title:
         return _fallback_short_title(request)
@@ -813,8 +815,9 @@ def _valid_reading_examples(raw_examples: Any, *, max_examples: int = 3) -> list
     return valid_examples
 
 
-def _reading_patterns_from_planner_response(data: dict[str, Any], request: PlanPackRequest) -> list[ReadingPattern]:
+def _reading_patterns_from_planner_response(data: Any, request: PlanPackRequest) -> list[ReadingPattern]:
     del request
+    data = data if isinstance(data, dict) else {}
     raw_patterns = data.get("proposedReadingPatterns")
     if not isinstance(raw_patterns, list):
         return []
@@ -901,6 +904,7 @@ def _gemini_plan_parts(
             scale=request.scale,
         ),
     )
+    data = data if isinstance(data, dict) else {}
     title = str(data.get("title") or "").strip() or None
     short_title = _short_title_from_planner_response(data, request)
     description = str(data.get("description") or "").strip() or None

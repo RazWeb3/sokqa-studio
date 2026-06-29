@@ -530,7 +530,7 @@ def _dedupe_manifest_rerecord_units(units: list[ManifestReRecordNeededUnit]) -> 
 
 
 def _fix_response_from_data(
-    data: dict[str, Any],
+    data: Any,
     *,
     file_name: str,
     original_json: dict[str, Any],
@@ -538,6 +538,7 @@ def _fix_response_from_data(
     max_fixes: int,
     input_truncated: bool,
 ) -> QualityFixResponse:
+    data = data if isinstance(data, dict) else {}
     raw_applied = data.get("appliedFixes", [])
     raw_pending = data.get("pendingFixes", [])
     updated_json = data.get("updatedJson")

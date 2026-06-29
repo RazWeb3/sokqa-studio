@@ -33,6 +33,8 @@ def text_check(request: QualityCheckRequest) -> QualityCheckResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except QualityCheckError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"quality check unexpected error: {exc}") from exc
 
 
 @router.post("/tts-check", response_model=QualityCheckResponse)
@@ -45,6 +47,8 @@ def tts_check(request: QualityCheckRequest) -> QualityCheckResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except QualityCheckError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"quality check unexpected error: {exc}") from exc
 
 
 @router.post("/text-fix", response_model=QualityFixResponse)

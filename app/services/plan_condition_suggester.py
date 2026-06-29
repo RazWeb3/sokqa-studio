@@ -191,7 +191,8 @@ JSON schema:
 """.strip()
 
 
-def _suggestions_from_response(data: dict[str, Any]) -> list[SuggestedCondition]:
+def _suggestions_from_response(data: Any) -> list[SuggestedCondition]:
+    data = data if isinstance(data, dict) else {}
     raw_suggestions = data.get("suggestions")
     if not isinstance(raw_suggestions, list):
         return []

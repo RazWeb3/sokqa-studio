@@ -417,6 +417,50 @@ def test_tts_quality_check_filters_null_audio_issues(tmp_path, monkeypatch) -> N
     assert [issue["excerpt"] for issue in data["issues"]] == ["SQL"]
 
 
+def test_tts_quality_check_accepts_top_level_issue_array(tmp_path, monkeypatch) -> None:
+    target = _write_document_pack(tmp_path, monkeypatch)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> list:
+        return [
+            {
+                "category": "reading",
+                "severity": "medium",
+                "confidence": 0.8,
+                "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                "excerpt": "SQL",
+                "issue": "SQL が誤読される可能性があります。",
+                "suggestion": "エスキューエルにします。",
+            }
+        ]
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    response = client.post("/quality/tts-check", json={"target": target})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [issue["excerpt"] for issue in data["issues"]] == ["SQL"]
+    assert data["truncated"] is False
+
+
+def test_tts_quality_check_wraps_unexpected_errors_as_502(tmp_path, monkeypatch) -> None:
+    target = _write_document_pack(tmp_path, monkeypatch)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def raise_attribute_error(*args, **kwargs):
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(quality_checker, "_quality_response_from_data", raise_attribute_error)
+
+    response = client.post("/quality/tts-check", json={"target": target})
+
+    assert response.status_code == 502
+    assert "unexpected" in response.json()["detail"]
+
+
 def test_tts_quality_response_filters_unspoken_symbol_only_reading_issues() -> None:
     response = _quality_response_from_data(
         {

@@ -77,9 +77,11 @@ def test_generation_prompts_include_placeholder_backtick_and_pack_language_purit
 
     for prompt in [document_prompt, quiz_prompt]:
         assert 'This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo"' in prompt
-        assert "Even inside language tags" in prompt
+        assert "Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text." in prompt
+        assert "Language tagging belongs only to the later TTS optimization step" in prompt
         assert "Pack-language purity (strict):" in prompt
         assert "example of forbidden raw word in Japanese: nuanced" in prompt
+        assert "put it inside a language-tag span" not in prompt
         assert "バッククォート(`)やMarkdown記号" in prompt
 
     assert "Normalize placeholders to 〜 or ◯◯" in quiz_prompt
@@ -227,6 +229,26 @@ def test_document_normalization_forces_unique_id_and_content_tags() -> None:
     assert len(normalized["globalTags"]) <= 3
     assert "it" not in normalized["globalTags"]
     assert normalized["globalTags"] == ["ITパスポート", "経営戦略"]
+
+
+def test_document_normalization_removes_language_tags_and_codes_from_text() -> None:
+    plan = _plan()
+    normalized = normalize_document_content(
+        {
+            "documents": [
+                {
+                    "id": "doc-1",
+                    "text": "初めての方と [en-US]Good morning[ja-JP] en-US 英語で あいさつします。",
+                    "tts": {"text": "[en-US]Good morning[ja-JP]"},
+                }
+            ],
+        },
+        plan,
+        plan.documents[0],
+    )
+
+    assert normalized["documents"][0]["text"] == "初めての方と Good morning 英語で あいさつします。"
+    assert "tts" not in normalized["documents"][0]
 
 
 def test_quiz_prompt_uses_source_text_when_documents_are_absent() -> None:
@@ -528,6 +550,34 @@ def test_normalize_quiz_content_converts_string_answer_index_to_int() -> None:
     assert normalized["id"] == "cnt_unique_quiz_quiz_01"
     assert len(normalized["globalTags"]) <= 3
     assert "it" not in normalized["globalTags"]
+
+
+def test_normalize_quiz_content_removes_language_tags_and_codes_from_learner_text() -> None:
+    plan = _plan()
+    quiz_pack = plan.quizPacks[0]
+    content = {
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "初めての方と [en-US]Good morning[ja-JP] en-US 英語で話す場面はどれですか？",
+                "choices": [
+                    "[en-US]Good morning[ja-JP] en-US で始める",
+                    "相手に黙礼する",
+                    "日本語だけで通す",
+                    "名乗らない",
+                ],
+                "answerIndex": 0,
+                "explanation": "朝のあいさつでは [en-US]Good morning[ja-JP] en-US を使います。",
+            }
+        ]
+    }
+
+    normalized = normalize_quiz_content(content, plan, quiz_pack)
+
+    question = normalized["questions"][0]
+    assert question["question"] == "初めての方と Good morning 英語で話す場面はどれですか？"
+    assert question["choices"][0] == "Good morning で始める"
+    assert question["explanation"] == "朝のあいさつでは Good morning を使います。"
 
 
 def test_normalize_quiz_content_uses_pack_language_description_fallback() -> None:

@@ -218,12 +218,13 @@ Rules:
   - Use only 〜 or ◯◯ as placeholders in learner-facing text.
   - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
   - Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]. Square brackets are reserved for TTS language tags.
-  - Even inside language tags, follow the same placeholder rules (example: [en-US]My name is ◯◯.[ja-JP]).
+  - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
+  - Language tagging belongs only to the later TTS optimization step, never to documents[].text.
   - Bad: do not use square brackets to wrap a placeholder. Good: "I'm from 〜."
 - Pack-language purity (strict):
   - Learner-facing sentences must be written in the pack language ({plan.language}).
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
-  - If a non-pack-language learning phrase is included, put it inside a language-tag span and return to the pack language (example: [en-US]Hello[ja-JP]).
+  - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
 - Each text must be real explanatory learning content, not just a title or label.
 - {text_length_rule[2:]}
 - The documents[] array should follow the document's key points in order.{listening_rule}
@@ -332,12 +333,13 @@ Rules:
   - Use only 〜 or ◯◯ as placeholders in learner-facing text.
   - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
   - Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]. Square brackets are reserved for TTS language tags.
-  - Even inside language tags, follow the same placeholder rules (example: [en-US]My name is ◯◯.[ja-JP]).
+  - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
+  - Language tagging belongs only to the later TTS optimization step, never to question, choices, or explanation.
   - Bad: do not use square brackets to wrap a placeholder. Good: "I'm from 〜."
 - Pack-language purity (strict):
   - Learner-facing sentences must be written in the pack language ({plan.language}).
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
-  - If a non-pack-language learning phrase is included, put it inside a language-tag span and return to the pack language (example: [en-US]Hello[ja-JP]).
+  - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
 - Every question must be grounded in the quiz context.
 - Even if the quiz context contains square-bracket placeholders or ASCII placeholder tokens like OO/oo, do not copy them. Normalize placeholders to 〜 or ◯◯ in your output.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.

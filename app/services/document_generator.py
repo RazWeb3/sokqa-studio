@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from math import ceil
 
@@ -15,12 +16,24 @@ from app.services.tts_text import normalize_tts_text
 
 STRICT_MAX_DOCUMENT_FILES = 50
 STRICT_MAX_SECTIONS_PER_FILE = 50
+LANGUAGE_TAG_RE = re.compile(r"\[(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+)\]")
+LANGUAGE_CODE_RE = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+)(?![A-Za-z0-9])")
 logger = logging.getLogger(__name__)
 
 
 def _source_paragraphs(source_text: str) -> list[str]:
     paragraphs = [part.strip() for part in source_text.replace("\r\n", "\n").split("\n\n")]
     return [paragraph for paragraph in paragraphs if paragraph]
+
+
+def sanitize_learner_facing_text(value: str) -> str:
+    cleaned = LANGUAGE_TAG_RE.sub("", value)
+    cleaned = LANGUAGE_CODE_RE.sub("", cleaned)
+    cleaned = re.sub(r"[^\S\r\n]+", " ", cleaned)
+    cleaned = re.sub(r"[^\S\r\n]*\n[^\S\r\n]*", "\n", cleaned)
+    cleaned = re.sub(r"\s+([、。！？!?,.;:)\]】」』）])", r"\1", cleaned)
+    cleaned = re.sub(r"([(\[【「『（])\s+", r"\1", cleaned)
+    return cleaned.strip()
 
 
 def _balanced_chunks(items: list[str], chunk_count: int) -> list[list[str]]:
@@ -232,7 +245,7 @@ def normalize_document_content(content: dict, plan: CoursePlan, document: PlanDo
             text = f"{title}。{summary}".strip("。")
         fixed = dict(item)
         fixed["id"] = f"doc-{index}"
-        fixed["text"] = text
+        fixed["text"] = sanitize_learner_facing_text(str(text))
         fixed.pop("tts", None)
         fixed.pop("tags", None)
         fixed.pop("body", None)

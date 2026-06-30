@@ -826,7 +826,7 @@ def test_tts_fix_no_llm_matches_normalized_excerpt_without_normalizing_output(tm
     doc_item = next(item for item in manifest["items"] if item["name"] == "doc_01.json")
     doc_path = tmp_path / "generated" / prefix / doc_item["url"].split(f"{prefix}/", 1)[1]
     doc = json.loads(doc_path.read_text(encoding="utf-8"))
-    doc["documents"][0]["text"] = "[en-US]VRIO　フレームワークは、４Ｐを確認します。"
+    doc["documents"][0]["text"] = "VRIO　フレームワークは、４Ｐを確認します。"
     doc["documents"][0]["tts"] = {}
     doc_path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
     issue = {
@@ -844,7 +844,7 @@ def test_tts_fix_no_llm_matches_normalized_excerpt_without_normalizing_output(tm
     assert response.status_code == 200
     data = response.json()
     assert data["unappliedFixes"] == []
-    assert data["updatedJson"]["documents"][0]["tts"]["text"] == "[en-US]ブイリオフレームワークはフォーピーを確認します。"
+    assert data["updatedJson"]["documents"][0]["tts"]["text"] == "ブイリオフレームワークはフォーピーを確認します。"
 
 
 def test_tts_fix_no_llm_collapses_duplicate_katakana_parenthetical(tmp_path, monkeypatch) -> None:

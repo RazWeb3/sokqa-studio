@@ -4,6 +4,7 @@ import time
 
 from app.schemas.sokqa import CoursePlan, PlanQuizPack, SokqaDocumentPack, SokqaQuestion, SokqaQuizPack
 from app.config import get_settings
+from app.services.document_generator import sanitize_learner_facing_text
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
 from app.services.llm_json import LlmJsonParseContext
@@ -181,13 +182,20 @@ def normalize_quiz_content(
             continue
         fixed = dict(item)
         fixed["id"] = fixed.get("id") or f"q-{index}"
-        fixed["question"] = fixed.get("question") or fixed.get("prompt") or f"{quiz_plan.title} {index}"
-        fixed["choices"] = [normalize_choice(choice) for choice in list(fixed.get("choices") or [])]
+        fixed["question"] = sanitize_learner_facing_text(
+            str(fixed.get("question") or fixed.get("prompt") or f"{quiz_plan.title} {index}")
+        )
+        fixed["choices"] = [
+            sanitize_learner_facing_text(normalize_choice(choice))
+            for choice in list(fixed.get("choices") or [])
+        ]
         while len(fixed["choices"]) < 4:
             fixed["choices"].append(f"補足選択肢{len(fixed['choices']) + 1}")
         fixed["choices"] = fixed["choices"][:4]
         fixed["answerIndex"] = normalize_answer_index(fixed.get("answerIndex", 0))
-        fixed["explanation"] = fixed.get("explanation") or "生成済みドキュメント本文に基づく解説です。"
+        fixed["explanation"] = sanitize_learner_facing_text(
+            str(fixed.get("explanation") or "生成済みドキュメント本文に基づく解説です。")
+        )
         fixed.pop("tts", None)
         fixed.pop("tags", None)
         fixed_questions.append(fixed)

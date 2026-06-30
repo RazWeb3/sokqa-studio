@@ -3125,6 +3125,22 @@
         return `${fileName}::${unitId || ""}`;
       }
 
+      function batchFileListHtml(items = [], { showMessage = false, showUnitId = false } = {}) {
+        return `
+          <ul class="logs">
+            ${items.map((item) => `
+              <li>
+                <strong>${escapeHtml(item.title || "-")}</strong>
+                <span class="badge info">${escapeHtml(item.kind || "")}</span>
+                <span class="muted mono">${escapeHtml(item.packName || item.fileName || "")}</span>
+                ${showUnitId ? `<span class="muted"> / ${escapeHtml(item.unitId || "-")}</span>` : ""}
+                ${showMessage && item.message ? `<span class="muted">: ${escapeHtml(item.message)}</span>` : ""}
+              </li>
+            `).join("")}
+          </ul>
+        `;
+      }
+
       function batchQualityCounts(state = batchQualityState) {
         const textCount = state?.textFixes?.length || 0;
         const ttsCount = state?.ttsFixes?.length || 0;
@@ -3135,23 +3151,22 @@
         if (!state) return;
         const { textCount, ttsCount, total } = batchQualityCounts(state);
         const failed = state.failedFiles || [];
+        const unprocessed = state.unprocessedFiles || [];
         const failedHtml = failed.length ? `
           <div class="applied warn">
             <strong>一部のファイルで品質チェックに失敗しました（${failed.length}件）</strong>
             <span>下記ファイルは STEP 02「品質チェック・修正」画面で個別に選んで再実行してください。</span>
-            <ul class="logs">
-              ${failed.map((file) => `
-                <li>
-                  <strong>${escapeHtml(file.title || "-")}</strong>
-                  <span class="badge info">${escapeHtml(file.kind || "")}</span>
-                  <span class="muted mono">${escapeHtml(file.packName || "")}</span>
-                  ${file.message ? `<span class="muted">: ${escapeHtml(file.message)}</span>` : ""}
-                </li>
-              `).join("")}
-            </ul>
+            ${batchFileListHtml(failed, { showMessage: true })}
           </div>
         ` : "";
-        if (!total && !failed.length) {
+        const unprocessedHtml = unprocessed.length ? `
+          <div class="applied warn">
+            <strong>未処理のファイルがあります（${unprocessed.length}件）</strong>
+            <span>品質チェックが途中で中断したため、下記ファイルはまだ処理されていません。STEP 02「品質チェック・修正」画面で個別に選んで再実行してください。</span>
+            ${batchFileListHtml(unprocessed)}
+          </div>
+        ` : "";
+        if (!total && !failed.length && !unprocessed.length) {
           renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック結果</strong><span>修正候補 0件</span></div>`);
           return;
         }
@@ -3162,6 +3177,7 @@
           : `<div class="applied"><strong>品質チェック結果</strong><span>修正候補 0件</span></div>`;
         renderAutoTextQualityStatus(`
           ${failedHtml}
+          ${unprocessedHtml}
           ${summaryHtml}
           <div class="issues">
             ${state.textFixes.map(({ fileName, fix }) => `
@@ -3252,8 +3268,9 @@
         }
         renderAutoTextQualityStatus(`<div class="applied"><strong>品質チェック実行中...</strong><span>保存済みパックを確認しています。</span></div>`);
         setProgress("品質チェック", "実行中", "生成成功後の一次チェックを実行しています。");
-        const state = { generated, records: [], textFixes: [], ttsFixes: [], failedFiles: [] };
+        const state = { generated, records: [], textFixes: [], ttsFixes: [], failedFiles: [], unprocessedFiles: [] };
         const stepDelayMs = targets.length >= 8 ? 2500 : 1500;
+        let nextTargetIndex = 0;
         try {
           console.info("auto quality check started", {
             generationUnit: generated?.plan?.generationUnit,
@@ -3263,7 +3280,9 @@
             quizCount: targets.filter((pack) => pack.kind === "quiz").length,
             targets: targets.map(autoQualityTargetLog)
           });
-          for (const pack of targets) {
+          for (let index = 0; index < targets.length; index += 1) {
+            const pack = targets[index];
+            nextTargetIndex = index + 1;
             try {
               const target = recordingTarget(pack);
               console.info("auto quality text-check request", {
@@ -3321,6 +3340,32 @@
           const { total } = batchQualityCounts(state);
           const failedCount = state.failedFiles.length;
           finishProgress("品質チェック", failedCount ? `${total}件の修正候補を取得 / ${failedCount}件の失敗を記録しました。` : `${total}件の修正候補を取得しました。`);
+        } catch (error) {
+          state.unprocessedFiles = targets.slice(nextTargetIndex).map((pack) => ({
+            title: pack.title || pack.manifestTitle || pack.packName,
+            kind: pack.kind,
+            packName: pack.packName,
+            logicalId: pack.logicalId || "",
+            contentId: pack.contentId || "",
+            versionId: pack.versionId || ""
+          }));
+          console.error("auto quality workflow aborted", {
+            message: error?.message,
+            stack: error?.stack,
+            failedCount: state.failedFiles.length,
+            unprocessedCount: state.unprocessedFiles.length,
+            nextTargetIndex,
+            targets: targets.map(autoQualityTargetLog)
+          });
+          batchQualityState = state;
+          renderBatchQualityResult(state);
+          setBadge("qualityBadge", "一部失敗", "warn");
+          setProgress(
+            "品質チェック",
+            "失敗",
+            `品質チェックが途中で中断しました。失敗 ${state.failedFiles.length}件 / 未処理 ${state.unprocessedFiles.length}件。STEP 02「品質チェック・修正」画面で個別に再実行してください。`,
+            1
+          );
         } finally {
           updateQualityWorkflowUI();
         }
@@ -3336,11 +3381,27 @@
           const selectedTextIds = new Set(selected.filter((item) => item.type === "text").map((item) => batchFixKey(item.type, item.fileName, item.id)));
           const selectedTtsIds = new Set(selected.filter((item) => item.type === "tts").map((item) => batchFixKey(item.type, item.fileName, item.id)));
           const textChangedUnits = new Set();
+          const skippedTtsUnitKeys = new Set();
+          const skippedTtsUnits = [];
           const filesToSave = [];
           const appliedTtsFixes = [];
 
           for (const record of batchQualityState.records) {
             let finalJson = null;
+            const selectedTtsFixes = (record.ttsFix?.appliedFixes || [])
+              .filter((fix) => selectedTtsIds.has(batchFixKey("tts", record.pack.packName, fix.id)));
+            const selectedTtsUnits = new Map(
+              selectedTtsFixes.map((fix) => [
+                unitKey(record.pack.packName, fix.location?.unitId),
+                {
+                  title: record.pack.title || record.pack.manifestTitle || record.pack.packName,
+                  kind: record.pack.kind,
+                  packName: record.pack.packName,
+                  fileName: record.pack.packName,
+                  unitId: fix.location?.unitId || "-"
+                }
+              ])
+            );
             const selectedTextFixIds = (record.textFix?.pendingFixes || [])
               .filter((fix) => selectedTextIds.has(batchFixKey("text", record.pack.packName, fix.id)))
               .map((fix) => fix.id);
@@ -3353,11 +3414,16 @@
               finalJson = applied.finalJson;
               (record.textFix.pendingFixes || [])
                 .filter((fix) => applied.appliedApprovedIds.includes(fix.id))
-                .forEach((fix) => textChangedUnits.add(unitKey(record.pack.packName, fix.location?.unitId)));
+                .forEach((fix) => {
+                  const key = unitKey(record.pack.packName, fix.location?.unitId);
+                  textChangedUnits.add(key);
+                  if (!selectedTtsUnits.has(key) || skippedTtsUnitKeys.has(key)) return;
+                  skippedTtsUnitKeys.add(key);
+                  skippedTtsUnits.push(selectedTtsUnits.get(key));
+                });
             }
 
-            const selectedTtsEntries = (record.ttsFix?.appliedFixes || [])
-              .filter((fix) => selectedTtsIds.has(batchFixKey("tts", record.pack.packName, fix.id)))
+            const selectedTtsEntries = selectedTtsFixes
               .filter((fix) => !textChangedUnits.has(unitKey(record.pack.packName, fix.location?.unitId)))
               .map((fix) => ({ fix, issue: issueForTtsFix(record, fix) }))
               .filter((entry) => entry.issue);
@@ -3392,7 +3458,17 @@
             || currentPacks.find((pack) => pack.contentId === firstTarget.contentId)
             || selectedPack;
           if (nextPack) await selectPack(nextPack);
-          renderAutoTextQualityStatus(`<div class="applied"><strong>品質修正を適用しました</strong><span>Revision: R${escapeHtml(nextPack?.revision || "-")}</span></div>`);
+          const skippedTtsHtml = skippedTtsUnits.length ? `
+            <div class="applied warn">
+              <strong>以下の項目はテキストを修正したためTTSがリセットされました（${skippedTtsUnits.length}件）</strong>
+              <span>TTSの修正は適用されていません。必要に応じてSTEP 02「品質チェック・修正」画面で個別に品質チェックを回し直してください。</span>
+              ${batchFileListHtml(skippedTtsUnits, { showUnitId: true })}
+            </div>
+          ` : "";
+          renderAutoTextQualityStatus(`
+            <div class="applied"><strong>品質修正を適用しました</strong><span>Revision: R${escapeHtml(nextPack?.revision || "-")}</span></div>
+            ${skippedTtsHtml}
+          `);
           setBadge("qualityBadge", "修正済み", "success");
           finishProgress("品質修正", `Revision: R${nextPack?.revision || "-"}`);
         } catch (error) {

@@ -553,9 +553,14 @@ def test_batch_quality_uses_existing_text_and_tts_check_fix_apis() -> None:
     assert 'const textFix = textIssues.length ? await requestJsonWithRetry("/quality/text-fix", { target, issues: textIssues }) : null;' in auto_check_html
     assert 'const ttsFix = ttsIssues.length ? await requestJsonWithRetry("/quality/tts-fix", { target, issues: ttsIssues }) : null;' in auto_check_html
     assert "await sleep(stepDelayMs);" in auto_check_html
-    assert 'const state = { generated, records: [], textFixes: [], ttsFixes: [], failedFiles: [] };' in auto_check_html
+    assert 'const state = { generated, records: [], textFixes: [], ttsFixes: [], failedFiles: [], unprocessedFiles: [] };' in auto_check_html
+    assert "let nextTargetIndex = 0;" in auto_check_html
     assert 'state.failedFiles.push({' in auto_check_html
+    assert 'state.unprocessedFiles = targets.slice(nextTargetIndex).map((pack) => ({' in auto_check_html
     assert "console.error(\"auto quality check failed for file\"" in auto_check_html
+    assert "console.error(\"auto quality workflow aborted\"" in auto_check_html
+    assert 'setProgress(' in auto_check_html
+    assert '未処理 ${state.unprocessedFiles.length}件' in auto_check_html
     assert "品質チェックを実行できませんでした。" not in auto_check_html
 
 
@@ -583,9 +588,13 @@ def test_batch_quality_displays_text_and_tts_fix_candidates() -> None:
     assert "修正候補 ${total}件" in render_html
     assert "Text ${textCount}件 / TTS ${ttsCount}件" in render_html
     assert "一部のファイルで品質チェックに失敗しました" in render_html
+    assert "未処理のファイルがあります" in render_html
+    assert "品質チェックが途中で中断したため" in render_html
     assert "STEP 02「品質チェック・修正」画面で個別に選んで再実行してください。" in render_html
     assert 'const failed = state.failedFiles || [];' in render_html
+    assert 'const unprocessed = state.unprocessedFiles || [];' in render_html
     assert '${failedHtml}' in render_html
+    assert '${unprocessedHtml}' in render_html
     assert 'data-batch-fix' in render_html
     assert "選択した修正を適用" in render_html
 
@@ -623,7 +632,14 @@ def test_batch_quality_apply_orders_text_before_tts_and_saves_once() -> None:
     apply_html = html[start:end]
 
     assert 'requestJson("/quality/text-fix/apply", {' in apply_html
-    assert "textChangedUnits.add(unitKey(record.pack.packName, fix.location?.unitId))" in apply_html
+    assert "const skippedTtsUnitKeys = new Set();" in apply_html
+    assert "const skippedTtsUnits = [];" in apply_html
+    assert "const selectedTtsFixes = (record.ttsFix?.appliedFixes || [])" in apply_html
+    assert "const selectedTtsUnits = new Map(" in apply_html
+    assert "const key = unitKey(record.pack.packName, fix.location?.unitId);" in apply_html
+    assert "textChangedUnits.add(key);" in apply_html
+    assert "if (!selectedTtsUnits.has(key) || skippedTtsUnitKeys.has(key)) return;" in apply_html
+    assert "skippedTtsUnits.push(selectedTtsUnits.get(key));" in apply_html
     assert ".filter((fix) => !textChangedUnits.has(unitKey(record.pack.packName, fix.location?.unitId)))" in apply_html
     assert "applyTtsFixToJson(finalJson, fix)" in apply_html
     assert 'requestJson("/quality/tts-fix", {' in apply_html
@@ -631,6 +647,8 @@ def test_batch_quality_apply_orders_text_before_tts_and_saves_once() -> None:
     assert 'requestJson("/quality/save-version", {' in apply_html
     assert "console.error(\"auto quality fix apply failed\"" in apply_html
     assert "品質修正を適用しました" in apply_html
+    assert "以下の項目はテキストを修正したためTTSがリセットされました" in apply_html
+    assert "TTSの修正は適用されていません。必要に応じてSTEP 02「品質チェック・修正」画面で個別に品質チェックを回し直してください。" in apply_html
     assert "品質修正の適用に失敗しました。" in apply_html
     assert apply_html.index('requestJson("/quality/text-fix/apply", {') < apply_html.index('requestJson("/quality/save-version", {')
 

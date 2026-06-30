@@ -241,9 +241,9 @@ def test_generation_policy_unit_and_material_controls_are_available_and_sent() -
     assert 'class="segmented scale-cards" id="scaleSegment"' in html
     assert html.index('data-scale="quick"') < html.index('data-scale="standard"') < html.index('data-scale="large"') < html.index('data-scale="auto"')
     assert "おまかせ<small>内容量を自動調整（テーマにより生成に時間がかかる場合があります）</small>" in html
-    assert "小規模<small>ドキュメント3＋クイズ1（30問）／目安 約10分</small>" in html
-    assert "中規模<small>ドキュメント6＋クイズ2／目安 約20分</small>" in html
-    assert "大規模<small>ドキュメント9＋クイズ3／目安 約30分前後</small>" in html
+    assert "小規模<small>ドキュメント3＋クイズ1（30問）／目安 約7分前後</small>" in html
+    assert "中規模<small>ドキュメント6＋クイズ2／目安 約14分前後</small>" in html
+    assert "大規模<small>ドキュメント9＋クイズ3／目安 約21分前後</small>" in html
     assert 'value="reference"' in html
     assert 'value="source_only"' in html
     assert 'value="strict"' in html

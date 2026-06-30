@@ -1348,6 +1348,14 @@
         return "pack";
       }
 
+      function visibleQuizChoiceLanguageModes() {
+        return ["pack", "learning"];
+      }
+
+      function displayedQuizChoiceLanguageMode(mode, fallback = defaultQuizChoiceLanguageMode({})) {
+        return visibleQuizChoiceLanguageModes().includes(mode) ? mode : fallback;
+      }
+
       function expectedQuizPackCount() {
         const unit = generationUnitValue();
         if (unit === "document") return 0;
@@ -1398,20 +1406,22 @@
           list.innerHTML = "";
           return;
         }
+        const fallback = defaultQuizChoiceLanguageMode({ learningLanguage: learningLanguageValue() });
         const modes = quizChoiceLanguageModesPayload();
         list.innerHTML = modes.map((currentMode, quizIndex) => {
+          const visibleMode = displayedQuizChoiceLanguageMode(currentMode, fallback);
           return `
             <section class="plan-card">
               <strong>Quiz ${quizIndex + 1}</strong>
               <div class="stack">
-                ${["pack", "learning", "auto"].map((mode) => `
+                ${visibleQuizChoiceLanguageModes().map((mode) => `
                   <label class="checkline">
                     <input
                       type="radio"
                       name="quiz-choice-language-${quizIndex}"
                       value="${mode}"
                       data-quiz-choice-language-mode="${quizIndex}"
-                      ${currentMode === mode ? "checked" : ""}
+                      ${visibleMode === mode ? "checked" : ""}
                     />
                     ${escapeHtml(labelFor("choiceLanguageMode", mode))}
                   </label>
@@ -1702,7 +1712,7 @@
                 <li>
                   <strong>${escapeHtml(quiz.title || quiz.id || "クイズ")}</strong>
                   <p>${escapeHtml(purposeLabel(quiz.purpose))} / ${escapeHtml(quiz.questionCount || "-")}問</p>
-                  ${showQuizChoiceLanguageSettings ? `<div class="muted">選択肢言語：${escapeHtml(labelFor("choiceLanguageMode", quiz.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan)))}</div>` : ""}
+                  ${showQuizChoiceLanguageSettings ? `<div class="muted">選択肢言語：${escapeHtml(labelFor("choiceLanguageMode", displayedQuizChoiceLanguageMode(quiz.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan), defaultQuizChoiceLanguageMode(plan))))}</div>` : ""}
                 </li>
               `).join("") || `<li><p class="muted">クイズはまだありません。</p></li>`}
             </ul>

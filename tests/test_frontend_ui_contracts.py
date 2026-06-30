@@ -191,6 +191,9 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert "function shouldShowQuizChoiceLanguageSettings()" in html
     assert "function renderQuizChoiceLanguageSettings()" in html
     assert "function quizChoiceLanguageModesPayload(count = expectedQuizPackCount())" in html
+    assert "function visibleQuizChoiceLanguageModes()" in html
+    assert 'return ["pack", "learning"];' in html
+    assert "function displayedQuizChoiceLanguageMode(mode, fallback = defaultQuizChoiceLanguageMode({}))" in html
     assert 'if (ttsModeValue() !== "multilingual") return false;' in html
     assert '!["pack", "quiz"].includes(generationUnitValue())' in html
     assert "return expectedQuizPackCount() > 0;" in html
@@ -211,12 +214,18 @@ def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     assert 'data-quiz-choice-language-mode' in html
     assert "パック言語" in html
     assert "学習言語" in html
-    assert "おまかせ" in html
+    settings_start = html.index("function renderQuizChoiceLanguageSettings()")
+    settings_end = html.index("const COUNT_LIMITS =", settings_start)
+    settings_html = html[settings_start:settings_end]
+    assert 'visibleQuizChoiceLanguageModes().map((mode) => `' in settings_html
+    assert '["pack", "learning", "auto"]' not in settings_html
+    assert "const visibleMode = displayedQuizChoiceLanguageMode(currentMode, fallback);" in settings_html
+    assert "おまかせ" not in settings_html
     render_start = html.index("function renderPlanPreview(plan)")
     render_end = html.index("function renderPlanPreviewFromJson()", render_start)
     render_html = html[render_start:render_end]
     assert "選択肢言語：" in render_html
-    assert 'labelFor("choiceLanguageMode", quiz.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan))' in render_html
+    assert 'displayedQuizChoiceLanguageMode(quiz.choiceLanguageMode || defaultQuizChoiceLanguageMode(plan), defaultQuizChoiceLanguageMode(plan))' in render_html
     assert '<select data-quiz-choice-language-mode=' not in render_html
 
 

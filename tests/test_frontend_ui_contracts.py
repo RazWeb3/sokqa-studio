@@ -684,7 +684,33 @@ def test_save_version_rebuilds_selected_pack_from_new_version_once() -> None:
     assert "updateGlobalStatus();" in html
     assert 'await refreshVersionInfoIfOpen();' in html
     assert 'await refreshImportQrIfOpen();' in html
-    assert html.count("await applySavedVersion(newVersionId, before);") == 2
+    assert html.count("await applySavedVersion(newVersionId, before);") >= 2
+
+
+def test_recording_sync_uses_returned_version_id_and_saved_version_flow() -> None:
+    html = _html()
+    start = html.index("async function recordSelectedUnits(")
+    end = html.index("async function resetRecordingState(", start)
+    record_html = html[start:end]
+
+    assert "const before = selectedPack;" in record_html
+    assert "const newVersionId = data.target?.versionId || before.versionId;" in record_html
+    assert "await applySavedVersion(newVersionId, before);" in record_html
+    assert "latestMatchingPack(packSnapshot)" not in record_html
+    assert 'await loadPacks({ keepSelection: false });' not in record_html
+
+
+def test_recording_reset_sync_uses_returned_version_id_and_saved_version_flow() -> None:
+    html = _html()
+    start = html.index("async function resetRecordingState(")
+    end = html.index("function renderRecordingResult(", start)
+    reset_html = html[start:end]
+
+    assert "const before = selectedPack;" in reset_html
+    assert "const newVersionId = data.target?.versionId || before.versionId;" in reset_html
+    assert "await applySavedVersion(newVersionId, before);" in reset_html
+    assert "latestMatchingPack(before)" not in reset_html
+    assert 'await loadPacks({ keepSelection: false });' not in reset_html
 
 
 def test_saved_version_fallback_updates_revision_and_manifest_url() -> None:

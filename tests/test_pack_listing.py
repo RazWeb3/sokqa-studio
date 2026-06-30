@@ -148,6 +148,15 @@ def test_list_packs_filters_by_creator_id(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_list_packs_disables_cache_with_no_store_header(tmp_path, monkeypatch) -> None:
+    _write_v2_pack(tmp_path, monkeypatch, "creator_a", "content_a", "v20260613_120000", 1)
+
+    response = client.get("/packs?creatorId=creator_a")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_list_packs_returns_only_latest_revision_per_content_id(tmp_path, monkeypatch) -> None:
     _write_v2_pack(tmp_path, monkeypatch, "creator_a", "content_a", "v20260613_120000", 1, manifest_title="古い")
     _write_v2_pack(tmp_path, monkeypatch, "creator_a", "content_a", "v20260613_121000", 2, manifest_title="最新")

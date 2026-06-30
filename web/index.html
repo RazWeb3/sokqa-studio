@@ -3769,7 +3769,8 @@
 
       async function recordSelectedUnits(forceRerecord = false) {
         if (!selectedPack || !selectedUnitIds.size) return;
-        const packSnapshot = { ...selectedPack };
+        const before = selectedPack;
+        const packSnapshot = { ...before };
         const targetSnapshot = recordingTarget(packSnapshot);
         const textSourceSnapshot = $("recordingTextSource").value;
         const voiceConfigSnapshot = selectedVoiceConfig();
@@ -3778,11 +3779,8 @@
         try {
           const data = await sendRecordingChunks(unitIds, forceRerecord, targetSnapshot, packSnapshot, textSourceSnapshot, voiceConfigSnapshot);
           renderRecordingResult(data);
-          await loadPacks({ keepSelection: false });
-          const refreshed = latestMatchingPack(packSnapshot) || selectedPack;
-          if (refreshed) await selectPack(refreshed);
-          await refreshVersionInfoIfOpen();
-          await refreshImportQrIfOpen();
+          const newVersionId = data.target?.versionId || before.versionId;
+          await applySavedVersion(newVersionId, before);
           selectedUnitIds = new Set();
           renderUnits();
           await updateSelectedEstimate();
@@ -3805,11 +3803,8 @@
           if (unitIds) payload.unitIds = unitIds;
           const data = await requestJson("/tts/recording-reset", payload);
           (unitIds || (fullEstimate?.units || []).map((unit) => unit.itemId)).forEach((unitId) => knownAudioUrls.delete(packAudioKey(unitId)));
-          await loadPacks({ keepSelection: false });
-          const refreshed = latestMatchingPack(before) || selectedPack;
-          if (refreshed) await selectPack(refreshed);
-          await refreshVersionInfoIfOpen();
-          await refreshImportQrIfOpen();
+          const newVersionId = data.target?.versionId || before.versionId;
+          await applySavedVersion(newVersionId, before);
           $("recordingResult").innerHTML = `<strong>録音削除</strong><span>cleared=${data.clearedCount || 0}, requested=${data.requestedUnitCount || 0}</span>`;
           finishProgress("録音削除", "録音状態を削除しました。");
         } catch (error) {

@@ -61,8 +61,28 @@ def test_quiz_generation_prompt_forbids_square_bracket_placeholders() -> None:
 
     prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
-    assert "Do not use square-bracket placeholders such as [場所], [名前], [出身地], or [商品]" in prompt
-    assert "Use 〜 or ◯◯ for variable parts instead." in prompt
+    assert "Placeholder policy (strict):" in prompt
+    assert "Use only 〜 or ◯◯ as placeholders" in prompt
+    assert 'This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo"' in prompt
+    assert "Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]." in prompt
+    assert 'Bad: "I\'m from [出身地]."' not in prompt
+    assert "[出身地]" not in prompt
+
+
+def test_generation_prompts_include_placeholder_backtick_and_pack_language_purity_rules() -> None:
+    plan = _plan()
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert 'This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo"' in prompt
+        assert "Even inside language tags" in prompt
+        assert "Pack-language purity (strict):" in prompt
+        assert "example of forbidden raw word in Japanese: nuanced" in prompt
+        assert "バッククォート(`)やMarkdown記号" in prompt
+
+    assert "Normalize placeholders to 〜 or ◯◯" in quiz_prompt
 
 
 def test_generation_prompts_include_structure_and_material_policies() -> None:

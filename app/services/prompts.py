@@ -131,6 +131,7 @@ JSON output rules:
 - 出力は必ずJSONのみ。
 - Markdown、説明文、コードブロックは禁止。
 - JSON内の文字列は必ずエスケープする。
+- 学習者向けの本文・設問・選択肢・解説に、バッククォート(`)やMarkdown記号（#, *, _, >）を含めない。
 """.strip()
 
 
@@ -213,7 +214,16 @@ Rules:
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
 - Do not add pronunciation-only parentheticals in body text; parentheses may be used only for meaning explanations, not readings.
-- Do not use square-bracket placeholders such as [場所], [名前], [出身地], or [商品] in learner-facing text because square brackets are reserved for TTS language tags. Use 〜 or ◯◯ for variable parts instead. Bad: "I'm from [出身地]." Good: "I'm from 〜."
+- Placeholder policy (strict):
+  - Use only 〜 or ◯◯ as placeholders in learner-facing text.
+  - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
+  - Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]. Square brackets are reserved for TTS language tags.
+  - Even inside language tags, follow the same placeholder rules (example: [en-US]My name is ◯◯.[ja-JP]).
+  - Bad: do not use square brackets to wrap a placeholder. Good: "I'm from 〜."
+- Pack-language purity (strict):
+  - Learner-facing sentences must be written in the pack language ({plan.language}).
+  - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
+  - If a non-pack-language learning phrase is included, put it inside a language-tag span and return to the pack language (example: [en-US]Hello[ja-JP]).
 - Each text must be real explanatory learning content, not just a title or label.
 - {text_length_rule[2:]}
 - The documents[] array should follow the document's key points in order.{listening_rule}
@@ -318,8 +328,18 @@ Rules:
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 - Do not add pronunciation-only parentheticals in question, choices, or explanation; parentheses may be used only for meaning explanations, not readings.
-- Do not use square-bracket placeholders such as [場所], [名前], [出身地], or [商品] in learner-facing text because square brackets are reserved for TTS language tags. Use 〜 or ◯◯ for variable parts instead. Bad: "I'm from [出身地]." Good: "I'm from 〜."
+- Placeholder policy (strict):
+  - Use only 〜 or ◯◯ as placeholders in learner-facing text.
+  - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
+  - Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]. Square brackets are reserved for TTS language tags.
+  - Even inside language tags, follow the same placeholder rules (example: [en-US]My name is ◯◯.[ja-JP]).
+  - Bad: do not use square brackets to wrap a placeholder. Good: "I'm from 〜."
+- Pack-language purity (strict):
+  - Learner-facing sentences must be written in the pack language ({plan.language}).
+  - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
+  - If a non-pack-language learning phrase is included, put it inside a language-tag span and return to the pack language (example: [en-US]Hello[ja-JP]).
 - Every question must be grounded in the quiz context.
+- Even if the quiz context contains square-bracket placeholders or ASCII placeholder tokens like OO/oo, do not copy them. Normalize placeholders to 〜 or ◯◯ in your output.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
 - Do not copy existing exam questions verbatim.

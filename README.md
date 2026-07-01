@@ -1,5 +1,13 @@
 # Sokqa Studio
 
+## Demo
+
+Watch the Sokqa Studio demo video:
+
+https://youtu.be/Bp8LoCt_U0I
+
+This video demonstrates the complete workflow including learning pack generation, quality review, recording, and export.
+
 ![Sokqa Studio Hero](docs/images/sokqa-studio-hero.png)
 
 ## 概要

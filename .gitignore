@@ -1,4 +1,7 @@
 .env
+.env.local
+.env.*
+!.env.example
 .venv/
 .venv*/
 .deps/
@@ -9,8 +12,10 @@ __pycache__/
 *.py[cod]
 *.log
 .kombai/
+tmp/
 tmp/tts_probe/
 tmp/failed_generations/
+model_comparison_outputs/
 *.mp3
 *.wav
 *.ogg

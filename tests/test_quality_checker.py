@@ -195,6 +195,9 @@ def test_tts_quality_prompt_declares_switch_tags_and_forbids_closing_tags() -> N
 
     assert "The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]." in prompt
     assert "Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa." in prompt
+    assert "Double utterance exclusions:" in prompt
+    assert "Do not report intentional repetition for lyrics, poems, literary repetition, onomatopoeia" in prompt
+    assert "Report only accidental duplicate utterances caused by conversion side effects" in prompt
     assert "square-bracket placeholders such as [名前], [場所], or [自分の名前]" in prompt
 
 

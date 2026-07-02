@@ -21,6 +21,47 @@ from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, m
 MAX_TTS_BATCH_CHARS = 12000
 logger = logging.getLogger("sokqa_course_pack_agent")
 
+_KATAKANA_TOKEN_RE = re.compile(r"[ァ-ヶー・]{2,}")
+_KATAKANA_WORD_RE = re.compile(r"^[ァ-ヶー・]{2,}$")
+_DUP_SEPARATORS = set(" \t\r\n　、。，．,.")
+
+
+def _katakana_word(value: str) -> str | None:
+    token = str(value or "").strip()
+    return token if _KATAKANA_WORD_RE.fullmatch(token) else None
+
+
+def _next_katakana_word(value: str) -> str | None:
+    text = str(value or "")
+    index = 0
+    while index < len(text) and (text[index].isspace() or text[index] in _DUP_SEPARATORS):
+        index += 1
+    match = _KATAKANA_TOKEN_RE.match(text, index)
+    return match.group(0) if match and match.start() == index else None
+
+
+def _prev_katakana_word(value: str) -> str | None:
+    text = str(value or "")
+    end = len(text)
+    while end > 0 and (text[end - 1].isspace() or text[end - 1] in _DUP_SEPARATORS):
+        end -= 1
+    if end <= 0:
+        return None
+    trimmed = text[:end]
+    matches = list(_KATAKANA_TOKEN_RE.finditer(trimmed))
+    if not matches:
+        return None
+    last = matches[-1]
+    return last.group(0) if last.end() == len(trimmed) else None
+
+
+def _consume_leading_separators(value: str) -> int:
+    text = str(value or "")
+    index = 0
+    while index < len(text) and (text[index].isspace() or text[index] in _DUP_SEPARATORS):
+        index += 1
+    return index
+
 
 def _is_source_inside_existing_reading_parentheses(text: str, start: int, rule: TtsRule) -> bool:
     prefix = text[:start]
@@ -40,6 +81,7 @@ def _replace_rule_source(value: str, rule: TtsRule) -> str:
     chunks: list[str] = []
     cursor = 0
     source_len = len(rule.source)
+    reading_token = _katakana_word(rule.reading)
     while True:
         index = value.find(rule.source, cursor)
         if index < 0:
@@ -49,6 +91,13 @@ def _replace_rule_source(value: str, rule: TtsRule) -> str:
         if _is_source_inside_existing_reading_parentheses(value, index, rule):
             chunks.append(rule.source)
         else:
+            prefix = "".join(chunks)
+            next_text = value[index + source_len :]
+            previous_token = _prev_katakana_word(prefix) if reading_token else None
+            next_token = _next_katakana_word(next_text) if reading_token else None
+            if reading_token and (previous_token == reading_token or next_token == reading_token):
+                cursor = index + source_len + _consume_leading_separators(next_text)
+                continue
             chunks.append(rule.reading)
         cursor = index + source_len
     return "".join(chunks)

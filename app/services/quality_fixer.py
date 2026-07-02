@@ -176,24 +176,55 @@ def _generate_tts_fix_without_llm(
         location = _resolve_tts_location_for_issue(updated_json, location, issue.excerpt)
         before = _get_tts_field(updated_json, location) or _get_raw_field(updated_json, location)
         if issue.category == "double_utterance":
-            after = _collapse_double_utterance(before)
-            if after is not None:
-                if not _set_tts_field(updated_json, location, after):
-                    skipped += 1
-                    logger.info("tts fix skipped issue: failed to set tts field %s", location.model_dump())
-                    continue
-                applied.append(
-                    AppliedFix(
-                        id=f"auto-{index}",
-                        category=issue.category,
-                        location=location,
-                        field=_tts_field_name(updated_json, location),
-                        before=before,
-                        after=after,
-                        sourceIssue=issue.issue,
+            excerpt_text = _non_empty_text(issue.excerpt)
+            if excerpt_text is None:
+                unapplied.append(
+                    _unapplied_fix(
+                        issue,
+                        updated_json,
+                        index,
+                        reason="excerpt が空のため、破壊的な全体置換を避けて未適用にしました。",
                     )
                 )
                 continue
+            collapsed_excerpt = collapse_duplicate_katakana_utterances(excerpt_text)
+            if collapsed_excerpt == excerpt_text:
+                unapplied.append(
+                    _unapplied_fix(
+                        issue,
+                        updated_json,
+                        index,
+                        reason="excerpt を畳み込み対象として解釈できなかったため未適用にしました。",
+                    )
+                )
+                continue
+            after = _apply_partial_tts_replacement(before, excerpt_text, collapsed_excerpt)
+            if after is None:
+                unapplied.append(
+                    _unapplied_fix(
+                        issue,
+                        updated_json,
+                        index,
+                        reason="正規化後も excerpt が対象テキスト内に見つからないため、破壊的な全体上書きを避けて未適用にしました。",
+                    )
+                )
+                continue
+            if not _set_tts_field(updated_json, location, after):
+                skipped += 1
+                logger.info("tts fix skipped issue: failed to set tts field %s", location.model_dump())
+                continue
+            applied.append(
+                AppliedFix(
+                    id=f"auto-{index}",
+                    category=issue.category,
+                    location=location,
+                    field=_tts_field_name(updated_json, location),
+                    before=before,
+                    after=after,
+                    sourceIssue=issue.issue,
+                )
+            )
+            continue
         replacement = _fix_after_text(issue.suggestion, location)
         if replacement is None or not _is_applicable_tts_suggestion(issue.suggestion, replacement):
             unapplied.append(

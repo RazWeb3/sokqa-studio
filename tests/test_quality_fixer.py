@@ -907,6 +907,36 @@ def test_tts_fix_no_llm_collapses_concatenated_duplicate_katakana(tmp_path, monk
     assert "ガバナンスガバナンス" not in data["updatedJson"]["documents"][0]["tts"]["text"]
 
 
+def test_tts_fix_no_llm_double_utterance_applies_only_to_excerpt(tmp_path, monkeypatch) -> None:
+    target = _write_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    manifest_path = tmp_path / "generated" / prefix / "versions" / target["versionId"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    doc_item = next(item for item in manifest["items"] if item["name"] == "doc_01.json")
+    doc_path = tmp_path / "generated" / prefix / doc_item["url"].split(f"{prefix}/", 1)[1]
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["documents"][0]["text"] = "Governance（ガバナンス）は重要です。"
+    doc["documents"][0]["tts"] = {"text": "ガバナンスガバナンス と ガバナンス（ガバナンス）は重要です。"}
+    doc_path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    issue = {
+        "category": "double_utterance",
+        "severity": "medium",
+        "confidence": 0.9,
+        "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+        "excerpt": "ガバナンス（ガバナンス）",
+        "issue": "同じ読みが括弧内で重複しています。",
+        "suggestion": "ガバナンス",
+    }
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": [issue]})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unappliedFixes"] == []
+    assert data["updatedJson"]["documents"][0]["tts"]["text"] == "ガバナンスガバナンス と ガバナンスは重要です。"
+    assert "ガバナンスガバナンス" in data["updatedJson"]["documents"][0]["tts"]["text"]
+
+
 def test_tts_fix_no_llm_rejects_clear_vocabulary_rewrite(tmp_path, monkeypatch) -> None:
     target = _write_version(tmp_path, monkeypatch)
     prefix = pack_root_prefix(target["creatorId"], target["contentId"])

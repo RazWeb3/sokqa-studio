@@ -155,6 +155,18 @@ def test_system_dictionary_dot_words_and_extensions() -> None:
     assert text == "ドット ギット ドット イーエヌブイ ドット ギットイグノア configドット ジェイソン file.yaml file.yml"
 
 
+def test_speech_text_collapses_rule_induced_adjacent_duplicate_katakana_word() -> None:
+    rules = [TtsRule(source="Governance", reading="ガバナンス")]
+    text = _speech_text("Governance ガバナンス は重要です。", rules)
+    assert text == "ガバナンス は重要です。"
+
+
+def test_speech_text_does_not_modify_existing_katakana_repetition_unrelated_to_rule_replacement() -> None:
+    rules = [TtsRule(source="Governance", reading="ガバナンス")]
+    text = _speech_text("リンダ リンダ Governance ガバナンス", rules)
+    assert text == "リンダ リンダ ガバナンス"
+
+
 def test_japanese_fixed_reading_rule_applies() -> None:
     rules = [TtsRule(source="読替語", reading="よみかえご")]
     text = _speech_text("読替語を確認します", rules)

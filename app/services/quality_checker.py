@@ -523,6 +523,10 @@ Categories:
 - notation: inconsistent spoken notation/readings. Do not report visual notation issues here.
 - tts_text_mismatch: clear semantic mismatch between source text and tts text. Only report when meaning, answer, quantity, negation, or proper nouns clearly differ. Do not report kana conversion, reading correction, language tags, or punctuation differences.
 
+Double utterance exclusions:
+- Do not report intentional repetition for lyrics, poems, literary repetition, onomatopoeia (e.g., しとしと, しくしく), or emphasis.
+- Report only accidental duplicate utterances caused by conversion side effects (e.g., Governance ガバナンス -> ガバナンス ガバナンス).
+
 TTS null rules:
 - Null or missing audio/tts fields are normal recording-management state.
 - Do not report null, empty, or missing audioPath, choiceAudioPaths, questionAudioPath, explanationAudioPath, audioUrl, choiceAudioUrls, questionAudioUrl, or explanationAudioUrl at any severity.

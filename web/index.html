@@ -1084,6 +1084,7 @@
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
       const INITIAL_CREDITS = 1.0;
       const CREDIT_UI_ENABLED = false; // Credits UI/accounting is parked for future use.
+      const DEBUG_LOGS_ENABLED = false;
       const PACK_LANGUAGE_OPTIONS = [
         ["pack", "パック言語"],
         ["ja", "日本語 / ja"],
@@ -4168,6 +4169,9 @@
       function renderGeneratedResult(generated) {
         batchQualityState = null;
         const manifestUrl = generated.files?.find((file) => file.kind === "manifest")?.url || generated.manifest?.manifestUrl || "";
+        const logsHtml = DEBUG_LOGS_ENABLED
+          ? `<ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`
+          : "";
         $("result").innerHTML = `
           <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.status)}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${generated.validation?.valid ? "ok" : "ng"}</strong></div></div>
           <div class="actions">
@@ -4176,7 +4180,7 @@
           <p class="muted" id="openShareInfoHint"></p>
           <div id="autoTextQualityResult" class="stack"><div class="applied"><strong>品質チェック</strong><span>${isAutoQualityFixEnabled() ? "生成成功後に実行します。" : "自動品質チェックはOFFです。"}</span></div></div>
           <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
-          <ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`;
+          ${logsHtml}`;
         if (!selectedPack?.manifestUrl && manifestUrl) {
           $("openShareInfoHint").textContent = "生成結果を対象パックとして選択するとURL・QRを表示できます。";
         }

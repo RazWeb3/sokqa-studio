@@ -815,6 +815,7 @@ def test_generated_result_delegates_share_url_and_qr_to_version_modal() -> None:
     end = html.index("async function createPlan", start)
     result_html = html[start:end]
 
+    assert "const DEBUG_LOGS_ENABLED = false;" in html
     assert "syncShareLinks" not in html
     assert "shareManifestUrl" not in html
     assert "shareImportUrl" not in html
@@ -822,6 +823,9 @@ def test_generated_result_delegates_share_url_and_qr_to_version_modal() -> None:
     assert 'id="openShareInfoBtn"' in result_html
     assert 'id="openShareInfoHint"' in result_html
     assert 'openVersionInfo({ force: true })' in result_html
+    assert 'const logsHtml = DEBUG_LOGS_ENABLED' in result_html
+    assert '<ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>' in result_html
+    assert '${logsHtml}' in result_html
 
     assert 'id="shareUrl"' not in html
     assert 'id="qrcode"' not in html

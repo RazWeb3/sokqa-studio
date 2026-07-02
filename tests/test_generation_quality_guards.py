@@ -87,6 +87,22 @@ def test_generation_prompts_include_placeholder_backtick_and_pack_language_purit
     assert "Normalize placeholders to 〜 or ◯◯" in quiz_prompt
 
 
+def test_generation_prompts_require_finished_learner_ready_output() -> None:
+    plan = _plan()
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "Output learner-facing content as a finished version that can be delivered directly to learners." in prompt
+        assert "Do not leave drafting-stage placeholders, unfinished sentences, TODOs, AI instructions, or meta comments" in prompt
+        assert "Do not leave fill-in-the-blank markers, redaction symbols, masked company/person names, or other unresolved placeholders such as XXX or ＿＿." in prompt
+        assert "replace unresolved placeholders with a natural, pronounceable example" in prompt
+        assert "for example, a kana company or person name" in prompt
+        assert "Judge by whether the expression is an unfinished or unresolved placeholder" in prompt
+        assert "Do not ban valid symbols that carry meaning" in prompt
+
+
 def test_generation_prompts_include_structure_and_material_policies() -> None:
     plan = _plan()
     plan.structurePolicy = "summary"

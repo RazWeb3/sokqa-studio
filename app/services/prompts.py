@@ -202,6 +202,19 @@ JSON output rules:
 """.strip()
 
 
+def _finished_quality_block() -> str:
+    return """
+- Finished output quality (strict):
+  - Output learner-facing content as a finished version that can be delivered directly to learners.
+  - Do not leave drafting-stage placeholders, unfinished sentences, TODOs, AI instructions, or meta comments in learner-facing text.
+  - Do not leave fill-in-the-blank markers, redaction symbols, masked company/person names, or other unresolved placeholders such as XXX or ＿＿.
+  - Do not leave unfinished examples or half-written sample content.
+  - If an example needs a proper noun, replace unresolved placeholders with a natural, pronounceable example (for example, a kana company or person name) rather than leaving symbolic placeholders.
+  - Judge by whether the expression is an unfinished or unresolved placeholder, not by banning a symbol itself.
+  - Do not ban valid symbols that carry meaning, such as 〜 in normal phrasing, numeric ranges like 10〜20, or notation used in math, chemistry, or grammar explanations.
+""".strip()
+
+
 def _quiz_context_block(plan: CoursePlan, source_documents: list[SokqaDocumentPack]) -> str:
     document_context = "\n".join(
         f"- {doc.title}: " + " ".join(item.text for item in doc.documents[:5])
@@ -293,6 +306,7 @@ Rules:
   - Learner-facing sentences must be written in the pack language ({plan.language}).
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
   - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
+- {_finished_quality_block()[2:]}
 - Each text must be real explanatory learning content, not just a title or label.
 - {text_length_rule[2:]}
 - The documents[] array should follow the document's key points in order.{listening_rule}
@@ -409,6 +423,7 @@ Rules:
   - Learner-facing sentences must be written in the pack language ({plan.language}).
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
   - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
+- {_finished_quality_block()[2:]}
 - Every question must be grounded in the quiz context.
 - Even if the quiz context contains square-bracket placeholders or ASCII placeholder tokens like OO/oo, do not copy them. Normalize placeholders to 〜 or ◯◯ in your output.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.

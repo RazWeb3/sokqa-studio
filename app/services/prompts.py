@@ -207,9 +207,11 @@ def _finished_quality_block() -> str:
 - Finished output quality (strict):
   - Output learner-facing content as a finished version that can be delivered directly to learners.
   - Do not leave drafting-stage placeholders, unfinished sentences, TODOs, AI instructions, or meta comments in learner-facing text.
-  - Do not leave fill-in-the-blank markers, redaction symbols, masked company/person names, or other unresolved placeholders such as XXX or ＿＿.
+  - Do not leave unintended unresolved placeholders, redaction symbols, masked names, or drafting residue in learner-facing text.
   - Do not leave unfinished examples or half-written sample content.
-  - If an example needs a proper noun, replace unresolved placeholders with a natural, pronounceable example (for example, a kana company or person name) rather than leaving symbolic placeholders.
+  - If an example needs a company, person, place, or other proper noun, use a natural fictional name that fits the output language. Do not hard-code or recommend fixed sample names in these instructions.
+  - If the theme does not need an example name, do not add a fictional name unnecessarily.
+  - Use fill-in-the-blank placeholders only when that blank format is the intended finished exercise style. Use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
   - Judge by whether the expression is an unfinished or unresolved placeholder, not by banning a symbol itself.
   - Do not ban valid symbols that carry meaning, such as 〜 in normal phrasing, numeric ranges like 10〜20, or notation used in math, chemistry, or grammar explanations.
 """.strip()
@@ -296,12 +298,11 @@ Rules:
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
 {ruby_policy}
 - Placeholder policy (strict):
-  - Use only 〜 or ◯◯ as placeholders in learner-facing text.
-  - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
-  - Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]. Square brackets are reserved for TTS language tags.
+  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
+  - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
   - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
   - Language tagging belongs only to the later TTS optimization step, never to documents[].text.
-  - Bad: do not use square brackets to wrap a placeholder. Good: "I'm from 〜."
 - Pack-language purity (strict):
   - Learner-facing sentences must be written in the pack language ({plan.language}).
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
@@ -413,19 +414,18 @@ Rules:
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 {ruby_policy}
 - Placeholder policy (strict):
-  - Use only 〜 or ◯◯ as placeholders in learner-facing text.
-  - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
-  - Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]. Square brackets are reserved for TTS language tags.
+  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
+  - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
   - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
   - Language tagging belongs only to the later TTS optimization step, never to question, choices, or explanation.
-  - Bad: do not use square brackets to wrap a placeholder. Good: "I'm from 〜."
 - Pack-language purity (strict):
   - Learner-facing sentences must be written in the pack language ({plan.language}).
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
   - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
 - {_finished_quality_block()[2:]}
 - Every question must be grounded in the quiz context.
-- Even if the quiz context contains square-bracket placeholders or ASCII placeholder tokens like OO/oo, do not copy them. Normalize placeholders to 〜 or ◯◯ in your output.
+- Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
 - Do not copy existing exam questions verbatim.

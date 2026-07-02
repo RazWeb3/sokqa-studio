@@ -62,10 +62,10 @@ def test_quiz_generation_prompt_forbids_square_bracket_placeholders() -> None:
     prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
     assert "Placeholder policy (strict):" in prompt
-    assert "Use only 〜 or ◯◯ as placeholders" in prompt
+    assert "Do not leave unresolved placeholder tokens in learner-facing text" in prompt
     assert 'This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo"' in prompt
-    assert "Do not output square-bracket placeholders such as [名前], [会社名], or [自分の名前]." in prompt
-    assert 'Bad: "I\'m from [出身地]."' not in prompt
+    assert "If a fill-in-the-blank exercise is intentionally required" in prompt
+    assert "Do not use full-width spaces as blanks." in prompt
     assert "[出身地]" not in prompt
 
 
@@ -84,7 +84,8 @@ def test_generation_prompts_include_placeholder_backtick_and_pack_language_purit
         assert "put it inside a language-tag span" not in prompt
         assert "バッククォート(`)やMarkdown記号" in prompt
 
-    assert "Normalize placeholders to 〜 or ◯◯" in quiz_prompt
+    assert "Resolve them into finished content" in quiz_prompt
+    assert "language-appropriate blanks only when the intended exercise format is fill-in-the-blank" in quiz_prompt
 
 
 def test_generation_prompts_require_finished_learner_ready_output() -> None:
@@ -96,11 +97,18 @@ def test_generation_prompts_require_finished_learner_ready_output() -> None:
     for prompt in [document_prompt, quiz_prompt]:
         assert "Output learner-facing content as a finished version that can be delivered directly to learners." in prompt
         assert "Do not leave drafting-stage placeholders, unfinished sentences, TODOs, AI instructions, or meta comments" in prompt
-        assert "Do not leave fill-in-the-blank markers, redaction symbols, masked company/person names, or other unresolved placeholders such as XXX or ＿＿." in prompt
-        assert "replace unresolved placeholders with a natural, pronounceable example" in prompt
-        assert "for example, a kana company or person name" in prompt
+        assert "Do not leave unintended unresolved placeholders, redaction symbols, masked names, or drafting residue" in prompt
+        assert "use a natural fictional name that fits the output language" in prompt
+        assert "Do not hard-code or recommend fixed sample names in these instructions." in prompt
+        assert "If the theme does not need an example name, do not add a fictional name unnecessarily." in prompt
+        assert "Use fill-in-the-blank placeholders only when that blank format is the intended finished exercise style." in prompt
+        assert "Do not use full-width spaces as blanks." in prompt
         assert "Judge by whether the expression is an unfinished or unresolved placeholder" in prompt
         assert "Do not ban valid symbols that carry meaning" in prompt
+        assert "John Smith" not in prompt
+        assert "ABC Company" not in prompt
+        assert "Company Name" not in prompt
+        assert "[Name]" not in prompt
 
 
 def test_generation_prompts_include_structure_and_material_policies() -> None:

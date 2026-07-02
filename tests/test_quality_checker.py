@@ -220,6 +220,23 @@ def test_tts_quality_prompt_for_normal_file_forbids_language_tags() -> None:
     assert "Do not force katakana readings for common full-spelled English words" in prompt
 
 
+def test_quality_prompt_requires_suggestion_to_be_finished_text_only() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。"}],
+        },
+        50,
+        mode="tts",
+    )
+
+    assert "suggestion には修正後の本文のみを入れること。説明・注釈・理由・AIへの指示文・メタコメントを含めてはならない。" in prompt
+    assert "If an exact replacement cannot be produced safely, do not create that issue." in prompt
+    assert "keep suggestion as a concise explanation" not in prompt
+
+
 def test_detect_multilingual_prioritizes_metadata_over_tags_and_structure() -> None:
     assert (
         detect_multilingual(
@@ -756,6 +773,65 @@ def test_quality_response_filters_same_excerpt_and_suggestion_after_normalizatio
         file_name="doc_01.json",
         model="test-model",
         max_issues=50,
+    )
+
+    assert response.issues == []
+
+
+def test_quality_response_filters_obvious_meta_annotation_suggestion_and_keeps_normal_text() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-42", "field": "text"},
+                    "excerpt": "TTS",
+                    "issue": "本文に補足が必要です。",
+                    "suggestion": "TTSが自然に読み上げられるよう、具体的な指示が必要です。",
+                },
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-42", "field": "text"},
+                    "excerpt": "確認します",
+                    "issue": "本文を自然な言い回しにします。",
+                    "suggestion": "まず確認します。",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+    )
+
+    assert [issue.suggestion for issue in response.issues] == ["まず確認します。"]
+
+
+def test_quality_response_filters_suggestion_same_as_source_field_after_normalization() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-40", "field": "text"},
+                    "excerpt": "短い フレーズ",
+                    "issue": "同じ内容を繰り返しています。",
+                    "suggestion": "短いフレーズ",
+                }
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        source_content={
+            "type": "document",
+            "documents": [{"id": "doc-40", "text": "短い フレーズ"}],
+        },
     )
 
     assert response.issues == []

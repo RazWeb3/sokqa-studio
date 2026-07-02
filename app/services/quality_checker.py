@@ -144,6 +144,11 @@ def _quality_response_from_data(
             if isinstance(suggestion, str) and not suggestion.strip():
                 continue
         issues.append(_normalize_quality_issue_location(QualityIssue.model_validate(item)))
+    before_count = len(issues)
+    issues = [issue for issue in issues if not _is_obvious_meta_suggestion(issue)]
+    filtered_count = before_count - len(issues)
+    if filtered_count:
+        _logger.info("quality_check.filtered_meta_suggestion_issues count=%s file=%s", filtered_count, file_name)
     if allowed_categories is not None:
         issues = [issue for issue in issues if issue.category in allowed_categories]
     if suppress_tts_null_issues:
@@ -165,6 +170,12 @@ def _quality_response_from_data(
     filtered_count = before_count - len(issues)
     if filtered_count:
         _logger.info("quality_check.filtered_same_excerpt_suggestion_issues count=%s file=%s", filtered_count, file_name)
+    if source_content is not None:
+        before_count = len(issues)
+        issues = [issue for issue in issues if not _is_same_source_and_suggestion_issue(issue, source_content)]
+        filtered_count = before_count - len(issues)
+        if filtered_count:
+            _logger.info("quality_check.filtered_same_source_suggestion_issues count=%s file=%s", filtered_count, file_name)
     before_count = len(issues)
     issues = _dedupe_quality_issues(issues)
     filtered_count = before_count - len(issues)
@@ -400,6 +411,22 @@ def _is_already_corrected_reading_issue(issue: QualityIssue, content: dict[str, 
     return bool(normalized_suggestion and normalized_suggestion in normalized_tts)
 
 
+def _is_obvious_meta_suggestion(issue: QualityIssue) -> bool:
+    suggestion = unicodedata.normalize("NFKC", issue.suggestion).strip()
+    if not suggestion:
+        return False
+    meta_patterns = (
+        r"TTSが.+読み上げられるよう.+指示.+必要です",
+        r"AIへの指示文",
+        r"メタコメント",
+        r"説明[・:]",
+        r"注釈[・:]",
+        r"理由[・:]",
+        r"以下のように修正",
+    )
+    return any(re.search(pattern, suggestion) for pattern in meta_patterns)
+
+
 def _tts_text_for_issue_location(content: dict[str, Any], issue: QualityIssue) -> str:
     unit = _find_quality_unit(content, issue.location.unitId)
     if not unit:
@@ -436,6 +463,27 @@ def _find_quality_unit(content: dict[str, Any], unit_id: str | None) -> dict[str
     return None
 
 
+def _source_text_for_issue_location(content: dict[str, Any], issue: QualityIssue) -> str:
+    unit = _find_quality_unit(content, issue.location.unitId)
+    if not unit:
+        return ""
+    if content.get("type") == "document":
+        return str(unit.get("text") or "")
+
+    field = issue.location.field or "question"
+    if _is_quality_choice_field(field):
+        index = _quality_choice_index(field)
+        if index is None:
+            index = _infer_choice_index_from_excerpt(unit, issue.excerpt)
+        choices = unit.get("choices") or []
+        if index is not None and 0 <= index < len(choices):
+            return str(choices[index] or "")
+        return ""
+    if "explanation" in field:
+        return str(unit.get("explanation") or "")
+    return str(unit.get("question") or "")
+
+
 def _is_quality_choice_field(field: str | None) -> bool:
     return bool(field and ("choice" in field.lower() or field.startswith("choices")))
 
@@ -468,6 +516,13 @@ def _is_same_excerpt_and_suggestion_issue(issue: QualityIssue) -> bool:
     normalized_excerpt = _normalize_reading_match_text(issue.excerpt)
     normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
     return bool(normalized_excerpt and normalized_excerpt == normalized_suggestion)
+
+
+def _is_same_source_and_suggestion_issue(issue: QualityIssue, content: dict[str, Any]) -> bool:
+    source_text = _source_text_for_issue_location(content, issue)
+    normalized_source = _normalize_reading_match_text(source_text)
+    normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
+    return bool(normalized_source and normalized_source == normalized_suggestion)
 
 
 def _quality_issue_dedupe_key(issue: QualityIssue) -> tuple[str, str, str]:
@@ -549,7 +604,7 @@ TTS fix suggestion rules:
 - For reading, double_utterance, notation, and tts_text_mismatch, excerpt must contain the exact source fragment to replace.
 - suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
 - For tts.choiceTexts[index] issues, suggestion must be the replacement text for the excerpt inside that one choice index only. Do not return the full choice text or the full choiceTexts array unless the excerpt itself is the full choice text.
-- If an exact replacement cannot be produced safely, keep suggestion as a concise explanation; the fix step may leave it unapplied.
+- If an exact replacement cannot be produced safely, do not create that issue.
 """.strip()
         focus = "Inspect only audio/TTS quality. Do not report factual/style/leak display-text issues unless they directly affect TTS."
     else:
@@ -591,6 +646,7 @@ Severity:
 Rules:
 - factual issues must use conservative confidence and wording such as "確認が必要".
 - Write the issue and suggestion fields in Japanese. Keep category, severity, confidence, and location field names in the specified JSON schema.
+- suggestion には修正後の本文のみを入れること。説明・注釈・理由・AIへの指示文・メタコメントを含めてはならない。
 - Fill location.fileName with "{file_name}".
 - Fill location.unitId with the document item id or quiz question id when available.
 - Fill location.field with "text", "question", "choices", "explanation", or another concrete field.

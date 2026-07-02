@@ -173,6 +173,21 @@ def test_japanese_fixed_reading_rule_applies() -> None:
     assert text == "よみかえごを確認します"
 
 
+def test_japanese_placeholder_symbols_are_read_as_marumaru() -> None:
+    text = _speech_text("◯◯ と ○○ と 株式会社◯◯ を確認します。", [])
+    assert text == "まるまる と まるまる と 株式会社まるまる を確認します。"
+
+
+def test_blank_placeholders_are_silenced_in_japanese_and_english() -> None:
+    ja_text = _speech_text("答えは＿＿＿です。", [])
+    en_text = _speech_text("The answer is _____.", [], language="en")
+
+    assert ja_text == "答えは  です。"
+    assert en_text == "The answer is  ."
+    assert "＿＿＿" not in ja_text
+    assert "_____" not in en_text
+
+
 def test_json_casing_rules_are_separate() -> None:
     rules = load_configured_tts_rules()
     text = _speech_text("JSON と config.json と json を確認します", rules)

@@ -24,6 +24,9 @@ logger = logging.getLogger("sokqa_course_pack_agent")
 _KATAKANA_TOKEN_RE = re.compile(r"[ァ-ヶー・]{2,}")
 _KATAKANA_WORD_RE = re.compile(r"^[ァ-ヶー・]{2,}$")
 _DUP_SEPARATORS = set(" \t\r\n　、。，．,.")
+_BLANK_PLACEHOLDER_RE = re.compile(r"\s*[_＿]{3,}\s*")
+_JAPANESE_CIRCLE_PLACEHOLDER_RE = re.compile(r"[◯○]{2,}")
+_TTS_SILENT_BLANK = "  "
 
 
 def _katakana_word(value: str) -> str | None:
@@ -110,8 +113,24 @@ def _apply_rule_replacements(value: str, rules: list[TtsRule]) -> str:
     return result
 
 
-def _speech_text(value: str, rules: list[TtsRule]) -> str:
+def _apply_blank_placeholder_silence(value: str) -> str:
+    return _BLANK_PLACEHOLDER_RE.sub(_TTS_SILENT_BLANK, value)
+
+
+def _apply_japanese_placeholder_readings(value: str) -> str:
+    return _JAPANESE_CIRCLE_PLACEHOLDER_RE.sub("まるまる", value)
+
+
+def _apply_legacy_placeholder_fallbacks(value: str, language: str | None = None) -> str:
+    result = str(value or "")
+    if _base_language(language) == "ja":
+        result = _apply_japanese_placeholder_readings(result)
+    return _apply_blank_placeholder_silence(result)
+
+
+def _speech_text(value: str, rules: list[TtsRule], language: str | None = "ja") -> str:
     result = _apply_rule_replacements(value, rules)
+    result = _apply_legacy_placeholder_fallbacks(result, language)
     result = collapse_duplicate_katakana_parentheticals(result)
     return normalize_tts_text(result)
 
@@ -256,7 +275,7 @@ def _guard_llm_quiz_tts(
 ) -> QuizTts | None:
     if not tts:
         return tts
-    fallback = _rule_quiz_question_tts(question, rules)
+    fallback = _rule_quiz_question_tts(question, rules, language=pack_language, allow_language_tags=allow_language_tags, language_settings=language_settings)
     fallback_choice_texts = fallback.choiceTexts if fallback and fallback.choiceTexts else None
     question_text = _guard_llm_text(
         tts.questionText,
@@ -351,6 +370,8 @@ def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
 
 def _needs_tts_locally(text: str, rules: list[TtsRule]) -> bool:
     if _has_rule_match(text, rules):
+        return True
+    if _BLANK_PLACEHOLDER_RE.search(text) or _JAPANESE_CIRCLE_PLACEHOLDER_RE.search(text):
         return True
     risky_markers = ["API", "AI", "UI", "UX", "SQL", "JSON", "CPU", "PC", "URL"]
     if any(marker in text for marker in risky_markers):
@@ -614,13 +635,13 @@ def _llm_response_object_or_raise(data, *, context: str) -> dict:
     raise ValueError(f"{context} response must be an object")
 
 
-def _gemini_speech_text(value: str, rules: list[TtsRule]) -> str:
+def _gemini_speech_text(value: str, rules: list[TtsRule], language: str | None = "ja") -> str:
     data = GeminiClient().generate_json(_tts_reading_prompt(value, rules))
     data = _llm_response_object_or_raise(data, context="tts reading")
     text = data.get("text", "")
     if not isinstance(text, str) or not text.strip():
-        return _speech_text(value, rules)
-    return _speech_text(text, rules)
+        return _speech_text(value, rules, language)
+    return _speech_text(text, rules, language)
 
 
 def _chunk_entries(entries: list[tuple[str, str]], max_chars: int = MAX_TTS_BATCH_CHARS) -> list[list[tuple[str, str]]]:
@@ -690,9 +711,9 @@ def _gemini_document_speech_map(
             entry_id = str(item.get("id", ""))
             text = item.get("text", "")
             if entry_id in source_by_id and isinstance(text, str) and text.strip():
-                readings[entry_id] = _speech_text(text, rules)
+                readings[entry_id] = _speech_text(text, rules, language)
         for entry_id, source_text in chunk:
-            readings.setdefault(entry_id, _speech_text(source_text, rules))
+            readings.setdefault(entry_id, _speech_text(source_text, rules, language))
     return readings
 
 
@@ -764,8 +785,8 @@ def _sparse_choice_texts(question, choice_readings: list[str], *, keep_all: bool
     return choice_texts if any(choice_texts) else None
 
 
-def _optional_speech_text(source_text: str, reading_text: str, rules: list[TtsRule]) -> str | None:
-    speech = _speech_text(reading_text, rules)
+def _optional_speech_text(source_text: str, reading_text: str, rules: list[TtsRule], language: str | None = "ja") -> str | None:
+    speech = _speech_text(reading_text, rules, language)
     source = normalize_tts_text(source_text)
     return None if speech == source else speech
 
@@ -787,7 +808,7 @@ def _document_tts_from_reading(
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
     )
-    speech = _optional_speech_text(source_text, reading_text, rules)
+    speech = _optional_speech_text(source_text, reading_text, rules, language)
     return DocumentTts(text=speech) if speech else None
 
 
@@ -820,7 +841,7 @@ def _quiz_tts_from_readings(
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
     )
-    question_text_output = _optional_speech_text(question.question, question_text, rules)
+    question_text_output = _optional_speech_text(question.question, question_text, rules, language)
     choice_readings = _apply_choice_language_tags(
         question.choices,
         choice_readings,
@@ -861,7 +882,7 @@ def _quiz_tts_from_readings(
         or (choice_mode == "select" and selected_language and _base_language(selected_language) != _base_language(language))
     )
     choice_texts_output = _sparse_choice_texts(question, choice_readings, keep_all=keep_all_choices)
-    explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules)
+    explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules, language)
     if not question_text_output and not choice_texts_output and not explanation_text_output:
         return None
     return QuizTts(
@@ -885,7 +906,7 @@ def _rule_quiz_question_tts(
     return _quiz_tts_from_readings(
         question,
         question.question,
-        [_speech_text(choice, rules) for choice in question.choices],
+        [_speech_text(choice, rules, language) for choice in question.choices],
         question.explanation,
         rules,
         language=language,
@@ -907,9 +928,9 @@ def _gemini_quiz_question_tts(
 ) -> QuizTts | None:
     total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
     if total_chars > MAX_TTS_BATCH_CHARS:
-        question_text = _gemini_speech_text(question.question, rules)
-        explanation_text = _gemini_speech_text(question.explanation, rules)
-        choice_readings = [_gemini_speech_text(choice, rules) for choice in question.choices]
+        question_text = _gemini_speech_text(question.question, rules, language)
+        explanation_text = _gemini_speech_text(question.explanation, rules, language)
+        choice_readings = [_gemini_speech_text(choice, rules, language) for choice in question.choices]
         return _quiz_tts_from_readings(
             question,
             question_text,
@@ -931,7 +952,7 @@ def _gemini_quiz_question_tts(
     explanation_text = data.get("explanationText", "")
     choices = data.get("choices", [])
 
-    choice_readings = [_speech_text(choice, rules) for choice in question.choices]
+    choice_readings = [_speech_text(choice, rules, language) for choice in question.choices]
     if isinstance(choices, list):
         for choice in choices:
             if not isinstance(choice, dict):
@@ -942,7 +963,7 @@ def _gemini_quiz_question_tts(
                 continue
             text = choice.get("text", "")
             if 0 <= index < len(choice_readings) and isinstance(text, str) and text.strip():
-                choice_readings[index] = _speech_text(text, rules)
+                choice_readings[index] = _speech_text(text, rules, language)
 
     if not isinstance(question_text, str) or not question_text.strip():
         question_text = question.question
@@ -1034,7 +1055,7 @@ def _quiz_tts_from_item(
     explanation_text = item.get("explanationText", "")
     choices = item.get("choices", [])
 
-    choice_readings = [_speech_text(choice, rules) for choice in question.choices]
+    choice_readings = [_speech_text(choice, rules, language) for choice in question.choices]
     if isinstance(choices, list):
         for choice in choices:
             if not isinstance(choice, dict):
@@ -1045,7 +1066,7 @@ def _quiz_tts_from_item(
                 continue
             text = choice.get("text", "")
             if 0 <= index < len(choice_readings) and isinstance(text, str) and text.strip():
-                choice_readings[index] = _speech_text(text, rules)
+                choice_readings[index] = _speech_text(text, rules, language)
 
     if not isinstance(question_text, str) or not question_text.strip():
         question_text = question.question
@@ -1117,7 +1138,18 @@ def _gemini_quiz_tts_map(
                     choice_language_mode=choice_language_mode,
                 )
         for question in chunk:
-            readings.setdefault(question.id, _rule_quiz_question_tts(question, rules))
+            readings.setdefault(
+                question.id,
+                _rule_quiz_question_tts(
+                    question,
+                    rules,
+                    language=language,
+                    allow_language_tags=allow_language_tags,
+                    language_settings=language_settings,
+                    learning_language=learning_language,
+                    choice_language_mode=choice_language_mode,
+                ),
+            )
     return readings
 
 
@@ -1313,7 +1345,7 @@ def optimize_document_pack(
     for item in pack.documents:
         item.tags = None
         if item.id in selected_ids:
-            rule_speech = _speech_text(item.text, rules)
+            rule_speech = _speech_text(item.text, rules, pack.language)
             if active_mode in {"llm", "multilingual"} and item.id in llm_readings:
                 speech = _guard_llm_text(
                     llm_readings[item.id],
@@ -1414,7 +1446,15 @@ def optimize_quiz_pack(
                     language_settings=language_settings,
                 )
             else:
-                question.tts = _rule_quiz_question_tts(question, rules)
+                question.tts = _rule_quiz_question_tts(
+                    question,
+                    rules,
+                    language=pack.language,
+                    allow_language_tags=False,
+                    language_settings=language_settings,
+                    learning_language=pack.learningLanguage,
+                    choice_language_mode=pack.choiceLanguageMode,
+                )
         else:
             question.tts = None
     return pack

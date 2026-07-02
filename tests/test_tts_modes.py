@@ -302,6 +302,43 @@ def test_rule_mode_applies_document_rules_without_extra_punctuation_conversion(m
     assert docs[1]["tts"]["text"] == "ドット ギットイグノア と ドット イーエヌブイ と ギット イニット を確認します。"
 
 
+def test_rule_mode_applies_placeholder_fallbacks_for_existing_material(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    files = [
+        GeneratedFile(
+            name="doc_placeholders.json",
+            kind="document",
+            content={
+                "id": "pack_doc_placeholders",
+                "type": "document",
+                "schemaVersion": 1,
+                "title": "プレースホルダー文書",
+                "language": "ja",
+                "documents": [
+                    {
+                        "id": "doc-legacy-ja",
+                        "text": "株式会社◯◯に連絡し、答えは＿＿＿です。",
+                    },
+                    {
+                        "id": "doc-legacy-en",
+                        "text": "The answer is _____.",
+                    },
+                ],
+            },
+        )
+    ]
+
+    optimized, _ = optimize_generated_files_with_report(files, [], mode="rule")
+    docs = optimized[0].content["documents"]
+
+    assert docs[0]["tts"]["text"] == "株式会社まるまるに連絡し、答えは  です。"
+    assert docs[1]["tts"]["text"] == "The answer is  ."
+    assert "◯◯" not in docs[0]["tts"]["text"]
+    assert "＿＿＿" not in docs[0]["tts"]["text"]
+    assert "_____" not in docs[1]["tts"]["text"]
+
+
 def test_rule_mode_omits_document_tts_when_reading_matches_source(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

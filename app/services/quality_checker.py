@@ -5,6 +5,7 @@ import logging
 import re
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
@@ -22,6 +23,7 @@ from app.services.tts_recording_api import load_target_pack
 MAX_QUALITY_INPUT_CHARS = 30000
 TEXT_QUALITY_CATEGORIES = {"factual", "style", "leak"}
 TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch"}
+FULL_REPLACE_CATEGORIES = {"factual", "style", "leak", "tts_text_mismatch"}
 _logger = logging.getLogger(__name__)
 
 _UNSPOKEN_READING_SYMBOLS = set("「」『』（）()・、。，．,. 　\t\r\n")
@@ -45,6 +47,7 @@ _PLACEHOLDER_KEYWORD_PATTERNS = (
     r"generic name",
     r"authoring comment",
 )
+_FRAGMENT_TRAILING_CONNECTIVES = ("ので", "ため", "て", "で")
 
 
 class QualityCheckError(RuntimeError):
@@ -99,7 +102,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
             allowed_categories=TEXT_QUALITY_CATEGORIES if mode == "text" else TTS_QUALITY_CATEGORIES,
             suppress_tts_null_issues=mode == "tts",
             input_truncated=input_truncated,
-            source_content=loaded.file.content if mode == "tts" else None,
+            source_content=loaded.file.content,
         )
         if mode == "tts":
             llm_issues = response.issues
@@ -181,17 +184,8 @@ def _quality_response_from_data(
             filtered_count = before_count - len(issues)
             if filtered_count:
                 _logger.info("quality_check.filtered_already_corrected_reading_issues count=%s file=%s", filtered_count, file_name)
-    before_count = len(issues)
-    issues = [issue for issue in issues if not _is_same_excerpt_and_suggestion_issue(issue)]
-    filtered_count = before_count - len(issues)
-    if filtered_count:
-        _logger.info("quality_check.filtered_same_excerpt_suggestion_issues count=%s file=%s", filtered_count, file_name)
-    if source_content is not None:
-        before_count = len(issues)
-        issues = [issue for issue in issues if not _is_same_source_and_suggestion_issue(issue, source_content)]
-        filtered_count = before_count - len(issues)
-        if filtered_count:
-            _logger.info("quality_check.filtered_same_source_suggestion_issues count=%s file=%s", filtered_count, file_name)
+    issues = _filter_fragment_suggestions(issues, file_name=file_name)
+    issues = _filter_same_as_original_suggestions(issues, file_name=file_name, source_content=source_content)
     before_count = len(issues)
     issues = _dedupe_quality_issues(issues)
     filtered_count = before_count - len(issues)
@@ -577,17 +571,87 @@ def _normalize_reading_match_text(value: str) -> str:
     return "".join(char for char in normalized if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】")
 
 
+def _normalize_issue_equality_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(char for char in normalized if not char.isspace())
+
+
 def _is_same_excerpt_and_suggestion_issue(issue: QualityIssue) -> bool:
-    normalized_excerpt = _normalize_reading_match_text(issue.excerpt)
-    normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
+    normalized_excerpt = _normalize_issue_equality_text(issue.excerpt)
+    normalized_suggestion = _normalize_issue_equality_text(issue.suggestion)
     return bool(normalized_excerpt and normalized_excerpt == normalized_suggestion)
 
 
 def _is_same_source_and_suggestion_issue(issue: QualityIssue, content: dict[str, Any]) -> bool:
     source_text = _source_text_for_issue_location(content, issue)
-    normalized_source = _normalize_reading_match_text(source_text)
-    normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
+    normalized_source = _normalize_issue_equality_text(source_text)
+    normalized_suggestion = _normalize_issue_equality_text(issue.suggestion)
     return bool(normalized_source and normalized_source == normalized_suggestion)
+
+
+def _fragment_reject_reason(issue: QualityIssue) -> str | None:
+    if issue.category not in FULL_REPLACE_CATEGORIES:
+        return None
+    suggestion = unicodedata.normalize("NFKC", issue.suggestion).strip()
+    if not suggestion or suggestion.endswith("。"):
+        return None
+    if suggestion.endswith("、"):
+        return "trailing_comma"
+    if any(suggestion.endswith(suffix) for suffix in _FRAGMENT_TRAILING_CONNECTIVES):
+        return "trailing_connective"
+    return None
+
+
+def _filter_fragment_suggestions(issues: list[QualityIssue], *, file_name: str) -> list[QualityIssue]:
+    reject_reasons: Counter[str] = Counter()
+    filtered: list[QualityIssue] = []
+    for issue in issues:
+        reason = _fragment_reject_reason(issue)
+        if reason is None:
+            filtered.append(issue)
+            continue
+        reject_reasons[reason] += 1
+    for reason, count in sorted(reject_reasons.items()):
+        _logger.info(
+            "quality_check.rejected_fragment_suggestions count=%s file=%s reason=%s",
+            count,
+            file_name,
+            reason,
+        )
+    return filtered
+
+
+def _is_same_as_original_suggestion_issue(
+    issue: QualityIssue,
+    content: dict[str, Any] | None,
+) -> bool:
+    if _is_same_excerpt_and_suggestion_issue(issue):
+        return True
+    if content is None:
+        return False
+    return _is_same_source_and_suggestion_issue(issue, content)
+
+
+def _filter_same_as_original_suggestions(
+    issues: list[QualityIssue],
+    *,
+    file_name: str,
+    source_content: dict[str, Any] | None,
+) -> list[QualityIssue]:
+    filtered: list[QualityIssue] = []
+    rejected_count = 0
+    for issue in issues:
+        if _is_same_as_original_suggestion_issue(issue, source_content):
+            rejected_count += 1
+            continue
+        filtered.append(issue)
+    if rejected_count:
+        _logger.info(
+            "quality_check.rejected_same_as_original_suggestions count=%s file=%s reason=same_as_original",
+            rejected_count,
+            file_name,
+        )
+    return filtered
 
 
 def _quality_issue_dedupe_key(issue: QualityIssue) -> tuple[str, str, str]:
@@ -666,8 +730,9 @@ TTS fix suggestion rules:
 - If a term needs a better spoken form, replace only that exact term with its reading (for example, 有線LAN -> ゆうせんラン), not with another word.
 - Do not report reading issues for punctuation or decorative marks that TTS does not speak, such as 「」, 『』, (), （）, ・, commas, periods, or spacing. Report only the words inside those marks when the word itself has a real reading problem.
 - Do not report a reading issue when the matching tts field already contains the suggested reading. For choices, check only the same choice index.
-- For reading, double_utterance, notation, and tts_text_mismatch, excerpt must contain the exact source fragment to replace.
-- suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
+- For tts_text_mismatch, suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
+- For reading, double_utterance, and notation, excerpt must contain the exact source fragment to replace.
+- For reading, double_utterance, and notation, suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.
 - For tts.choiceTexts[index] issues, suggestion must be the replacement text for the excerpt inside that one choice index only. Do not return the full choice text or the full choiceTexts array unless the excerpt itself is the full choice text.
 - If an exact replacement cannot be produced safely, do not create that issue.
 """.strip()
@@ -715,6 +780,7 @@ Rules:
 - factual issues must use conservative confidence and wording such as "確認が必要".
 - Write the issue and suggestion fields in Japanese. Keep category, severity, confidence, and location field names in the specified JSON schema.
 - suggestion には修正後の本文のみを入れること。説明・注釈・理由・AIへの指示文・メタコメントを含めてはならない。
+- suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
 - Fill location.fileName with "{file_name}".
 - Fill location.unitId with the document item id or quiz question id when available.
 - Fill location.field with "text", "question", "choices", "explanation", or another concrete field.

@@ -246,6 +246,23 @@ def test_quality_prompt_requires_suggestion_to_be_finished_text_only() -> None:
     assert "keep suggestion as a concise explanation" not in prompt
 
 
+def test_quality_prompt_requires_full_replace_suggestion_for_text_categories() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。"}],
+        },
+        50,
+        mode="text",
+    )
+
+    assert 'suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。' in prompt
+    assert "部分差分・断片・途中で終わる文・省略形を出力してはならない。" in prompt
+    assert "suggestion は original 全体を置き換える完全なテキストであること。" in prompt
+
+
 def test_detect_multilingual_prioritizes_metadata_over_tags_and_structure() -> None:
     assert (
         detect_multilingual(
@@ -787,6 +804,99 @@ def test_quality_response_filters_same_excerpt_and_suggestion_after_normalizatio
     assert response.issues == []
 
 
+def test_quality_response_rejects_fragment_suggestion_with_trailing_comma(caplog) -> None:
+    caplog.set_level("INFO")
+
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_09.json", "unitId": "doc-9", "field": "text"},
+                    "excerpt": "ストッキングは着用が推奨される場合が多いです。",
+                    "issue": "文が不自然です。",
+                    "suggestion": "ストッキングは着用が推奨される場合が多く、",
+                }
+            ]
+        },
+        file_name="doc_09.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+    )
+
+    assert response.issues == []
+    assert "quality_check.rejected_fragment_suggestions count=1 file=doc_09.json" in caplog.text
+
+
+def test_quality_response_keeps_finished_sentences_that_end_with_japanese_period() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "概要を説明します",
+                    "issue": "文末を整えます。",
+                    "suggestion": "概要について。",
+                },
+                {
+                    "category": "factual",
+                    "severity": "medium",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-2", "field": "text"},
+                    "excerpt": "条件を説明します",
+                    "issue": "断定を避けます。",
+                    "suggestion": "条件があるので。",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+    )
+
+    assert [issue.suggestion for issue in response.issues] == ["概要について。", "条件があるので。"]
+
+
+def test_quality_response_does_not_apply_fragment_rule_to_word_level_tts_categories() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "choices[0]"},
+                    "excerpt": "M&A",
+                    "issue": "読みを修正します。",
+                    "suggestion": "エムアンドエー",
+                },
+                {
+                    "category": "notation",
+                    "severity": "low",
+                    "confidence": 0.7,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "choices[1]"},
+                    "excerpt": "◯◯",
+                    "issue": "表記を修正します。",
+                    "suggestion": "まるまる",
+                },
+            ]
+        },
+        file_name="quiz_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+    )
+
+    assert [issue.suggestion for issue in response.issues] == ["エムアンドエー", "まるまる"]
+
+
 def test_quality_response_filters_obvious_meta_annotation_suggestion_and_keeps_normal_text() -> None:
     response = _quality_response_from_data(
         {
@@ -957,6 +1067,102 @@ def test_quality_response_filters_suggestion_same_as_source_field_after_normaliz
         source_content={
             "type": "document",
             "documents": [{"id": "doc-40", "text": "短い フレーズ"}],
+        },
+    )
+
+    assert response.issues == []
+
+
+def test_quality_response_filters_same_source_and_suggestion_with_nfkc_whitespace_normalization(caplog) -> None:
+    caplog.set_level("INFO")
+
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_38.json", "unitId": "doc-38", "field": "text"},
+                    "excerpt": "ＡＢＣ",
+                    "issue": "同じ内容です。",
+                    "suggestion": " A B C \n",
+                }
+            ]
+        },
+        file_name="doc_38.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content={
+            "type": "document",
+            "documents": [{"id": "doc-38", "text": "ＡＢＣ"}],
+        },
+    )
+
+    assert response.issues == []
+    assert "quality_check.rejected_same_as_original_suggestions count=1 file=doc_38.json" in caplog.text
+
+
+def test_quality_response_keeps_punctuation_only_fix() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "短いフレーズ",
+                    "issue": "句読点を補います。",
+                    "suggestion": "短いフレーズ。",
+                }
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content={
+            "type": "document",
+            "documents": [{"id": "doc-1", "text": "短いフレーズ"}],
+        },
+    )
+
+    assert [issue.suggestion for issue in response.issues] == ["短いフレーズ。"]
+
+
+def test_tts_quality_response_filters_same_source_and_suggestion_with_nfkc_whitespace_normalization() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "question"},
+                    "excerpt": "Ａ Ｂ Ｃ",
+                    "issue": "元テキストと同じです。",
+                    "suggestion": "ABC",
+                }
+            ]
+        },
+        file_name="quiz_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content={
+            "type": "quiz",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "Ａ Ｂ Ｃ",
+                    "choices": ["1", "2", "3", "4"],
+                    "answerIndex": 0,
+                    "explanation": "exp",
+                    "tts": {"questionText": "Ａ Ｂ Ｃ"},
+                }
+            ],
         },
     )
 

@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.pack_paths import pack_root_prefix
+from app.schemas.request import TtsRecordingTarget
 from app.schemas.sokqa import GeneratedFile
+from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services import quality_checker
 from app.services.quality_checker import TTS_QUALITY_CATEGORIES, _generate_json_with_retry, _quality_prompt, _quality_response_from_data
 from main import app
@@ -188,11 +190,193 @@ def test_tts_quality_prompt_declares_switch_tags_and_forbids_closing_tags() -> N
         },
         50,
         mode="tts",
+        multilingual=True,
     )
 
     assert "The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]." in prompt
     assert "Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa." in prompt
     assert "square-bracket placeholders such as [名前], [場所], or [自分の名前]" in prompt
+
+
+def test_tts_quality_prompt_for_normal_file_forbids_language_tags() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文", "tts": {"text": "本文"}}],
+        },
+        50,
+        mode="tts",
+        multilingual=False,
+    )
+
+    assert "This is a normal (non-multilingual) file. Never suggest adding language tags" in prompt
+    assert "The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]." not in prompt
+    assert "For acronyms, abbreviations, symbols, or code-like terms" in prompt
+    assert "Do not force katakana readings for common full-spelled English words" in prompt
+
+
+def test_detect_multilingual_prioritizes_metadata_over_tags_and_structure() -> None:
+    assert (
+        detect_multilingual(
+            {
+                "type": "document",
+                "metadata": {"multilingual": True},
+                "learningLanguage": "en",
+                "documents": [{"id": "doc-1", "text": "本文", "tts": {"text": "[en-US]Hello"}}],
+            }
+        )
+        == MultilingualStatus.MULTILINGUAL
+    )
+    assert (
+        detect_multilingual(
+            {
+                "type": "document",
+                "metadata": {"multilingual": False},
+                "learningLanguage": "en",
+                "documents": [{"id": "doc-1", "text": "本文", "tts": {"text": "[en-US]Hello"}}],
+            }
+        )
+        == MultilingualStatus.NORMAL
+    )
+
+
+def test_detect_multilingual_detects_existing_tts_language_tags() -> None:
+    assert (
+        detect_multilingual(
+            {
+                "type": "quiz",
+                "questions": [
+                    {
+                        "id": "q-1",
+                        "question": "Q",
+                        "choices": ["A", "B", "C", "D"],
+                        "answerIndex": 0,
+                        "explanation": "E",
+                        "tts": {"choiceTexts": ["[en-US]Good morning", "B", "C", "D"]},
+                    }
+                ],
+            }
+        )
+        == MultilingualStatus.MULTILINGUAL
+    )
+
+
+def test_detect_multilingual_detects_multilingual_structure() -> None:
+    assert (
+        detect_multilingual(
+            {
+                "type": "quiz",
+                "language": "ja",
+                "learningLanguage": "en",
+                "questions": [
+                    {
+                        "id": "q-1",
+                        "question": "Q",
+                        "choices": ["A", "B", "C", "D"],
+                        "answerIndex": 0,
+                        "explanation": "E",
+                    }
+                ],
+            }
+        )
+        == MultilingualStatus.MULTILINGUAL
+    )
+
+
+def test_detect_multilingual_returns_unknown_when_undetectable() -> None:
+    assert (
+        detect_multilingual(
+            {
+                "type": "document",
+                "language": "ja",
+                "documents": [{"id": "doc-1", "text": "本文"}],
+            }
+        )
+        == MultilingualStatus.UNKNOWN
+    )
+
+
+def test_quality_checker_rounds_unknown_multilingual_to_normal_for_prompt(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    file = GeneratedFile(
+        name="doc_unknown.json",
+        kind="document",
+        content={
+            "id": "doc_unknown",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "unknown",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文"}],
+        },
+    )
+    monkeypatch.setattr(
+        quality_checker,
+        "load_target_pack",
+        lambda _target: SimpleNamespace(file=file),
+    )
+
+    monkeypatch.setattr(quality_checker, "detect_multilingual", lambda _data: MultilingualStatus.UNKNOWN)
+
+    observed: dict[str, bool] = {}
+    original_quality_prompt = quality_checker._quality_prompt
+
+    def wrapped_quality_prompt(*args, **kwargs):
+        observed["multilingual"] = bool(kwargs.get("multilingual"))
+        return original_quality_prompt(*args, **kwargs)
+
+    monkeypatch.setattr(quality_checker, "_quality_prompt", wrapped_quality_prompt)
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {"fileName": file.name, "model": "fake", "truncated": False, "issues": []}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    response = quality_checker.check_tts_quality(
+        target=TtsRecordingTarget(packName=file.name, kind=file.kind),
+        max_issues=50,
+    )
+    assert response.fileName == file.name
+    assert observed["multilingual"] is False
+
+
+def test_quality_checker_filters_empty_suggestion_issues_and_keeps_others() -> None:
+    response = _quality_response_from_data(
+        {
+            "fileName": "sample.json",
+            "model": "fake",
+            "truncated": False,
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "sample.json", "unitId": "doc-1", "field": "tts.text"},
+                    "excerpt": "SQL",
+                    "issue": "略語が誤読されます。",
+                    "suggestion": "",
+                },
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "sample.json", "unitId": "doc-1", "field": "tts.text"},
+                    "excerpt": "JSON",
+                    "issue": "略語が誤読されます。",
+                    "suggestion": "ジェイソン",
+                },
+            ],
+        },
+        file_name="sample.json",
+        model="fake",
+        max_issues=50,
+    )
+
+    assert [issue.excerpt for issue in response.issues] == ["JSON"]
 
 
 def test_tts_quality_check_detects_missing_learning_language_choice_texts(monkeypatch) -> None:

@@ -15,6 +15,7 @@ from app.schemas.quality import QualityCheckResponse, QualityIssue
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
 from app.services.language_detection import choice_set_language_state, language_script, leading_script
+from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.tts_recording_api import load_target_pack
 
 
@@ -58,6 +59,8 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
     model = settings.quality_model
 
     deterministic_issues = _deterministic_tts_issues(loaded.file.name, loaded.file.content) if mode == "tts" else []
+    multilingual_status = detect_multilingual(loaded.file.content)
+    allow_language_tags = multilingual_status == MultilingualStatus.MULTILINGUAL
 
     if settings.gemini_provider == "mock":
         response = _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
@@ -65,7 +68,13 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
             response.issues = (deterministic_issues + response.issues)[:max_issues]
         return response
 
-    prompt, input_truncated = _quality_prompt(loaded.file.name, loaded.file.content, max_issues, mode=mode)
+    prompt, input_truncated = _quality_prompt(
+        loaded.file.name,
+        loaded.file.content,
+        max_issues,
+        mode=mode,
+        multilingual=allow_language_tags,
+    )
     try:
         data = _generate_json_with_retry(lambda: GeminiClient().generate_json(prompt, model=model))
     except Exception as exc:
@@ -128,7 +137,13 @@ def _quality_response_from_data(
     if not isinstance(raw_issues, list):
         raise ValueError("response must contain an issues array")
 
-    issues = [_normalize_quality_issue_location(QualityIssue.model_validate(item)) for item in raw_issues]
+    issues: list[QualityIssue] = []
+    for item in raw_issues:
+        if isinstance(item, dict):
+            suggestion = item.get("suggestion")
+            if isinstance(suggestion, str) and not suggestion.strip():
+                continue
+        issues.append(_normalize_quality_issue_location(QualityIssue.model_validate(item)))
     if allowed_categories is not None:
         issues = [issue for issue in issues if issue.category in allowed_categories]
     if suppress_tts_null_issues:
@@ -475,13 +490,32 @@ def _dedupe_quality_issues(issues: list[QualityIssue]) -> list[QualityIssue]:
     return deduped
 
 
-def _quality_prompt(file_name: str, content: dict[str, Any], max_issues: int, *, mode: str) -> tuple[str, bool]:
+def _quality_prompt(
+    file_name: str,
+    content: dict[str, Any],
+    max_issues: int,
+    *,
+    mode: str,
+    multilingual: bool = True,
+) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     truncated = len(source_json) > MAX_QUALITY_INPUT_CHARS
     if truncated:
         source_json = source_json[:MAX_QUALITY_INPUT_CHARS]
 
     if mode == "tts":
+        language_tag_rules = (
+            """
+- Language tags are allowed only for multilingual files.
+- Use language tags only when the text clearly contains a non-default language span.
+- The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]. Each language span continues until the next tag, and each new item starts in the default pack language automatically.
+""".strip()
+            if multilingual
+            else """
+- This is a normal (non-multilingual) file. Never suggest adding language tags such as [ja-JP], [en-US], or [id-ID].
+- Do not output any [xx-XX] style language tag in suggestion.
+""".strip()
+        )
         category_block = """
 Categories:
 - reading: TTS misreading risks such as acronyms, code terms, symbols, or mixed-language spans.
@@ -496,10 +530,12 @@ TTS null rules:
 
 TTS fix suggestion rules:
 - TTS suggestions are limited to pronunciation/readability changes: readings, kana/phonetic spelling, symbol readings, and language tags.
-- The canonical language-tag format is a switch tag sequence such as [en-US]English[ja-JP]. Each language span continues until the next tag, and each new item starts in the default pack language automatically.
+""" + language_tag_rules + """
 - Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa. Never suggest converting a switch tag into any [/...] closing tag.
 - If the input already contains a [/...] closing tag, treat it as an invalid tag markup. Prefer the canonical switch-tag format or simple removal, and do not over-report minor tag cleanup.
 - Treat the presence or absence of a trailing default-language return tag at the very end of a text item as a non-issue.
+- For acronyms, abbreviations, symbols, or code-like terms that are likely to be misread, you may suggest a katakana reading (examples: M&A -> エムアンドエー, CRM -> シーアールエム, ROI -> アールオーアイ, ROE -> アールオーイー, SEO -> エスイーオー, SEM -> エスイーエム, SLA -> エスエルエー, WBS -> ダブリュー・ビー・エス, PMBOK -> ピーエムボック).
+- Do not force katakana readings for common full-spelled English words or general phrases unless pronunciation would be seriously wrong (examples: Cloud Computing, Machine Learning, Database, Marketing).
 - In learner-facing text, 〜 and ◯◯ are the correct placeholder forms. Do not suggest square-bracket placeholders such as [名前], [場所], or [自分の名前], because square brackets are reserved for TTS language tags.
 - Never change the original word, vocabulary, meaning, answer, quantity, proper noun, or technical term.
 - Do not suggest paraphrases or semantic substitutions. For example, do not replace 有線LAN with LANケーブル.

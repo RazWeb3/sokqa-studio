@@ -546,6 +546,63 @@ def test_quality_screen_uses_text_and_reading_correction_tabs() -> None:
     assert ".quality-action-bar {" in mobile_css
 
 
+def test_quality_issue_ui_supports_fulltext_and_diff_highlight() -> None:
+    html = _html()
+    start = html.index("function qualityIssueSourceText")
+    end = html.index("function generatedQualityTargets", start)
+    quality_html = html[start:end]
+
+    assert "function qualityIssueSourceText(issue)" in quality_html
+    assert 'return String(issue?.original ?? issue?.excerpt ?? "");' in quality_html
+    assert "function tokenizeDiffText(value)" in quality_html
+    assert "/[\\u3040-\\u30ff\\u3400-\\u9fff]/.test(text)" in quality_html
+    assert "? Array.from(text)" in quality_html
+    assert 'function buildInlineDiffSegments(before, after)' in quality_html
+    assert 'if ((leftMiddle.length * rightMiddle.length) > 20000)' in quality_html
+    assert 'function renderDiffMarkupForSide(segments, side)' in quality_html
+    assert 'const targetType = side === "before" ? "delete" : "insert";' in quality_html
+    assert 'function renderQualityDiffPanel(label, text, html, tone)' in quality_html
+    assert 'function renderInlineDiffPair(before, after)' in quality_html
+    assert 'const b = String(before || "");' in quality_html
+    assert 'const a = String(after || "");' in quality_html
+    assert 'renderQualityDiffPanel("変更前", b, renderDiffMarkupForSide(segments, "before"), "before")' in quality_html
+    assert 'renderQualityDiffPanel("変更後", a, renderDiffMarkupForSide(segments, "after"), "after")' in quality_html
+    assert 'function renderQualityDiffPair(issue)' in quality_html
+    assert 'return renderInlineDiffPair(before, after);' in quality_html
+    assert 'class="quality-diff-panel"' in quality_html
+    assert 'class="quality-diff-text ${tone}"' in quality_html
+    assert 'String(text || "").length > 180 || /\\n/.test(String(text || ""))' in quality_html
+    assert 'String(text || "").length <= 360 ? "open" : ""' in quality_html
+    assert '${renderQualityDiffPair(issue)}' in quality_html
+    assert ".quality-diff-grid { display: grid; gap: 10px; }" in html
+    assert ".quality-diff-text { margin: 0; padding: 10px 12px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }" in html
+    assert ".diff-del {" in html
+    assert "text-decoration: line-through;" in html
+    assert ".diff-add {" in html
+
+
+def test_batch_and_fix_results_use_inline_diff_pair() -> None:
+    html = _html()
+    batch_start = html.index("function renderBatchQualityResult")
+    batch_end = html.index("function selectedBatchFixKeys", batch_start)
+    batch_html = html[batch_start:batch_end]
+    fix_start = html.index("function renderQualityFixResult")
+    fix_end = html.index("function approvedPendingFixIds()", fix_start)
+    fix_html = html[fix_start:fix_end]
+
+    assert '${renderInlineDiffPair(fix.before, fix.suggestedAfter)}' in batch_html
+    assert '${renderInlineDiffPair(fix.before, fix.after)}' in batch_html
+    assert '<div class="excerpt">${escapeHtml(fix.before || "")}</div>' not in batch_html
+    assert '<p>→ ${escapeHtml(fix.suggestedAfter || "")}</p>' not in batch_html
+    assert '<p>→ ${escapeHtml(fix.after || "")}</p>' not in batch_html
+    assert '${renderInlineDiffPair(fix.before, fix.after)}' in fix_html
+    assert '${renderInlineDiffPair(fix.before, fix.suggestedAfter)}' in fix_html
+    assert 'data-batch-fix' in batch_html
+    assert 'data-pending-fix' in fix_html
+    assert "diff-del" in html
+    assert "diff-add" in html
+
+
 def test_generate_flow_runs_batch_quality_after_success_when_enabled() -> None:
     html = _html()
 

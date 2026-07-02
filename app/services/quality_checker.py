@@ -776,8 +776,11 @@ TTS fix suggestion rules:
 - Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa. Never suggest converting a switch tag into any [/...] closing tag.
 - If the input already contains a [/...] closing tag, treat it as an invalid tag markup. Prefer the canonical switch-tag format or simple removal, and do not over-report minor tag cleanup.
 - Treat the presence or absence of a trailing default-language return tag at the very end of a text item as a non-issue.
-- For acronyms, abbreviations, symbols, or code-like terms that are likely to be misread, you may suggest a katakana reading (examples: M&A -> エムアンドエー, CRM -> シーアールエム, ROI -> アールオーアイ, ROE -> アールオーイー, SEO -> エスイーオー, SEM -> エスイーエム, SLA -> エスエルエー, WBS -> ダブリュー・ビー・エス, PMBOK -> ピーエムボック).
+- For acronyms, abbreviations, symbols, or code-like terms that are likely to be misread, you may suggest a katakana reading (examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー, M&A -> エムアンドエー, CRM -> シーアールエム, ROI -> アールオーアイ, ROE -> アールオーイー, SEO -> エスイーオー, SEM -> エスイーエム, SLA -> エスエルエー, WBS -> ダブリュー・ビー・エス, PMBOK -> ピーエムボック).
 - Do not force katakana readings for common full-spelled English words or general phrases unless pronunciation would be seriously wrong (examples: Cloud Computing, Machine Learning, Database, Marketing).
+- Do not report reading or notation issues for Arabic numerals followed by common Japanese counters or units when standard cloud TTS can already read them correctly (examples: 1904年, 1945年, 1946年, 6月, 12日, 3時, 15分, 20秒, 500円, 80%, 10パーセント, 3人, 4回, 5個, 6件, 7番, 38度, 18歳).
+- Treat Gregorian years and Japanese era years as non-issues when written in their normal numeric notation (examples: 1904年, 1945年, 1946年, 令和6年, 昭和20年). Keep the original notation and do not create reading or notation issues for them.
+- Bare numbers without a unit are not excluded from review, because they may be model numbers, identifiers, or codes (example: A1904).
 - In learner-facing text, 〜 and ◯◯ are the correct placeholder forms. Do not suggest square-bracket placeholders such as [名前], [場所], or [自分の名前], because square brackets are reserved for TTS language tags.
 - Never change the original word, vocabulary, meaning, answer, quantity, proper noun, or technical term.
 - Do not suggest paraphrases or semantic substitutions. For example, do not replace 有線LAN with LANケーブル.

@@ -229,6 +229,43 @@ def test_tts_quality_prompt_for_normal_file_forbids_language_tags() -> None:
     assert "Do not force katakana readings for common full-spelled English words" in prompt
 
 
+def test_tts_quality_prompt_excludes_years_and_number_with_units_from_reading_issues() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "1904年、1945年、1946年、令和6年、昭和20年。", "tts": {"text": "1904年、1945年、1946年、令和6年、昭和20年。"}}],
+        },
+        50,
+        mode="tts",
+        multilingual=False,
+    )
+
+    assert "Do not report reading or notation issues for Arabic numerals followed by common Japanese counters or units" in prompt
+    assert "examples: 1904年, 1945年, 1946年, 6月, 12日, 3時, 15分, 20秒, 500円, 80%, 10パーセント, 3人, 4回, 5個, 6件, 7番, 38度, 18歳" in prompt
+    assert "Treat Gregorian years and Japanese era years as non-issues when written in their normal numeric notation" in prompt
+    assert "examples: 1904年, 1945年, 1946年, 令和6年, 昭和20年" in prompt
+
+
+def test_tts_quality_prompt_keeps_acronyms_and_bare_numbers_reviewable() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "GHQ、PKO、ODA、A1904。", "tts": {"text": "GHQ、PKO、ODA、A1904。"}}],
+        },
+        50,
+        mode="tts",
+        multilingual=False,
+    )
+
+    assert "examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー, M&A -> エムアンドエー, CRM -> シーアールエム" in prompt
+    assert "Bare numbers without a unit are not excluded from review" in prompt
+    assert "example: A1904" in prompt
+
+
 def test_quality_prompt_requires_suggestion_to_be_finished_text_only() -> None:
     prompt, _ = _quality_prompt(
         "sample_doc.json",

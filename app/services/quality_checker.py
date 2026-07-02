@@ -185,6 +185,11 @@ def _quality_response_from_data(
             if filtered_count:
                 _logger.info("quality_check.filtered_already_corrected_reading_issues count=%s file=%s", filtered_count, file_name)
     issues = _filter_fragment_suggestions(issues, file_name=file_name)
+    issues = _filter_trailing_japanese_period_only_suggestions(
+        issues,
+        file_name=file_name,
+        source_content=source_content,
+    )
     issues = _filter_same_as_original_suggestions(issues, file_name=file_name, source_content=source_content)
     before_count = len(issues)
     issues = _dedupe_quality_issues(issues)
@@ -576,6 +581,19 @@ def _normalize_issue_equality_text(value: str) -> str:
     return "".join(char for char in normalized if not char.isspace())
 
 
+def _split_trailing_japanese_period(value: str) -> tuple[str, bool]:
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    if normalized.endswith("。"):
+        return normalized[:-1], True
+    return normalized, False
+
+
+def _has_trailing_japanese_period_only_difference(left: str, right: str) -> bool:
+    left_base, left_has_period = _split_trailing_japanese_period(left)
+    right_base, right_has_period = _split_trailing_japanese_period(right)
+    return bool(left_base and left_base == right_base and left_has_period != right_has_period)
+
+
 def _is_same_excerpt_and_suggestion_issue(issue: QualityIssue) -> bool:
     normalized_excerpt = _normalize_issue_equality_text(issue.excerpt)
     normalized_suggestion = _normalize_issue_equality_text(issue.suggestion)
@@ -630,6 +648,42 @@ def _is_same_as_original_suggestion_issue(
     if content is None:
         return False
     return _is_same_source_and_suggestion_issue(issue, content)
+
+
+def _is_trailing_japanese_period_only_suggestion_issue(
+    issue: QualityIssue,
+    content: dict[str, Any] | None,
+) -> bool:
+    if issue.category not in TTS_QUALITY_CATEGORIES:
+        return False
+    if _has_trailing_japanese_period_only_difference(issue.excerpt, issue.suggestion):
+        return True
+    if content is None:
+        return False
+    source_text = _source_text_for_issue_location(content, issue)
+    return bool(source_text) and _has_trailing_japanese_period_only_difference(source_text, issue.suggestion)
+
+
+def _filter_trailing_japanese_period_only_suggestions(
+    issues: list[QualityIssue],
+    *,
+    file_name: str,
+    source_content: dict[str, Any] | None,
+) -> list[QualityIssue]:
+    filtered: list[QualityIssue] = []
+    rejected_count = 0
+    for issue in issues:
+        if _is_trailing_japanese_period_only_suggestion_issue(issue, source_content):
+            rejected_count += 1
+            continue
+        filtered.append(issue)
+    if rejected_count:
+        _logger.info(
+            "quality_check.rejected_trailing_period_only_suggestions count=%s file=%s reason=trailing_period_only",
+            rejected_count,
+            file_name,
+        )
+    return filtered
 
 
 def _filter_same_as_original_suggestions(
@@ -730,6 +784,7 @@ TTS fix suggestion rules:
 - If a term needs a better spoken form, replace only that exact term with its reading (for example, 有線LAN -> ゆうせんラン), not with another word.
 - Do not report reading issues for punctuation or decorative marks that TTS does not speak, such as 「」, 『』, (), （）, ・, commas, periods, or spacing. Report only the words inside those marks when the word itself has a real reading problem.
 - Do not report a reading issue when the matching tts field already contains the suggested reading. For choices, check only the same choice index.
+- Do not report suggestions whose only difference is the presence or absence of a trailing Japanese period "。". If content, reading, and meaning stay the same, suppress that issue.
 - For tts_text_mismatch, suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
 - For reading, double_utterance, and notation, excerpt must contain the exact source fragment to replace.
 - For reading, double_utterance, and notation, suggestion must be the replacement text for that excerpt fragment only. Do not return the full unit sentence or paragraph.

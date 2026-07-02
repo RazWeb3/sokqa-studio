@@ -246,6 +246,21 @@ def test_quality_prompt_requires_suggestion_to_be_finished_text_only() -> None:
     assert "keep suggestion as a concise explanation" not in prompt
 
 
+def test_tts_quality_prompt_disallows_trailing_japanese_period_only_suggestions() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。", "tts": {"text": "本文です。"}}],
+        },
+        50,
+        mode="tts",
+    )
+
+    assert "Do not report suggestions whose only difference is the presence or absence of a trailing Japanese period" in prompt
+
+
 def test_quality_prompt_requires_full_replace_suggestion_for_text_categories() -> None:
     prompt, _ = _quality_prompt(
         "sample_doc.json",
@@ -1130,6 +1145,111 @@ def test_quality_response_keeps_punctuation_only_fix() -> None:
     )
 
     assert [issue.suggestion for issue in response.issues] == ["短いフレーズ。"]
+
+
+def test_quality_response_filters_trailing_japanese_period_only_suggestion(caplog) -> None:
+    caplog.set_level("INFO")
+
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "quiz_02.json", "unitId": "q-2", "field": "choices[0]"},
+                    "excerpt": "メモした内容をすぐに削除しないこと。",
+                    "issue": "末尾句点を削除すると自然です。",
+                    "suggestion": "メモした内容をすぐに削除しないこと",
+                }
+            ]
+        },
+        file_name="quiz_02.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content={
+            "type": "quiz",
+            "questions": [
+                {
+                    "id": "q-2",
+                    "question": "該当するものを選んでください。",
+                    "choices": ["メモした内容をすぐに削除しないこと。", "B", "C", "D"],
+                    "answerIndex": 0,
+                    "explanation": "解説",
+                    "tts": {"choiceTexts": ["メモした内容をすぐに削除しないこと。", "B", "C", "D"]},
+                }
+            ],
+        },
+    )
+
+    assert response.issues == []
+    assert "reason=trailing_period_only" in caplog.text
+
+
+def test_quality_response_keeps_suggestion_when_text_changes_beyond_trailing_period() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_02.json", "unitId": "q-2", "field": "choices[0]"},
+                    "excerpt": "メモした内容をすぐに削除しないこと。",
+                    "issue": "内容も読みも変わります。",
+                    "suggestion": "メモした内容はすぐに削除しないこと",
+                }
+            ]
+        },
+        file_name="quiz_02.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content={
+            "type": "quiz",
+            "questions": [
+                {
+                    "id": "q-2",
+                    "question": "該当するものを選んでください。",
+                    "choices": ["メモした内容をすぐに削除しないこと。", "B", "C", "D"],
+                    "answerIndex": 0,
+                    "explanation": "解説",
+                    "tts": {"choiceTexts": ["メモした内容をすぐに削除しないこと。", "B", "C", "D"]},
+                }
+            ],
+        },
+    )
+
+    assert [issue.suggestion for issue in response.issues] == ["メモした内容はすぐに削除しないこと"]
+
+
+def test_quality_response_keeps_mid_sentence_punctuation_change() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.7,
+                    "location": {"fileName": "doc_03.json", "unitId": "doc-3", "field": "text"},
+                    "excerpt": "重要な点を確認し、共有します。",
+                    "issue": "読点位置を調整します。",
+                    "suggestion": "重要な点を確認し共有します。",
+                }
+            ]
+        },
+        file_name="doc_03.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content={
+            "type": "document",
+            "documents": [{"id": "doc-3", "text": "重要な点を確認し、共有します。"}],
+        },
+    )
+
+    assert [issue.suggestion for issue in response.issues] == ["重要な点を確認し共有します。"]
 
 
 def test_tts_quality_response_filters_same_source_and_suggestion_with_nfkc_whitespace_normalization() -> None:

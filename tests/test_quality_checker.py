@@ -11,7 +11,13 @@ from app.schemas.request import TtsRecordingTarget
 from app.schemas.sokqa import GeneratedFile
 from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services import quality_checker
-from app.services.quality_checker import TTS_QUALITY_CATEGORIES, _generate_json_with_retry, _quality_prompt, _quality_response_from_data
+from app.services.quality_checker import (
+    TEXT_QUALITY_CATEGORIES,
+    TTS_QUALITY_CATEGORIES,
+    _generate_json_with_retry,
+    _quality_prompt,
+    _quality_response_from_data,
+)
 from main import app
 
 
@@ -151,7 +157,10 @@ def test_text_quality_prompt_disallows_square_bracket_placeholder_suggestions() 
     )
 
     assert "square-bracket placeholders such as [名前], [場所], or [自分の名前]" in prompt
-    assert "Do not report the presence of 〜 or ◯◯ itself as a leak or style issue." in prompt
+    assert "Report only unresolved placeholders." in prompt
+    assert "Do not report intended finished blanks such as ＿＿＿ or _____." in prompt
+    assert "Do not report valid 〜 usage such as 〜てください, numeric ranges like 10〜20" in prompt
+    assert "Treat completed fictional names or other fixed learner-facing expressions as non-issues" in prompt
 
 
 def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatch) -> None:
@@ -808,6 +817,123 @@ def test_quality_response_filters_obvious_meta_annotation_suggestion_and_keeps_n
     )
 
     assert [issue.suggestion for issue in response.issues] == ["まず確認します。"]
+
+
+def test_quality_response_keeps_unresolved_placeholder_issues() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "leak",
+                    "severity": "high",
+                    "confidence": 0.9,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "◯◯",
+                    "issue": "未確定プレースホルダーが残っています。",
+                    "suggestion": "株式会社さくらソフト",
+                },
+                {
+                    "category": "leak",
+                    "severity": "high",
+                    "confidence": 0.9,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "[Name]",
+                    "issue": "未確定プレースホルダーが残っています。",
+                    "suggestion": "田中さん",
+                },
+                {
+                    "category": "leak",
+                    "severity": "high",
+                    "confidence": 0.9,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "Company Name",
+                    "issue": "未確定プレースホルダーが残っています。",
+                    "suggestion": "Sakura Learning",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+    )
+
+    assert [issue.excerpt for issue in response.issues] == ["◯◯", "[Name]", "Company Name"]
+
+
+def test_quality_response_filters_allowed_placeholder_forms_and_valid_tilde_usage() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "leak",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "＿＿＿",
+                    "issue": "未確定プレースホルダーが残っています。",
+                    "suggestion": "答えを書いてください。",
+                },
+                {
+                    "category": "leak",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "_____",
+                    "issue": "未確定プレースホルダーが残っています。",
+                    "suggestion": "answer",
+                },
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "〜てください",
+                    "issue": "プレースホルダー記号が残っています。",
+                    "suggestion": "説明してください",
+                },
+                {
+                    "category": "style",
+                    "severity": "low",
+                    "confidence": 0.6,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "10〜20",
+                    "issue": "プレースホルダー記号が残っています。",
+                    "suggestion": "10から20",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+    )
+
+    assert response.issues == []
+
+
+def test_quality_response_filters_completed_fixed_expression_placeholder_false_positive() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "leak",
+                    "severity": "medium",
+                    "confidence": 0.7,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "さくらソフト株式会社",
+                    "issue": "プレースホルダーのまま残っています。",
+                    "suggestion": "別の社名に直します。",
+                }
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+    )
+
+    assert response.issues == []
 
 
 def test_quality_response_filters_suggestion_same_as_source_field_after_normalization() -> None:

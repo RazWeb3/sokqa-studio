@@ -35,6 +35,16 @@ _UNSPOKEN_SYMBOL_NAMES = {
     "句読点",
     "全角スペース",
 }
+_PLACEHOLDER_KEYWORD_PATTERNS = (
+    r"placeholder",
+    r"プレースホルダー",
+    r"未確定",
+    r"下書き",
+    r"ドラフト",
+    r"masked name",
+    r"generic name",
+    r"authoring comment",
+)
 
 
 class QualityCheckError(RuntimeError):
@@ -151,6 +161,12 @@ def _quality_response_from_data(
         _logger.info("quality_check.filtered_meta_suggestion_issues count=%s file=%s", filtered_count, file_name)
     if allowed_categories is not None:
         issues = [issue for issue in issues if issue.category in allowed_categories]
+    if allowed_categories == TEXT_QUALITY_CATEGORIES:
+        before_count = len(issues)
+        issues = [issue for issue in issues if not _is_non_issue_placeholder_report(issue)]
+        filtered_count = before_count - len(issues)
+        if filtered_count:
+            _logger.info("quality_check.filtered_non_issue_placeholder_reports count=%s file=%s", filtered_count, file_name)
     if suppress_tts_null_issues:
         issues = [issue for issue in issues if not _is_tts_null_issue(issue)]
     if allowed_categories == TTS_QUALITY_CATEGORIES:
@@ -427,6 +443,55 @@ def _is_obvious_meta_suggestion(issue: QualityIssue) -> bool:
     return any(re.search(pattern, suggestion) for pattern in meta_patterns)
 
 
+def _is_non_issue_placeholder_report(issue: QualityIssue) -> bool:
+    if issue.category not in {"leak", "style"}:
+        return False
+    if not _is_placeholder_related_issue(issue):
+        return False
+    return not _is_unresolved_placeholder_excerpt(issue.excerpt)
+
+
+def _is_placeholder_related_issue(issue: QualityIssue) -> bool:
+    combined = unicodedata.normalize("NFKC", f"{issue.excerpt}\n{issue.issue}\n{issue.suggestion}")
+    if any(re.search(pattern, combined, re.IGNORECASE) for pattern in _PLACEHOLDER_KEYWORD_PATTERNS):
+        return True
+    return bool(re.search(r"[◯○〜\[\]_＿]|(?<![A-Za-z0-9])X{3,}(?![A-Za-z0-9])|\bCompany Name\b", combined, re.IGNORECASE))
+
+
+def _is_unresolved_placeholder_excerpt(text: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", text).strip()
+    if not normalized:
+        return False
+    if _is_intended_blank_placeholder(normalized):
+        return False
+    if _has_valid_tilde_usage(normalized):
+        return False
+    if re.search(r"[◯○]{2,}", normalized):
+        return True
+    if re.search(r"(?<![A-Za-z0-9])X{3,}(?![A-Za-z0-9])", normalized, re.IGNORECASE):
+        return True
+    if re.search(r"\[\s*(?:name|company\s+name|first\s+name|last\s+name)\s*\]", normalized, re.IGNORECASE):
+        return True
+    if re.search(r"\bCompany Name\b", normalized, re.IGNORECASE):
+        return True
+    if "〜" in normalized:
+        return True
+    return False
+
+
+def _is_intended_blank_placeholder(text: str) -> bool:
+    return bool(re.fullmatch(r"[_＿]{3,}", text))
+
+
+def _has_valid_tilde_usage(text: str) -> bool:
+    compact = "".join(unicodedata.normalize("NFKC", text).split())
+    if not compact or "〜" not in compact:
+        return False
+    if re.fullmatch(r"\d+〜\d+", compact):
+        return True
+    return "〜てください" in compact
+
+
 def _tts_text_for_issue_location(content: dict[str, Any], issue: QualityIssue) -> str:
     unit = _find_quality_unit(content, issue.location.unitId)
     if not unit:
@@ -624,7 +689,10 @@ Target fields:
 Notation rule:
 - Report notation only when it is a display text quality issue by describing it under style/leak if appropriate. Spoken-reading notation belongs to the TTS quality check, not this check.
 - In learner-facing text, 〜 and ◯◯ are the correct placeholder forms. Do not suggest square-bracket placeholders such as [名前], [場所], or [自分の名前], because square brackets are reserved for TTS language tags.
-- Do not report the presence of 〜 or ◯◯ itself as a leak or style issue.
+- Report only unresolved placeholders. Examples include stray 〜 in an unfinished sentence, fill-in placeholders such as ◯◯ or ○○ when they are not the intended finished exercise format, ASCII placeholder tokens such as XXX, square-bracket labels such as [Name], and generic labels such as Company Name.
+- Do not report intended finished blanks such as ＿＿＿ or _____.
+- Do not report valid 〜 usage such as 〜てください, numeric ranges like 10〜20, or notation used in math, chemistry, or grammar explanations.
+- Treat completed fictional names or other fixed learner-facing expressions as non-issues when they are already finished text rather than unresolved placeholders.
 """.strip()
         focus = "Inspect only source/display text quality. Do not report TTS pronunciation issues here."
 

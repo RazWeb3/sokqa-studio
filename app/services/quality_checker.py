@@ -801,6 +801,7 @@ Categories:
 - factual: possible factual error or claim that needs human verification. Do not state it as certain; treat it as a suspicion.
 - style: awkward style for learner-facing text, hearsay wording such as "ドキュメントによると" or "記載されています".
 - leak: quiz explanation memo leakage, internal notes, prompt residue, placeholders, or authoring comments.
+- For style only, limit suggestions to concise rewording of redundant phrasing or duplicated wording. Do not delete information content itself, including facts, causal relationships, impacts, conditions, or scope stated in the text. Removing redundant reference phrases such as "本文中で述べられている" and duplicated wording is allowed.
 
 Target fields:
 - document.documents[].text

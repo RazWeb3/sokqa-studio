@@ -163,6 +163,23 @@ def test_text_quality_prompt_disallows_square_bracket_placeholder_suggestions() 
     assert "Treat completed fictional names or other fixed learner-facing expressions as non-issues" in prompt
 
 
+def test_text_quality_prompt_keeps_style_suggestions_from_deleting_information() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-21", "text": "海外渡航制限と交流制限が影響しました。"}],
+        },
+        50,
+        mode="text",
+    )
+
+    assert "For style only, limit suggestions to concise rewording of redundant phrasing or duplicated wording." in prompt
+    assert "Do not delete information content itself, including facts, causal relationships, impacts, conditions, or scope stated in the text." in prompt
+    assert 'Removing redundant reference phrases such as "本文中で述べられている" and duplicated wording is allowed.' in prompt
+
+
 def test_tts_quality_check_mock_provider_returns_tts_issues(tmp_path, monkeypatch) -> None:
     target = _write_document_pack(tmp_path, monkeypatch)
     settings = get_settings()

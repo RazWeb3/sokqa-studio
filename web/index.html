@@ -746,7 +746,16 @@
                     <label id="materialModeLine">資料モード<select id="materialMode"><option value="reference" selected>資料を参考に作る</option><option value="source_only">資料の内容のみで構成する</option><option value="strict">資料準拠（加工しない）</option></select></label>
                   </div>
                 </details>
-                <label>構成方針<select id="structurePolicy"><option value="listening" selected>聞き流し向け</option><option value="standard">要点整理</option></select></label>
+                <div class="tight">
+                  <span class="muted">構成方針</span>
+                  <input id="structurePolicy" type="hidden" value="listening" />
+                  <div class="segmented scale-cards" id="structurePolicySegment">
+                    <button class="active" data-structure-policy="listening" type="button">聞き流し向け<small>音声で聞いて学ぶ。ふりがななし。</small></button>
+                    <button data-structure-policy="summary" type="button">要点整理<small>要点を簡潔にまとめる。ふりがななし。</small></button>
+                    <button data-structure-policy="reading" type="button">読解<small>文章を読んで学ぶ。難しい漢字にふりがな（追加条件で調整可）。</small></button>
+                    <button data-structure-policy="japanese_learning" type="button">日本語学習<small>日本語の学習用。すべての漢字にふりがな。</small></button>
+                  </div>
+                </div>
                 <div class="field-grid">
                   <label>想定ユーザー<select id="targetUser"><option>小学生</option><option>中学生</option><option>高校生</option><option>大学生</option><option>資格学習者</option><option selected>社会人</option><option>実務担当者</option></select></label>
                   <label>難易度<select id="difficulty"><option value="beginner">beginner</option><option value="standard">standard</option><option value="advanced">advanced</option></select></label>
@@ -1128,7 +1137,7 @@
 
       const LABELS = {
         scale: { quick: "小規模", standard: "中規模", large: "大規模", auto: "おまかせ" },
-        structurePolicy: { listening: "聞き流し向け", standard: "要点整理" },
+        structurePolicy: { listening: "聞き流し向け", summary: "要点整理", reading: "読解", japanese_learning: "日本語学習" },
         generationUnit: { pack: "学習パック", document: "ドキュメント", quiz: "クイズ" },
         materialMode: { reference: "資料を参考に作る", source_only: "資料内容に基づく構成", strict: "資料準拠" },
         choiceLanguageMode: { pack: "パック言語", learning: "学習言語", auto: "おまかせ" },
@@ -1567,7 +1576,8 @@
 
       function applyGenerationControlsToPlan(plan) {
         if (!plan) return;
-        $("structurePolicy").value = plan.structurePolicy === "standard" ? "standard" : "listening";
+        const structurePolicy = plan.structurePolicy === "standard" || plan.structurePolicy === "sequential" ? "summary" : (plan.structurePolicy || "listening");
+        setStructurePolicy(structurePolicy);
         $("generationUnit").value = plan.generationUnit || "pack";
         $("materialMode").value = plan.materialMode || "reference";
         $("customInstructions").value = plan.customInstructions || "";
@@ -1679,7 +1689,7 @@
               <div class="plan-meta"><span>難易度</span><strong>${escapeHtml(plan.difficulty || "-")}</strong></div>
               <div class="plan-meta"><span>規模 / 言語</span><strong>${escapeHtml(labelFor("scale", plan.scale, "-"))} / ${escapeHtml(plan.language || "-")}</strong></div>
               ${plan.learningLanguage ? `<div class="plan-meta"><span>学習言語</span><strong>${escapeHtml(plan.learningLanguage)}</strong></div>` : ""}
-              <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(labelFor("structurePolicy", plan.structurePolicy || "standard"))}</strong></div>
+              <div class="plan-meta"><span>構成方針</span><strong>${escapeHtml(labelFor("structurePolicy", plan.structurePolicy || "summary"))}</strong></div>
               <div class="plan-meta"><span>生成単位</span><strong>${escapeHtml(labelFor("generationUnit", plan.generationUnit || "pack"))}</strong></div>
               <div class="plan-meta"><span>資料モード</span><strong>${escapeHtml(materialModePreviewLabel(plan))}</strong></div>
               <div class="plan-meta"><span>正解位置</span><strong>${escapeHtml(labelFor("answerPositionMode", plan.answerPositionMode || "balanced"))}</strong></div>
@@ -2390,6 +2400,10 @@
         return document.querySelector("#scaleSegment button.active")?.dataset.scale || "quick";
       }
 
+      function structurePolicyValue() {
+        return $("structurePolicy").value || "listening";
+      }
+
       function ttsModeValue() {
         return $("ttsReadingMode").value || "llm";
       }
@@ -2402,6 +2416,15 @@
         $("generationUnit").value = value;
         $$("#generationUnitSegment button").forEach((button) => {
           button.classList.toggle("active", button.dataset.generationUnit === value);
+        });
+      }
+
+      function setStructurePolicy(value) {
+        const allowed = ["listening", "summary", "reading", "japanese_learning"];
+        const next = allowed.includes(value) ? value : "listening";
+        $("structurePolicy").value = next;
+        $$("#structurePolicySegment button").forEach((button) => {
+          button.classList.toggle("active", button.dataset.structurePolicy === next);
         });
       }
 
@@ -4215,6 +4238,10 @@
       $$("#scaleSegment button").forEach((button) => button.addEventListener("click", () => {
         $$("#scaleSegment button").forEach((item) => item.classList.remove("active"));
         button.classList.add("active");
+        handleGenerationControlChange();
+      }));
+      $$("#structurePolicySegment button").forEach((button) => button.addEventListener("click", () => {
+        setStructurePolicy(button.dataset.structurePolicy || "listening");
         handleGenerationControlChange();
       }));
       $$("#generationUnitSegment button").forEach((button) => button.addEventListener("click", () => {

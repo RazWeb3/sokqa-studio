@@ -234,8 +234,15 @@ def test_generation_policy_unit_and_material_controls_are_available_and_sent() -
 
     for element_id in ["structurePolicy", "generationUnit", "docCount", "quizCount", "materialMode", "customInstructions"]:
         assert f'id="{element_id}"' in html
-    assert 'value="standard"' in html
-    assert 'value="listening"' in html
+    assert 'id="structurePolicy" type="hidden" value="listening"' in html
+    assert 'id="structurePolicySegment"' in html
+    for value in ["listening", "summary", "reading", "japanese_learning"]:
+        assert f'data-structure-policy="{value}"' in html
+    assert html.index('data-structure-policy="listening"') < html.index('data-structure-policy="summary"') < html.index('data-structure-policy="reading"') < html.index('data-structure-policy="japanese_learning"')
+    assert "聞き流し向け<small>音声で聞いて学ぶ。ふりがななし。</small>" in html
+    assert "要点整理<small>要点を簡潔にまとめる。ふりがななし。</small>" in html
+    assert "読解<small>文章を読んで学ぶ。難しい漢字にふりがな（追加条件で調整可）。</small>" in html
+    assert "日本語学習<small>日本語の学習用。すべての漢字にふりがな。</small>" in html
     assert 'value="sequential"' not in html
     assert 'data-generation-unit="document"' in html
     assert 'data-generation-unit="quiz"' in html

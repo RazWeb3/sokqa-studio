@@ -10,7 +10,7 @@ QuizPurpose = Literal["key_concepts", "application", "integrated_review", "custo
 TtsReadingMode = Literal["none", "rule", "llm", "multilingual"]
 TtsLanguageMode = Literal["auto", "mixed", "select"]
 SourceMode = Literal["document_only", "document_reference"]
-StructurePolicy = Literal["standard", "listening"]
+StructurePolicy = Literal["listening", "summary", "reading", "japanese_learning", "standard"]
 GenerationUnit = Literal["document", "quiz", "pack"]
 MaterialMode = Literal["reference", "source_only", "strict"]
 
@@ -67,9 +67,11 @@ def normalize_material_mode(value):
 
 def normalize_structure_policy(value):
     if value in (None, ""):
-        return "standard"
+        return "summary"
+    if value == "standard":
+        return "summary"
     if value == "sequential":
-        return "standard"
+        return "summary"
     return value
 
 

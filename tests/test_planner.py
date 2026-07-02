@@ -275,10 +275,10 @@ def test_custom_instructions_are_recorded_and_prompted(monkeypatch) -> None:
     assert "Respect the user's additional conditions" in prompt
 
 
-def test_legacy_sequential_structure_policy_falls_back_to_standard() -> None:
+def test_legacy_sequential_structure_policy_falls_back_to_summary() -> None:
     request = PlanPackRequest(theme="Git", targetUser="社会人", structurePolicy="sequential")
 
-    assert request.structurePolicy == "standard"
+    assert request.structurePolicy == "summary"
 
 
 def test_listening_planner_uses_default_section_count_range(monkeypatch) -> None:
@@ -627,4 +627,3 @@ def test_examples_validation_filters_invalid_entries_and_keeps_valid_patterns() 
     assert invalid_pattern.recommended is False
     assert valid_pattern.examples == ["有線LAN -> ゆうせんラン", "A/B -> エー ビー"]
     assert valid_pattern.recommended is True
-

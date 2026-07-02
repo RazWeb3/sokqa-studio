@@ -34,7 +34,10 @@ def _selected_reading_patterns_block(plan: CoursePlan) -> str:
 
 
 def _structure_policy_block(plan: CoursePlan) -> str:
-    if plan.structurePolicy == "listening":
+    structure_policy = plan.structurePolicy
+    if structure_policy == "standard":
+        structure_policy = "summary"
+    if structure_policy == "listening":
         return """
 Structure policy: listening
 - Make the generated content suitable for listening study as a continuous spoken narrative.
@@ -44,11 +47,75 @@ Structure policy: listening
 - Minimize symbol-heavy notation, tables, and bullet-list-dependent explanations.
 - Use smooth spoken transitions so the content remains understandable without looking at the screen.
 """.rstrip()
-    return """
-Structure policy: standard
-- Use the existing balanced Sokqa course style.
-- Balance conceptual explanation, practical examples, and review.
+    if structure_policy == "summary":
+        return """
+Structure policy: summary
+- Prioritize clarity and brevity.
+- Keep each documents[] item compact and easy to scan while still being coherent as a narrative.
+- Avoid overly long digressions; focus on key takeaways and essential examples only.
 """.rstrip()
+    if structure_policy == "reading":
+        return """
+Structure policy: reading
+- Write content suitable for reading comprehension, with clear sentences and explicit connectors.
+- Prefer unambiguous phrasing over overly conversational shortcuts.
+""".rstrip()
+    if structure_policy == "japanese_learning":
+        return """
+Structure policy: japanese_learning
+- Write content suitable for Japanese study, keeping explanations clear and learner-friendly.
+- Prefer common vocabulary and straightforward sentence structures.
+""".rstrip()
+    return """
+Structure policy: summary
+- Prioritize clarity and brevity.
+""".rstrip()
+
+
+def _ruby_policy_block(plan: CoursePlan) -> str:
+    structure_policy = plan.structurePolicy
+    if structure_policy == "standard":
+        structure_policy = "summary"
+
+    common = """
+- Parentheses used for meaning explanations are allowed and must be preserved (example: SQL（データベース操作言語）).
+- Do not delete meaning/explanation parentheses just because they use （） or ().
+""".strip()
+
+    if structure_policy in {"listening", "summary"}:
+        return f"""
+- Ruby policy: none
+- Do not output furigana or pronunciation readings in the learner-facing text.
+- Do not output reading parentheticals in any form, including Kanji(かな) and 漢字（かな）.
+{common}
+""".strip()
+
+    if structure_policy == "reading":
+        return f"""
+- Ruby policy: reading
+- Add furigana according to customInstructions.
+- If customInstructions does not specify a ruby level, default to adding furigana only for difficult kanji words (not all kanji).
+- Use reading parentheticals only for kana readings of kanji, using either Kanji(かな) or 漢字（かな）.
+- Do not use reading parentheticals for meaning explanations; meaning explanations must remain as normal parentheses explanations (example: SQL（データベース操作言語）).
+- When adding furigana, never repeat the same reading twice (avoid outputs that would be read as "よみ よみ").
+{common}
+""".strip()
+
+    if structure_policy == "japanese_learning":
+        return f"""
+- Ruby policy: japanese_learning
+- Add furigana to every kanji word by default.
+- Use reading parentheticals only for kana readings of kanji, using either Kanji(かな) or 漢字（かな）.
+- Do not use reading parentheticals for meaning explanations; meaning explanations must remain as normal parentheses explanations (example: SQL（データベース操作言語）).
+- When adding furigana, never repeat the same reading twice (avoid outputs that would be read as "よみ よみ").
+{common}
+""".strip()
+
+    return f"""
+- Ruby policy: none
+- Do not output furigana or pronunciation readings in the learner-facing text.
+{common}
+""".strip()
 
 
 def _material_mode_block(plan: CoursePlan) -> str:
@@ -182,6 +249,7 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     source_section = f"\n\n{source_block}" if source_block else ""
     reading_policy_section = _selected_reading_patterns_block(plan)
     structure_policy = _structure_policy_block(plan)
+    ruby_policy = _ruby_policy_block(plan)
     material_policy = _material_mode_block(plan)
     japanese_learning_policy = _japanese_learning_difficulty_block(plan)
     custom_instructions = _custom_instructions_block(plan)
@@ -213,7 +281,7 @@ Rules:
 - Do not output tags in document items.
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
-- Do not add pronunciation-only parentheticals in body text; parentheses may be used only for meaning explanations, not readings.
+{ruby_policy}
 - Placeholder policy (strict):
   - Use only 〜 or ◯◯ as placeholders in learner-facing text.
   - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
@@ -278,6 +346,7 @@ def quiz_generation_prompt(
     quiz_context = _quiz_context_block(plan, source_documents)
     reading_policy_section = _selected_reading_patterns_block(plan)
     structure_policy = _structure_policy_block(plan)
+    ruby_policy = _ruby_policy_block(plan)
     material_policy = _material_mode_block(plan)
     japanese_learning_policy = _japanese_learning_difficulty_block(plan)
     custom_instructions = _custom_instructions_block(plan)
@@ -328,7 +397,7 @@ Rules:
 - Do not output tts in the first quiz generation step.
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
-- Do not add pronunciation-only parentheticals in question, choices, or explanation; parentheses may be used only for meaning explanations, not readings.
+{ruby_policy}
 - Placeholder policy (strict):
   - Use only 〜 or ◯◯ as placeholders in learner-facing text.
   - Do not replace the placeholder ◯◯ with ASCII placeholder tokens like OO or oo. This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).

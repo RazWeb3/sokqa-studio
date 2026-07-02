@@ -89,14 +89,14 @@ def test_generation_prompts_include_placeholder_backtick_and_pack_language_purit
 
 def test_generation_prompts_include_structure_and_material_policies() -> None:
     plan = _plan()
-    plan.structurePolicy = "standard"
+    plan.structurePolicy = "summary"
     plan.materialMode = "strict"
     document_prompt = document_generation_prompt(plan, plan.documents[0])
     quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
     for prompt in [document_prompt, quiz_prompt]:
-        assert "Structure policy: standard" in prompt
-        assert "balanced Sokqa course style" in prompt
+        assert "Structure policy: summary" in prompt
+        assert "Prioritize clarity and brevity" in prompt
         assert "Material mode: strict" in prompt
         assert "Do not add outside facts, terms, examples, claims, or inferred details" in prompt
 
@@ -112,19 +112,35 @@ def test_listening_document_prompt_forbids_glossary_style_and_requires_flow() ->
     assert "Do not write glossary-style entries" in prompt
     assert "not as an independent term definition" in prompt
     assert "avoid starting sections with a term name followed by its definition" in prompt
+    assert "Ruby policy: none" in prompt
     assert "3 to 6 sentences in the pack language" in prompt
 
 
-def test_standard_document_prompt_keeps_existing_balanced_structure() -> None:
+def test_summary_document_prompt_keeps_compact_structure_and_has_no_ruby() -> None:
     plan = _plan()
-    plan.structurePolicy = "standard"
+    plan.structurePolicy = "summary"
 
     prompt = document_generation_prompt(plan, plan.documents[0])
 
-    assert "Structure policy: standard" in prompt
-    assert "Use the existing balanced Sokqa course style" in prompt
+    assert "Structure policy: summary" in prompt
+    assert "Prioritize clarity and brevity" in prompt
+    assert "Ruby policy: none" in prompt
     assert "Each text should be 2 to 4 sentences in the pack language" in prompt
     assert "avoid starting sections with a term name followed by its definition" not in prompt
+
+
+def test_reading_and_japanese_learning_prompts_enable_ruby_policies() -> None:
+    plan = _plan()
+
+    plan.structurePolicy = "reading"
+    reading_prompt = document_generation_prompt(plan, plan.documents[0])
+    assert "Ruby policy: reading" in reading_prompt
+    assert "default to adding furigana only for difficult kanji words" in reading_prompt
+
+    plan.structurePolicy = "japanese_learning"
+    japanese_learning_prompt = document_generation_prompt(plan, plan.documents[0])
+    assert "Ruby policy: japanese_learning" in japanese_learning_prompt
+    assert "Add furigana to every kanji word" in japanese_learning_prompt
 
 
 def test_listening_mock_document_uses_connected_spoken_style() -> None:
@@ -352,9 +368,9 @@ def test_generation_prompts_preserve_canonical_body_notation() -> None:
     assert "Preserve canonical written notation in body text" in document_prompt
     assert "IT, ROE, .git, .env, GitHub" in document_prompt
     assert "Do not convert them to kana readings in text" in document_prompt
-    assert "Do not add pronunciation-only parentheticals in body text" in document_prompt
+    assert "Ruby policy: none" in document_prompt
     assert "Preserve canonical written notation in question, choices, and explanation" in quiz_prompt
-    assert "Do not add pronunciation-only parentheticals in question, choices, or explanation" in quiz_prompt
+    assert "Ruby policy: none" in quiz_prompt
 
 
 def test_japanese_learning_beginner_prompt_limits_target_japanese() -> None:

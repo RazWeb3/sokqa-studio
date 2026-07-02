@@ -428,6 +428,10 @@ Rules:
 - Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
+- Write question as a natural finished question for learners.
+- For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it. Avoid phrases such as "本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている".
+- Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work, and keep it brief.
+- This suppression applies only to question. Do not change TTS fields or answer-checking logic.
 - Do not copy existing exam questions verbatim.
 {_json_output_rules_block()}
 {integration_rules}

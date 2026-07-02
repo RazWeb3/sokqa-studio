@@ -56,6 +56,18 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "推奨されています" in prompt
 
 
+def test_quiz_generation_prompt_suppresses_mechanical_document_reference_phrases() -> None:
+    plan = _plan()
+
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "Write question as a natural finished question for learners." in prompt
+    assert "For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it." in prompt
+    assert '"本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている"' in prompt
+    assert "Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work" in prompt
+    assert "This suppression applies only to question. Do not change TTS fields or answer-checking logic." in prompt
+
+
 def test_quiz_generation_prompt_forbids_square_bracket_placeholders() -> None:
     plan = _plan()
 

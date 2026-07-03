@@ -175,8 +175,9 @@ def test_text_quality_prompt_keeps_style_suggestions_from_deleting_information()
         mode="text",
     )
 
-    assert "For style only, limit suggestions to concise rewording of redundant phrasing or duplicated wording." in prompt
-    assert "Do not delete information content itself, including facts, causal relationships, impacts, conditions, or scope stated in the text." in prompt
+    assert "For style only," not in prompt
+    assert "limit suggestions to concise rewording of redundant phrasing or duplicated wording." in prompt
+    assert "Do not delete information content itself, including facts, causal relationships, impacts, conditions, or scope stated in the text, for any of factual/style/leak categories." in prompt
     assert 'Removing redundant reference phrases such as "本文中で述べられている" and duplicated wording is allowed.' in prompt
 
 
@@ -330,6 +331,13 @@ def test_quality_prompt_requires_full_replace_suggestion_for_text_categories() -
     assert 'suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。' in prompt
     assert "部分差分・断片・途中で終わる文・省略形を出力してはならない。" in prompt
     assert "suggestion は original 全体を置き換える完全なテキストであること。" in prompt
+    # preservation_rule must appear before FULL_REPLACE so the preservation
+    # constraint is read first by the model.
+    preservation_text = "指摘した問題点に対応する最小限の修正のみを行い、それ以外の文・情報は原文のまま完全に保持すること。"
+    full_replace_text = "suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。"
+    assert preservation_text in prompt
+    assert full_replace_text in prompt
+    assert prompt.index(preservation_text) < prompt.index(full_replace_text)
 
 
 def test_quality_prompt_requires_minimal_fix_and_original_preservation_for_text_categories() -> None:
@@ -348,6 +356,55 @@ def test_quality_prompt_requires_minimal_fix_and_original_preservation_for_text_
     assert "文章全体の要約・簡潔化・再構成・情報の間引きを行ってはならない。" in prompt
     assert 'suggestionは「問題箇所を直した原文」であり、「短くまとめ直した文」ではない。' in prompt
     assert '指摘対象に含まれる冗長な参照表現(例:「本文中で述べられている」)や明確な重複語の削除・言い換えは許容する。' in prompt
+
+
+def test_quality_prompt_text_mode_includes_excerpt_fragment_rule() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。"}],
+        },
+        50,
+        mode="text",
+    )
+
+    assert "excerpt は指摘対象の問題断片である。" in prompt
+    assert "suggestion は excerpt に対応する箇所のみを最小限修正し" in prompt
+    assert "要約・簡潔化・再構成・別内容への置換を行ってはならない。" in prompt
+
+    # excerpt_fragment_rule must not leak into tts mode.
+    tts_prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。", "tts": {"text": "本文です。"}}],
+        },
+        50,
+        mode="tts",
+    )
+    assert "excerpt は指摘対象の問題断片である。" not in tts_prompt
+
+
+def test_quality_prompt_text_mode_adds_factual_and_leak_assertion_guard() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。"}],
+        },
+        50,
+        mode="text",
+    )
+
+    assert "For factual, target only clear and confident factual errors." in prompt
+    assert "Do not rewrite assertively items whose naming or criteria depend on school/sect/custom" in prompt
+    assert "fix only the relevant fragment and never delete, summarize, or replace surrounding sentences." in prompt
+    assert "For leak, replace only the author-facing comment / meta-expression fragment with learner-facing wording" in prompt
+    assert "keep surrounding sentences and information as the original text." in prompt
 
 
 def test_detect_multilingual_prioritizes_metadata_over_tags_and_structure() -> None:

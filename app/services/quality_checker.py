@@ -801,7 +801,10 @@ Categories:
 - factual: possible factual error or claim that needs human verification. Do not state it as certain; treat it as a suspicion.
 - style: awkward style for learner-facing text, hearsay wording such as "ドキュメントによると" or "記載されています".
 - leak: quiz explanation memo leakage, internal notes, prompt residue, placeholders, or authoring comments.
-- For style only, limit suggestions to concise rewording of redundant phrasing or duplicated wording. Do not delete information content itself, including facts, causal relationships, impacts, conditions, or scope stated in the text. Removing redundant reference phrases such as "本文中で述べられている" and duplicated wording is allowed.
+- Do not delete information content itself, including facts, causal relationships, impacts, conditions, or scope stated in the text, for any of factual/style/leak categories.
+- For style, limit suggestions to concise rewording of redundant phrasing or duplicated wording. Removing redundant reference phrases such as "本文中で述べられている" and duplicated wording is allowed.
+- For factual, target only clear and confident factual errors. Do not rewrite assertively items whose naming or criteria depend on school/sect/custom; prefer suppressing the issue or marking it as needing confirmation. When reporting, fix only the relevant fragment and never delete, summarize, or replace surrounding sentences.
+- For leak, replace only the author-facing comment / meta-expression fragment with learner-facing wording and keep surrounding sentences and information as the original text.
 
 Target fields:
 - document.documents[].text
@@ -827,6 +830,13 @@ Notation rule:
         if mode == "text"
         else ""
     )
+    excerpt_fragment_rule = (
+        """
+- excerpt は指摘対象の問題断片である。suggestion は excerpt に対応する箇所のみを最小限修正し、それ以外の文・情報は原文のまま完全に保持すること。要約・簡潔化・再構成・別内容への置換を行ってはならない。
+""".strip()
+        if mode == "text"
+        else ""
+    )
     prompt = f"""
 Return strict JSON only. Do not use markdown fences.
 
@@ -847,8 +857,9 @@ Rules:
 - factual issues must use conservative confidence and wording such as "確認が必要".
 - Write the issue and suggestion fields in Japanese. Keep category, severity, confidence, and location field names in the specified JSON schema.
 - suggestion には修正後の本文のみを入れること。説明・注釈・理由・AIへの指示文・メタコメントを含めてはならない。
-- suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
 {preservation_rule}
+- suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
+{excerpt_fragment_rule}
 - Fill location.fileName with "{file_name}".
 - Fill location.unitId with the document item id or quiz question id when available.
 - Fill location.field with "text", "question", "choices", "explanation", or another concrete field.

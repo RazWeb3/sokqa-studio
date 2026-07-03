@@ -637,7 +637,8 @@
         .record-action-state .badge { display: none; }
         .record-action-state { grid-template-columns: 1fr; }
         .record-action-state strong { font-size: 13px; }
-        .record-playback-grid .player-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .record-playback-grid .player-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; min-width: 0; }
+        .record-playback-grid .player-controls button { min-width: 0; width: 100%; }
         .pack-option { grid-template-columns: 1fr; }
         .pack-option-title, .pack-option-detail { white-space: normal; }
         .version-grid { grid-template-columns: 1fr; }

@@ -356,6 +356,7 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     )
     listening_rule = (
         "\n- For structurePolicy listening, avoid starting sections with a term name followed by its definition; write as an ongoing explanation with context and transitions."
+        "\n- この本文は音声で聞き流される。あなたは書き手ではなく話し手・語り手として、耳で聞いて理解できるように、自分の言葉で直接語ること。"
         if plan.structurePolicy == "listening"
         else ""
     )
@@ -516,6 +517,12 @@ Rules:
 - Do not copy existing exam questions verbatim.
 {_json_output_rules_block()}
 {integration_rules}
+
+# 出題者の役割
+あなたはこの教材の内容を教える講師・出題者である。問題文と解説は、資料を引用・報告するのではなく、講師自身が正しいと理解している知識として、学習者に直接・断定的に説明すること。
+- 解説(explanation)は、なぜその選択肢が正解なのかを講師が自分の言葉で説明するものである。本文の要約や引用に留めず、事実は事実として断言すること。
+- 「〜とされています」「〜と説明されています」「資料によると」のような伝聞・引用調は、出題者が責任を持って断言していないことの表れなので使わない。
+- 諸説ある論点や流派差のある曖昧な事柄は出題を避け、確実に断言できる内容から選んで出題すること。出題数を無理に減らす必要はなく、断言できる論点は十分にあるので、そこから選ぶこと。
 
 Course:
 - title: {plan.title}

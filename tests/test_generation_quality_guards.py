@@ -1125,3 +1125,123 @@ def test_generation_prompts_omit_guidance_block_when_guidance_is_none() -> None:
 
     for prompt in [document_prompt, quiz_prompt]:
         assert "# 生成目的(パック全体の執筆方針)" not in prompt
+
+
+def test_quiz_generation_prompt_includes_examiner_role_block() -> None:
+    """quiz プロンプトに出題者・講師の役割定義ブロック(3原則)が含まれること。"""
+    plan = _plan()
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    # 役割定義ブロックの見出し(# 生成目的 と区別)
+    assert "# 出題者の役割" in prompt
+    # 3原則の核となる文言
+    assert "講師・出題者" in prompt
+    assert "自分の言葉で" in prompt
+    assert "断言" in prompt
+    assert "諸説ある論点" in prompt
+    assert "断言できる内容から選んで" in prompt
+    # 伝聞調の代表語彙が役割定義内で言及されていること
+    assert "とされています" in prompt
+    assert "と説明されています" in prompt
+
+
+def test_quiz_generation_prompt_examiner_role_block_is_separate_from_generation_purpose() -> None:
+    """役割定義ブロックが # 生成目的 と別見出しで区別され、Course: の前に配置されること。"""
+    plan = _plan()
+    plan.generationGuidance = _compose_generation_purpose(plan)
+
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    # 2つの見出しが両方存在し、別物として区別されている
+    assert "# 生成目的(パック全体の執筆方針)" in prompt
+    assert "# 出題者の役割" in prompt
+    # 役割定義は Course: の前に配置されていること
+    assert prompt.index("# 出題者の役割") < prompt.index("Course:")
+    # 生成目的は Course: の後ろ(setup に準拠)に配置されていること
+    assert prompt.index("# 生成目的(パック全体の執筆方針)") > prompt.index("Course:")
+
+
+def test_listening_document_prompt_includes_speaker_role() -> None:
+    """listening の document プロンプトには「話し手・語り手」役割が含まれること。"""
+    plan = _plan()
+    plan.structurePolicy = "listening"
+
+    prompt = document_generation_prompt(plan, plan.documents[0])
+
+    assert "話し手・語り手" in prompt
+    assert "耳で聞いて理解できるように" in prompt
+
+
+def test_non_listening_document_prompts_exclude_speaker_role() -> None:
+    """reading / japanese_learning / summary の document プロンプトには「話し手」役割が含まれないこと(listening 限定の担保)。"""
+    for policy in ["reading", "japanese_learning", "summary"]:
+        plan = _plan()
+        plan.structurePolicy = policy
+        prompt = document_generation_prompt(plan, plan.documents[0])
+        assert "話し手・語り手" not in prompt, f"話し手役割が {policy} に漏れている"
+        assert "耳で聞いて理解できるように" not in prompt, f"話し手指示が {policy} に漏れている"
+
+
+def test_listening_quiz_prompt_excludes_speaker_role() -> None:
+    """listening の quiz プロンプトには「話し手」役割が含まれないこと(quiz には出題者役割のみ)。"""
+    plan = _plan()
+    plan.structurePolicy = "listening"
+
+    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "話し手・語り手" not in prompt
+    assert "耳で聞いて理解できるように" not in prompt
+
+
+def test_quiz_validator_warns_for_to_sareteimasu_suffix_without_invalidating() -> None:
+    """「〜とされています」等の語尾を含む explanation が warning になり、valid=True のまま(破壊的でない)こと。"""
+    file = GeneratedFile(
+        name="quiz_01.json",
+        kind="quiz",
+        content={
+            "id": "quality_pack_quiz_01",
+            "title": "確認クイズ",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "パスワード管理として適切なものはどれですか？",
+                    "choices": ["短い共通語", "使い回し", "長く一意なもの", "保存しない"],
+                    "answerIndex": 2,
+                    "explanation": "長く一意なパスワードが推奨されるとされています。",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    assert result.valid is True
+    warnings = [error for error in result.errors if error.severity == "warning"]
+    assert any("とされています" in error.message for error in warnings)
+
+
+def test_quiz_validator_warns_for_tatoerareteimasu_suffix_without_invalidating() -> None:
+    """「〜挙げられています」語尾を含む explanation が warning になること(部分一致の確認)。"""
+    file = GeneratedFile(
+        name="quiz_01.json",
+        kind="quiz",
+        content={
+            "id": "quality_pack_quiz_01",
+            "title": "確認クイズ",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "セキュリティ対策として挙げられているのはどれですか？",
+                    "choices": ["パスワード使い回し", "長く一意なパスワード", "共有アカウント", "未設定"],
+                    "answerIndex": 1,
+                    "explanation": "長く一意なパスワードが対策として挙げられています。",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    assert result.valid is True
+    warnings = [error for error in result.errors if error.severity == "warning"]
+    assert any("挙げられています" in error.message for error in warnings)

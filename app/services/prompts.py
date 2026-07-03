@@ -192,6 +192,84 @@ def _custom_instructions_block(plan: CoursePlan) -> str:
 """.rstrip()
 
 
+def _compose_generation_purpose(plan: CoursePlan, *, language: str = "ja") -> str:
+    """確定入力から目的文を決定論的に組み立てる純粋関数。
+
+    今回は単一ドメイン(日本語・音声聞き流し)に最適化し、language は "ja" 固定。
+    将来の多言語化に備え language パラメータだけは受け取れる形にするが、
+    本タスクでは分岐を実装しない(呼び出し側は引数を渡さない)。
+    """
+    del language  # 将来の多言語化時に使用。今回は "ja" 固定で分岐なし。
+
+    structure_policy = plan.structurePolicy
+    if structure_policy == "standard":
+        structure_policy = "summary"
+
+    target_user = plan.targetUser or "学習者"
+    difficulty = plan.difficulty or "standard"
+
+    # difficulty を日本語の表現水準に翻訳
+    difficulty_label = {
+        "beginner": "初学者",
+        "standard": "中級学習者",
+        "advanced": "上級学習者",
+    }.get(difficulty, "中級学習者")
+
+    if structure_policy == "listening":
+        purpose_lines = [
+            "この教材は音声で連続して聞き流される用途であることを前提に執筆すること。",
+            "したがって音声で読めない記号プレースホルダー(△△・××・〇〇 等)は使わず、具体例(具体的な日付・氏名・部署名 等)を用いること。",
+            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
+            f"{target_user}({difficulty_label})に合った表現水準で書くこと。",
+        ]
+    elif structure_policy == "summary":
+        purpose_lines = [
+            "この教材は要点を簡潔にまとめる用途であることを前提に執筆すること。",
+            "音声で読めない記号プレースホルダー(△△・××・〇〇 等)は使わず、具体例(具体的な日付・氏名・部署名 等)を用いること。",
+            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
+            f"{target_user}({difficulty_label})に合った表現水準で、冗長な脱線を避け要点に絞ること。",
+        ]
+    elif structure_policy == "reading":
+        purpose_lines = [
+            "この教材は文章で読んで学ぶ用途であることを前提に執筆すること。",
+            "音声で読めない記号プレースホルダー(△△・××・〇〇 等)は使わず、具体例(具体的な日付・氏名・部署名 等)を用いること。",
+            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
+            f"{target_user}({difficulty_label})に合った表現水準で、明快で曖昧さの少ない文にすること。",
+        ]
+    elif structure_policy == "japanese_learning":
+        purpose_lines = [
+            "この教材は日本語学習者に向けた日本語学習用途であることを前提に執筆すること。",
+            "音声で読めない記号プレースホルダー(△△・××・〇〇 等)は使わず、具体例(具体的な日付・氏名・部署名 等)を用いること。",
+            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
+            f"{target_user}({difficulty_label})に合った漢字語彙の水準で書くこと。",
+        ]
+    else:
+        purpose_lines = [
+            "この教材は学習者に向けて要点を簡潔にまとめる用途であることを前提に執筆すること。",
+            "音声で読めない記号プレースホルダー(△△・××・〇〇 等)は使わず、具体例(具体的な日付・氏名・部署名 等)を用いること。",
+            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
+            f"{target_user}({difficulty_label})に合った表現水準で書くこと。",
+        ]
+
+    # customInstructions が非空なら「追加条件も目的の一部として尊重せよ」の参照一文を付す(条件本文は展開しない)。
+    if (plan.customInstructions or "").strip():
+        purpose_lines.append("なお、上記に加えユーザー指定の追加条件も目的の一部として尊重すること。")
+
+    return "\n".join(purpose_lines)
+
+
+def _generation_guidance_block(plan: CoursePlan) -> str:
+    """plan.generationGuidance が None/空なら空文字を返し、それ以外は日本語の目的宣言ブロックを返す。"""
+    guidance = (plan.generationGuidance or "").strip()
+    if not guidance:
+        return ""
+    return f"""
+# 生成目的(パック全体の執筆方針)
+以下は本パック全体の生成目的・執筆方針である。各ユニットの生成で必ず参照し、一貫した目的に沿った内容にすること。
+{guidance}
+""".rstrip()
+
+
 def _json_output_rules_block() -> str:
     return """
 JSON output rules:
@@ -267,6 +345,7 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     ruby_policy = _ruby_policy_block(plan)
     material_policy = _material_mode_block(plan)
     japanese_learning_policy = _japanese_learning_difficulty_block(plan)
+    generation_guidance = _generation_guidance_block(plan)
     custom_instructions = _custom_instructions_block(plan)
     root_id = document_pack_id(plan, document)
     global_tags = json.dumps(document_global_tags(plan, document), ensure_ascii=False)
@@ -321,6 +400,7 @@ Course:
 {structure_policy}
 {material_policy}
 {japanese_learning_policy}
+{generation_guidance}
 {custom_instructions}
 {reading_policy_section}
 {source_section}
@@ -364,6 +444,7 @@ def quiz_generation_prompt(
     ruby_policy = _ruby_policy_block(plan)
     material_policy = _material_mode_block(plan)
     japanese_learning_policy = _japanese_learning_difficulty_block(plan)
+    generation_guidance = _generation_guidance_block(plan)
     custom_instructions = _custom_instructions_block(plan)
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
@@ -427,7 +508,7 @@ Rules:
 - Every question must be grounded in the quiz context.
 - Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
-- Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています".
+- Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています". This hearsay/citation suppression applies to question, choices, and explanation (all learner-facing quiz fields).
 - Write question as a natural finished question for learners.
 - For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it. Avoid phrases such as "本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている".
 - Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work, and keep it brief.
@@ -442,6 +523,7 @@ Course:
 {structure_policy}
 {material_policy}
 {japanese_learning_policy}
+{generation_guidance}
 {custom_instructions}
 {reading_policy_section}
 

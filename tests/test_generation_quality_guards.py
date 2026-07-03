@@ -8,7 +8,12 @@ from app.services import pack_agent
 from app.services.document_generator import generate_mock_document_pack, normalize_document_content
 from app.services.tagging import document_global_tags, quiz_global_tags
 from app.services.pack_agent import generate_pack
-from app.services.prompts import document_generation_prompt, quiz_generation_prompt
+from app.services.prompts import (
+    _compose_generation_purpose,
+    _generation_guidance_block,
+    document_generation_prompt,
+    quiz_generation_prompt,
+)
 from app.services.quiz_generator import generate_mock_quiz_pack, normalize_quiz_content
 from app.services.repairer import QUIZ_REPAIR_INSTRUCTIONS, repair_files
 from app.services.validator import validate_files
@@ -43,6 +48,7 @@ def _source_pack() -> SokqaDocumentPack:
 
 
 def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() -> None:
+    """一貫性・整数・直接叙述スタイル + hearsay/冗長参照のフィールド分離を検証。"""
     plan = _plan()
     quiz_pack = plan.quizPacks[0]
 
@@ -54,15 +60,11 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "do not mention the source or documents" in prompt
     assert "ドキュメントによると" in prompt
     assert "推奨されています" in prompt
-
-
-def test_quiz_generation_prompt_suppresses_mechanical_document_reference_phrases() -> None:
-    plan = _plan()
-
-    prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
-
+    # hearsay 抑制は question/choices/explanation の全フィールド対象と明示されていること
+    assert "This hearsay/citation suppression applies to question, choices, and explanation" in prompt
+    # 冗長参照抑制(「本文中で述べられている」系) は question のみに留保し、explanation には広げない
     assert "Write question as a natural finished question for learners." in prompt
-    assert "For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it." in prompt
+    assert "For question only, suppress mechanical or redundant document-reference wording" in prompt
     assert '"本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている"' in prompt
     assert "Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work" in prompt
     assert "This suppression applies only to question. Do not change TTS fields or answer-checking logic." in prompt
@@ -997,3 +999,129 @@ def test_existing_japanese_quiz_does_not_require_choice_texts() -> None:
     result = validate_files([file])
 
     assert result.valid is True
+
+
+def test_compose_generation_purpose_listening_policy_includes_audio_and_placeholder_keywords() -> None:
+    plan = _plan()
+    plan.structurePolicy = "listening"
+    plan.targetUser = "初めて学ぶ社会人"
+    plan.difficulty = "beginner"
+    plan.customInstructions = None
+
+    purpose = _compose_generation_purpose(plan)
+
+    assert "音声で連続して聞き流される用途" in purpose
+    assert "記号プレースホルダー(△△・××・〇〇 等)" in purpose
+    assert "具体例" in purpose
+    assert "伝聞・引用調ではなく、事実を直接叙述" in purpose
+    assert "初めて学ぶ社会人(初学者)" in purpose
+    assert "なお、上記に加えユーザー指定の追加条件" not in purpose
+
+
+def test_compose_generation_purpose_summary_policy_includes_brevity_intent() -> None:
+    plan = _plan()
+    plan.structurePolicy = "summary"
+    plan.targetUser = "復習する学習者"
+    plan.difficulty = "standard"
+
+    purpose = _compose_generation_purpose(plan)
+
+    assert "要点を簡潔にまとめる用途" in purpose
+    assert "冗長な脱線を避け要点に絞ること" in purpose
+    assert "記号プレースホルダー(△△・××・〇〇 等)" in purpose
+
+
+def test_compose_generation_purpose_reading_policy_includes_clear_sentences_intent() -> None:
+    plan = _plan()
+    plan.structurePolicy = "reading"
+    plan.targetUser = "読む学習者"
+    plan.difficulty = "advanced"
+
+    purpose = _compose_generation_purpose(plan)
+
+    assert "文章で読んで学ぶ用途" in purpose
+    assert "明快で曖昧さの少ない文にすること" in purpose
+    assert "読む学習者(上級学習者)" in purpose
+
+
+def test_compose_generation_purpose_japanese_learning_policy_includes_kanji_level_intent() -> None:
+    plan = _plan()
+    plan.structurePolicy = "japanese_learning"
+    plan.targetUser = "日本語学習者"
+    plan.difficulty = "beginner"
+
+    purpose = _compose_generation_purpose(plan)
+
+    assert "日本語学習者に向けた日本語学習用途" in purpose
+    assert "漢字語彙の水準で書くこと" in purpose
+
+
+def test_compose_generation_purpose_appends_custom_instructions_reference_without_inlining() -> None:
+    plan = _plan()
+    plan.structurePolicy = "listening"
+    plan.customInstructions = "会話例を多めにし、ホテル受付の場面を中心にする。"
+
+    purpose = _compose_generation_purpose(plan)
+
+    # 参照一文が付くこと
+    assert "なお、上記に加えユーザー指定の追加条件も目的の一部として尊重すること。" in purpose
+    # ただし条件本文そのものは目的文に展開されない(= _custom_instructions_block との二重定義がない)
+    assert "会話例を多めにし、ホテル受付の場面を中心にする。" not in purpose
+
+
+def test_generation_guidance_block_returns_empty_when_guidance_is_none() -> None:
+    plan = _plan()
+    plan.generationGuidance = None
+
+    block = _generation_guidance_block(plan)
+
+    assert block == ""
+
+
+def test_generation_guidance_block_returns_empty_when_guidance_is_blank() -> None:
+    plan = _plan()
+    plan.generationGuidance = "   \n  "
+
+    block = _generation_guidance_block(plan)
+
+    assert block == ""
+
+
+def test_generation_guidance_block_returns_japanese_block_when_guidance_present() -> None:
+    plan = _plan()
+    plan.generationGuidance = "この教材は音声で連続して聞き流される用途であることを前提に執筆すること。"
+
+    block = _generation_guidance_block(plan)
+
+    assert "# 生成目的(パック全体の執筆方針)" in block
+    assert "各ユニットの生成で必ず参照し、一貫した目的に沿った内容にすること。" in block
+    assert "この教材は音声で連続して聞き流される用途であることを前提に執筆すること。" in block
+
+
+def test_generation_prompts_insert_guidance_block_between_course_and_custom_instructions() -> None:
+    plan = _plan()
+    plan.structurePolicy = "listening"
+    plan.customInstructions = "会話例を多めにし、ホテル受付の場面を中心にする。"
+    plan.generationGuidance = _compose_generation_purpose(plan)
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "# 生成目的(パック全体の執筆方針)" in prompt
+        assert "音声で連続して聞き流される用途" in prompt
+        # 挿入位置: Course: の後、# 生成ルール(_custom_instructions_block) の前
+        assert prompt.index("# 生成目的(パック全体の執筆方針)") < prompt.index("# 生成ルール")
+        # customInstructions 本文は _custom_instructions_block 側にのみ展開され、目的文には展開されない
+        assert "会話例を多めにし、ホテル受付の場面を中心にする。" in prompt
+
+
+def test_generation_prompts_omit_guidance_block_when_guidance_is_none() -> None:
+    plan = _plan()
+    plan.generationGuidance = None
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "# 生成目的(パック全体の執筆方針)" not in prompt

@@ -102,6 +102,7 @@ class CoursePlan(BaseModel):
     manualDescription: str | None = None
     descriptionIncludeDate: bool = False
     descriptionIncludeAiDisclaimer: bool = False
+    generationGuidance: str | None = Field(default=None, max_length=4000)
     answerPositionMode: Literal["auto", "balanced"] = "balanced"
 
     @field_validator("ttsReadingMode", mode="before")

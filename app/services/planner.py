@@ -16,6 +16,7 @@ from app.services.document_generator import (
 )
 from app.services.llm_json import LlmJsonParseContext
 from app.services.pack_metadata import resolve_creator_id
+from app.services.prompts import _compose_generation_purpose
 from app.services.source_material import normalize_source, source_prompt_block
 from app.services.tagging import course_global_tags
 from app.utils.ids import new_opaque_id, path_token, slugify
@@ -1011,4 +1012,11 @@ def create_course_plan(request: PlanPackRequest, model: str | None = None) -> Co
         ttsRules=tts_rules,
         proposedReadingPatterns=reading_patterns,
     )
-    return plan.model_copy(update={"globalTags": _global_tags_from_request(request, plan)})
+    plan = plan.model_copy(update={"globalTags": _global_tags_from_request(request, plan)})
+
+    # 生成目的(generationGuidance)を決定論的に組み立てて plan に格納する。
+    # プランナーLLMには書かせず、確定入力(structurePolicy/targetUser/difficulty/materialMode/customInstructions)から
+    # 純粋関数で構築する(案X')。各ユニット生成プロンプトはこの目的文を参照し一貫性を保つ。
+    plan = plan.model_copy(update={"generationGuidance": _compose_generation_purpose(plan)})
+
+    return plan

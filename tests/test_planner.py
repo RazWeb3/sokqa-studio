@@ -627,3 +627,47 @@ def test_examples_validation_filters_invalid_entries_and_keeps_valid_patterns() 
     assert invalid_pattern.recommended is False
     assert valid_pattern.examples == ["有線LAN -> ゆうせんラン", "A/B -> エー ビー"]
     assert valid_pattern.recommended is True
+
+
+def test_planner_stores_deterministic_generation_guidance_for_listening_policy(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="ITパスポート",
+            targetUser="IT初心者の社会人",
+            difficulty="beginner",
+            scale="quick",
+            structurePolicy="listening",
+        )
+    )
+
+    # 決定論生成: generationGuidance が None でなく、確定入力から組み立てられた日本語目的文を格納していること
+    assert plan.generationGuidance is not None
+    assert "音声で連続して聞き流される用途" in plan.generationGuidance
+    assert "記号プレースホルダー(△△・××・〇〇 等)" in plan.generationGuidance
+    assert "IT初心者の社会人(初学者)" in plan.generationGuidance
+
+
+def test_planner_generation_guidance_refers_to_custom_instructions_without_inlining(monkeypatch) -> None:
+    settings = planner.get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = planner.create_course_plan(
+        PlanPackRequest(
+            theme="接客英語",
+            targetUser="社会人",
+            difficulty="standard",
+            scale="quick",
+            structurePolicy="listening",
+            customInstructions="ホテル受付の場面を中心にする。",
+        )
+    )
+
+    assert plan.generationGuidance is not None
+    assert "なお、上記に加えユーザー指定の追加条件も目的の一部として尊重すること。" in plan.generationGuidance
+    # customInstructions 本文は目的文に展開されないこと
+    assert "ホテル受付の場面を中心にする。" not in plan.generationGuidance
+    # customInstructions は従来通り plan.customInstructions に保持されること
+    assert plan.customInstructions == "ホテル受付の場面を中心にする。"

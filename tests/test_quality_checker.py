@@ -316,7 +316,7 @@ def test_tts_quality_prompt_disallows_trailing_japanese_period_only_suggestions(
     assert "Do not report suggestions whose only difference is the presence or absence of a trailing Japanese period" in prompt
 
 
-def test_quality_prompt_requires_full_replace_suggestion_for_text_categories() -> None:
+def test_quality_prompt_requires_replacement_fragment_for_text_categories() -> None:
     prompt, _ = _quality_prompt(
         "sample_doc.json",
         {
@@ -328,16 +328,13 @@ def test_quality_prompt_requires_full_replace_suggestion_for_text_categories() -
         mode="text",
     )
 
-    assert 'suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。' in prompt
-    assert "部分差分・断片・途中で終わる文・省略形を出力してはならない。" in prompt
-    assert "suggestion は original 全体を置き換える完全なテキストであること。" in prompt
-    # preservation_rule must appear before FULL_REPLACE so the preservation
-    # constraint is read first by the model.
-    preservation_text = "指摘した問題点に対応する最小限の修正のみを行い、それ以外の文・情報は原文のまま完全に保持すること。"
-    full_replace_text = "suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。"
-    assert preservation_text in prompt
-    assert full_replace_text in prompt
-    assert prompt.index(preservation_text) < prompt.index(full_replace_text)
+    # 全文 suggestion ではなく、置換断片を要求する。
+    assert "replaceFrom" in prompt
+    assert "replaceTo" in prompt
+    # 旧 FULL_REPLACE の全文生成指示は入らない。
+    assert 'suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。' not in prompt
+    assert "部分差分・断片・途中で終わる文・省略形を出力してはならない。" not in prompt
+    assert "差分断片" in prompt
 
 
 def test_quality_prompt_requires_minimal_fix_and_original_preservation_for_text_categories() -> None:
@@ -352,13 +349,13 @@ def test_quality_prompt_requires_minimal_fix_and_original_preservation_for_text_
         mode="text",
     )
 
-    assert "指摘した問題点に対応する最小限の修正のみを行い、それ以外の文・情報は原文のまま完全に保持すること。" in prompt
-    assert "文章全体の要約・簡潔化・再構成・情報の間引きを行ってはならない。" in prompt
-    assert 'suggestionは「問題箇所を直した原文」であり、「短くまとめ直した文」ではない。' in prompt
-    assert '指摘対象に含まれる冗長な参照表現(例:「本文中で述べられている」)や明確な重複語の削除・言い換えは許容する。' in prompt
+    # 旧 preservation 文言が強化された後も保持される。
+    assert "該当する箇所のみ" in prompt or "該当箇所のみ" in prompt
+    assert "絶対に削除・要約・書き換えてはならない" in prompt
+    assert "issue を立てないこと" in prompt
 
 
-def test_quality_prompt_text_mode_includes_excerpt_fragment_rule() -> None:
+def test_quality_prompt_text_mode_includes_replacement_rule_and_excludes_tts() -> None:
     prompt, _ = _quality_prompt(
         "sample_doc.json",
         {
@@ -370,11 +367,12 @@ def test_quality_prompt_text_mode_includes_excerpt_fragment_rule() -> None:
         mode="text",
     )
 
-    assert "excerpt は指摘対象の問題断片である。" in prompt
-    assert "suggestion は excerpt に対応する箇所のみを最小限修正し" in prompt
-    assert "要約・簡潔化・再構成・別内容への置換を行ってはならない。" in prompt
+    assert "replaceFrom" in prompt
+    assert "replaceTo" in prompt
+    assert "original 内に存在する" in prompt
+    assert "1回だけ出現する曖昧さのない短い断片" in prompt
 
-    # excerpt_fragment_rule must not leak into tts mode.
+    # replacement_rule must not leak into tts mode.
     tts_prompt, _ = _quality_prompt(
         "sample_doc.json",
         {
@@ -385,7 +383,9 @@ def test_quality_prompt_text_mode_includes_excerpt_fragment_rule() -> None:
         50,
         mode="tts",
     )
-    assert "excerpt は指摘対象の問題断片である。" not in tts_prompt
+    assert "replaceFrom" not in tts_prompt
+    assert "replaceTo" not in tts_prompt
+    assert "original 内に存在する" not in tts_prompt
 
 
 def test_quality_prompt_text_mode_adds_factual_and_leak_assertion_guard() -> None:
@@ -1713,6 +1713,386 @@ def test_text_quality_response_leaves_original_none_without_source_content() -> 
 
     assert len(response.issues) == 1
     assert response.issues[0].original is None
+
+
+# --- 置換型 suggestion（text mode）テスト ---
+
+
+def test_text_replacement_suggestion_replaces_only_target_fragment_and_preserves_surrounding_text() -> None:
+    """正常系: replaceFrom が1箇所一致 → original の該当箇所のみ置換、前後完全保持。"""
+    content = {
+        "type": "document",
+        "documents": [
+            {
+                "id": "doc-34",
+                "text": "受動態はpassivelyと訳される。受動態の概念は重要である。",
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_34.json", "unitId": "doc-34", "field": "text"},
+                    "excerpt": "passively",
+                    "issue": "受動的に訳す方が自然です。",
+                    "replaceFrom": "passively",
+                    "replaceTo": "受動的に",
+                }
+            ]
+        },
+        file_name="doc_34.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    issue = response.issues[0]
+    assert issue.suggestion == "受動態は受動的にと訳される。受動態の概念は重要である。"
+    assert issue.original == content["documents"][0]["text"]
+    # 前後が保持されている
+    assert "受動態は" in issue.suggestion
+    assert "と訳される。" in issue.suggestion
+    assert "受動態の概念は重要である。" in issue.suggestion
+
+
+def test_text_replacement_suggestion_is_blank_when_replace_from_not_found() -> None:
+    """fail-safe: 0件一致 → suggestion 空（適用不可）。"""
+    content = {
+        "type": "document",
+        "documents": [
+            {"id": "doc-1", "text": "元の本文をそのまま保持します。"}
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.7,
+                    "location": {"fileName": "doc_x.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "存在しない断片",
+                    "issue": "修正したいです。",
+                    "replaceFrom": "存在しない断片です",
+                    "replaceTo": "置換後",
+                }
+            ]
+        },
+        file_name="doc_x.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].suggestion == ""
+
+
+def test_text_replacement_suggestion_is_blank_when_replace_from_ambiguous() -> None:
+    """fail-safe: 複数箇所一致 → suggestion 空（曖昧で適用不可）。"""
+    content = {
+        "type": "document",
+        "documents": [
+            {"id": "doc-1", "text": "重要な点を確認します。重要な点は忘れないでください。"}
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.7,
+                    "location": {"fileName": "doc_x.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "重要な点",
+                    "issue": "表現を直したいです。",
+                    "replaceFrom": "重要な点",
+                    "replaceTo": "大切な点",
+                }
+            ]
+        },
+        file_name="doc_x.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].suggestion == ""
+
+
+def test_text_replacement_suggestion_is_blank_when_result_is_drastically_shorter() -> None:
+    """fail-safe: 結果が original の 50% 未満 → suggestion 空。"""
+    long_text = "本文は十分な長さがあります。" * 20
+    content = {
+        "type": "document",
+        "documents": [{"id": "doc-1", "text": long_text}],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "high",
+                    "confidence": 0.9,
+                    "location": {"fileName": "doc_x.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "本文は十分な長さがあります。本文は十分な長さがあります。",
+                    "issue": "要約します。",
+                    "replaceFrom": long_text,
+                    "replaceTo": "短",
+                }
+            ]
+        },
+        file_name="doc_x.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].suggestion == ""
+
+
+def test_text_replacement_suggestion_falls_back_to_normalized_match_for_punctuation_and_whitespace() -> None:
+    """正規化フォールバック: 空白・約物・全角半角差のみを救済する。"""
+    content = {
+        "type": "document",
+        "documents": [
+            {
+                "id": "doc-1",
+                "text": "クラウドは重要です。補足します。",
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_x.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "重要",
+                    "issue": "強調します。",
+                    # モデル側が空白や全角/半角の揺れを含むが、意味のある語句は一致する想定。
+                    "replaceFrom": "クラウドは 重要 です",
+                    "replaceTo": "クラウドは重要である",
+                }
+            ]
+        },
+        file_name="doc_x.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    # 正規化フォールバックで 1 箇所だけマッチし、置換は元テキスト上で行われる。
+    # original の句点「。」は置換範囲外なので保持される。
+    assert response.issues[0].suggestion == "クラウドは重要である。補足します。"
+
+
+def test_text_replacement_suggestion_works_for_quiz_question_field() -> None:
+    """quiz question フィールドで置換が効くこと。"""
+    content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-5",
+                "question": "クラウドの特徴として正しいものはどれか。",
+                "choices": ["a", "b", "c", "d"],
+                "answerIndex": 0,
+                "explanation": "解説",
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_05.json", "unitId": "q-5", "field": "question"},
+                    "excerpt": "どれか",
+                    "issue": "疑問符に直す方が適切です。",
+                    "replaceFrom": "どれか",
+                    "replaceTo": "どれですか",
+                }
+            ]
+        },
+        file_name="quiz_05.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].suggestion == "クラウドの特徴として正しいものはどれですか。"
+    assert response.issues[0].original == content["questions"][0]["question"]
+
+
+def test_text_replacement_suggestion_works_for_quiz_choices_field() -> None:
+    """quiz choices フィールドで置換が効くこと。"""
+    content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-7",
+                "question": "質問",
+                "choices": ["拡張性が低い", "b", "c", "d"],
+                "answerIndex": 0,
+                "explanation": "解説",
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.7,
+                    "location": {"fileName": "quiz_07.json", "unitId": "q-7", "field": "choices[1]"},
+                    "excerpt": "b",
+                    "issue": "断定を避けます。",
+                    "replaceFrom": "b",
+                    "replaceTo": "bの可能性がある",
+                }
+            ]
+        },
+        file_name="quiz_07.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    # choices[1] = "b" のみが置換される
+    assert response.issues[0].suggestion == "bの可能性がある"
+    assert response.issues[0].original == "b"
+
+
+def test_text_replacement_suggestion_works_for_quiz_explanation_field() -> None:
+    """quiz explanation フィールドで置換が効くこと。"""
+    content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-9",
+                "question": "質問",
+                "choices": ["a", "b", "c", "d"],
+                "answerIndex": 0,
+                "explanation": "クラウドは必要な時に必要な分だけ利用できる。拡張性が高い。",
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.7,
+                    "location": {"fileName": "quiz_09.json", "unitId": "q-9", "field": "explanation"},
+                    "excerpt": "拡張性が高い",
+                    "issue": "冗長表現を整えます。",
+                    "replaceFrom": "拡張性が高い",
+                    "replaceTo": "高い拡張性",
+                }
+            ]
+        },
+        file_name="quiz_09.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    assert (
+        response.issues[0].suggestion
+        == "クラウドは必要な時に必要な分だけ利用できる。高い拡張性。"
+    )
+    assert response.issues[0].original == content["questions"][0]["explanation"]
+
+
+def test_tts_replacement_suggestion_is_unaffected_by_text_mode_replacement_logic() -> None:
+    """tts mode は置換型ロジックに影響を受けず、suggestion 全文を保持する。"""
+    content = {
+        "type": "document",
+        "documents": [
+            {"id": "doc-1", "text": "SQLとJSONを説明します。", "tts": {"text": "SQLとJSONを説明します。"}}
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "tts.text"},
+                    "excerpt": "SQLとJSON",
+                    "issue": "tts.text が元テキストと意味的にずれている可能性があります。",
+                    "suggestion": "意味を一致させる",
+                    "replaceFrom": "SQLとJSON",
+                    "replaceTo": "意味を一致させる",
+                }
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    # tts mode は置換型ロジックを通らないため、suggestion 全文がそのまま残る。
+    assert len(response.issues) == 1
+    assert response.issues[0].suggestion == "意味を一致させる"
+
+
+def test_text_replacement_suggestion_skips_issue_when_replace_from_missing() -> None:
+    """replaceFrom フィールドが欠落した issue は旧動作に従い、空 suggestion は維持されない。"""
+    content = {
+        "type": "document",
+        "documents": [{"id": "doc-1", "text": "本文"}],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.7,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "本文",
+                    "issue": "何か",
+                    "suggestion": "",
+                }
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+    # 旧仕様: テキストモードで suggestion 空 + replaceFrom なしは issue として残らない
+    assert response.issues == []
 
 
 def test_tts_quality_response_does_not_attach_original() -> None:

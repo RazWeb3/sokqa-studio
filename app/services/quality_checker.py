@@ -152,11 +152,26 @@ def _quality_response_from_data(
 
     issues: list[QualityIssue] = []
     for item in raw_issues:
-        if isinstance(item, dict):
-            suggestion = item.get("suggestion")
-            if isinstance(suggestion, str) and not suggestion.strip():
+        if not isinstance(item, dict):
+            continue
+        suggestion = item.get("suggestion")
+        if isinstance(suggestion, str) and not suggestion.strip():
+            # text mode かつ replaceFrom / replaceTo を含む issue は、コード側で
+            # 全文 suggestion を組み立てる前提のため、空 suggestion を通過させる。
+            if allowed_categories != TEXT_QUALITY_CATEGORIES:
                 continue
-        issues.append(_normalize_quality_issue_location(QualityIssue.model_validate(item)))
+            if "replaceFrom" not in item and "replaceTo" not in item:
+                continue
+        issue = _normalize_quality_issue_location(QualityIssue.model_validate(item))
+        if allowed_categories == TEXT_QUALITY_CATEGORIES and source_content is not None:
+            original = _source_text_for_issue_location(source_content, issue)
+            replace_from = item.get("replaceFrom")
+            replace_to = item.get("replaceTo")
+            if isinstance(replace_from, str) and replace_from:
+                issue = _build_text_replacement_suggestion(
+                    issue, original or "", replace_from, replace_to if isinstance(replace_to, str) else None
+                )
+        issues.append(issue)
     before_count = len(issues)
     issues = [issue for issue in issues if not _is_obvious_meta_suggestion(issue)]
     filtered_count = before_count - len(issues)
@@ -563,6 +578,75 @@ def _attach_original_text(issue: QualityIssue, content: dict[str, Any]) -> Quali
     return issue.model_copy(update={"original": source_text})
 
 
+# 置換型 suggestion 構築: original 内の replaceFrom を 1 箇所だけ置換して全文 suggestion を作る。
+# モデル出力 dict に replaceFrom / replaceTo がある場合のみ使用。
+# 失敗時（0件/複数/極端短）は suggestion を空にし、適用不可として扱う。
+_REPLACEMENT_FRAGMENT_PUNCTUATION = "、。，．,。「」『』（）()[]【】〈〉《》"
+_MIN_REPLACEMENT_LENGTH_RATIO = 0.5
+
+
+def _build_text_replacement_suggestion(
+    issue: QualityIssue,
+    original: str,
+    replace_from: str,
+    replace_to: str | None,
+) -> QualityIssue:
+    if not original or not replace_from or replace_to is None:
+        return issue.model_copy(update={"suggestion": ""})
+    if replace_to == replace_from:
+        return issue.model_copy(update={"suggestion": ""})
+
+    built = _apply_replacement_to_original(original, replace_from, replace_to)
+    if built is None:
+        return issue.model_copy(update={"suggestion": ""})
+
+    original_len = len(original)
+    built_len = len(built)
+    if original_len > 0 and built_len < original_len * _MIN_REPLACEMENT_LENGTH_RATIO:
+        return issue.model_copy(update={"suggestion": ""})
+
+    return issue.model_copy(update={"suggestion": built})
+
+
+def _apply_replacement_to_original(
+    original: str, replace_from: str, replace_to: str
+) -> str | None:
+    """完全一致優先。空白・約物・全角半角差のみを許す正規化フォールバック。
+    置換は元テキスト上で行う。曖昧な一致（0件/2+件）は None を返し fail-safe へ。"""
+    if not replace_from:
+        return None
+    count = original.count(replace_from)
+    if count == 1:
+        return original.replace(replace_from, replace_to, 1)
+    if count == 0:
+        normalized_original = _normalize_for_replacement_match(original)
+        normalized_from = _normalize_for_replacement_match(replace_from)
+        if not normalized_from:
+            return None
+        norm_count = normalized_original.count(normalized_from)
+        if norm_count != 1:
+            return None
+        start = normalized_original.find(normalized_from)
+        if start < 0:
+            return None
+        end = start + len(normalized_from)
+        return original[:start] + replace_to + original[end:]
+    return None
+
+
+def _normalize_for_replacement_match(value: str) -> str:
+    """照合用の正規化。空白・約物・全角半角差を吸収する。"""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    chars: list[str] = []
+    for char in normalized:
+        if char.isspace():
+            continue
+        if char in _REPLACEMENT_FRAGMENT_PUNCTUATION:
+            continue
+        chars.append(char)
+    return "".join(chars)
+
+
 def _quality_choice_index(field: str | None) -> int | None:
     if not field:
         return None
@@ -837,16 +921,66 @@ Notation rule:
     preservation_rule = (
         """
 - 指摘した問題点に対応する最小限の修正のみを行い、それ以外の文・情報は原文のまま完全に保持すること。文章全体の要約・簡潔化・再構成・情報の間引きを行ってはならない。suggestionは「問題箇所を直した原文」であり、「短くまとめ直した文」ではない。ただし、指摘対象に含まれる冗長な参照表現(例:「本文中で述べられている」)や明確な重複語の削除・言い換えは許容する。
+- 修正は「該当箇所のみ」にとどめ、原文の前後の文・情報を絶対に削除・要約・書き換えてはならない。疑わしい場合は断定を避け、確認が必要という表現にとどめる。
+- 修正は事実確認・出典・ニュアンスなど、原文の内容を書き換えるべきでない領域には踏み込まない。判断に迷う場合は issue を立てないこと（ファクト修正の暴走を防ぐため）。
 """.strip()
         if mode == "text"
         else ""
     )
-    excerpt_fragment_rule = (
+    replacement_rule = (
         """
-- excerpt は指摘対象の問題断片である。suggestion は excerpt に対応する箇所のみを最小限修正し、それ以外の文・情報は原文のまま完全に保持すること。要約・簡潔化・再構成・別内容への置換を行ってはならない。
+- suggestion は「対象テキスト全体（unit 全文）の修正後の形」ではなく、置換の断片だけを返すこと。次の2つのフィールドを必ず返すこと:
+  - "replaceFrom": original 内に存在する、連続した部分文字列の断片。修正対象の「そのままの原文」を含めること。
+  - "replaceTo": replaceFrom に対応する修正後の断片。
+- replaceFrom は original（location.field が指すフィールドの unit 全文）の中に1回だけ出現する曖昧さのない短い断片にすること。前後の文脈を含めないこと。
+- 自信がない、または original 内に該当する断片が必ず存在すると保証できない場合は、issue を出力しないこと。
+- 修正後の全文が読めない／複数箇所に同じ断片が出る、など安全側でしか置換できない場合は、replaceFrom を省略せず issue 自体を出さないこと。
+- 置換後の全文化はコード側が行う（モデルが全文を書き出すと情報が削られる/要約される事故が起きるため、モデル側は「差分断片」だけ返す）。
 """.strip()
         if mode == "text"
         else ""
+    )
+    json_shape_example = (
+        """
+Return this JSON shape:
+{{
+  "fileName": "{file_name}",
+  "model": "model-name",
+  "truncated": false,
+  "issues": [
+    {{
+      "category": "style",
+      "severity": "medium",
+      "confidence": 0.8,
+      "location": {{"fileName": "{file_name}", "unitId": "doc-1", "field": "text"}},
+      "excerpt": "problematic excerpt",
+      "issue": "brief issue description",
+      "replaceFrom": "exact original fragment to be replaced",
+      "replaceTo": "fragment after replacement"
+    }}
+  ]
+}}
+""".strip()
+        if mode == "text"
+        else """
+Return this JSON shape:
+{{
+  "fileName": "{file_name}",
+  "model": "model-name",
+  "truncated": false,
+  "issues": [
+    {{
+      "category": "reading",
+      "severity": "medium",
+      "confidence": 0.8,
+      "location": {{"fileName": "{file_name}", "unitId": "doc-1", "field": "text"}},
+      "excerpt": "problematic excerpt",
+      "issue": "brief issue description",
+      "suggestion": "replacement fragment for that excerpt"
+    }}
+  ]
+}}
+""".strip()
     )
     prompt = f"""
 Return strict JSON only. Do not use markdown fences.
@@ -869,8 +1003,7 @@ Rules:
 - Write the issue and suggestion fields in Japanese. Keep category, severity, confidence, and location field names in the specified JSON schema.
 - suggestion には修正後の本文のみを入れること。説明・注釈・理由・AIへの指示文・メタコメントを含めてはならない。
 {preservation_rule}
-- suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
-{excerpt_fragment_rule}
+{replacement_rule}
 - Fill location.fileName with "{file_name}".
 - Fill location.unitId with the document item id or quiz question id when available.
 - Fill location.field with "text", "question", "choices", "explanation", or another concrete field.
@@ -878,22 +1011,7 @@ Rules:
 - If there are no clear issues, return an empty issues array.
 
 Return this JSON shape:
-{{
-  "fileName": "{file_name}",
-  "model": "model-name",
-  "truncated": false,
-  "issues": [
-    {{
-      "category": "style",
-      "severity": "medium",
-      "confidence": 0.8,
-      "location": {{"fileName": "{file_name}", "unitId": "doc-1", "field": "text"}},
-      "excerpt": "problematic excerpt",
-      "issue": "brief issue description",
-      "suggestion": "brief suggested fix"
-    }}
-  ]
-}}
+{json_shape_example}
 
 Source file JSON:
 {source_json}

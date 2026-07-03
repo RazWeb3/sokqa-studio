@@ -22,7 +22,7 @@ class QualityIssue(BaseModel):
     location: QualityLocation
     excerpt: str = Field(..., min_length=1)
     issue: str = Field(..., min_length=1)
-    suggestion: str = Field(..., min_length=1)
+    suggestion: str = ""
     original: str | None = None
 
 

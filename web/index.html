@@ -4081,6 +4081,9 @@
         if ("speechSynthesis" in window) {
           if (window.speechSynthesis.paused) window.speechSynthesis.resume();
           else window.speechSynthesis.pause();
+          isPlaybackPaused = Boolean(window.speechSynthesis.paused);
+          renderUnits();
+          updateRecordActionBar();
         }
       }
 
@@ -4363,7 +4366,11 @@
           if (unit) {
             playQueueItems = unitsForActiveRecordView();
             playIndex = playQueueItems.findIndex((candidate) => candidate.itemId === unit.itemId);
-            playUnit(unit);
+            if (currentPlayingUnitId === unit.itemId) {
+              togglePauseTrack();
+            } else {
+              playUnit(unit);
+            }
           }
         }
         const removeRuleButton = event.target.closest("[data-remove-rule]");

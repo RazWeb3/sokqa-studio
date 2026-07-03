@@ -120,6 +120,8 @@ def test_recording_ui_sends_one_record_request_without_client_chunking() -> None
     assert '$("playSelectedBtn").textContent = currentPlayingUnitId && !isPlaybackPaused ? "一時停止" : "連続再生";' in html
     assert 'playQueue(selectedUnits().length ? selectedUnits() : unitsForActiveRecordView());' in html
     assert 'playQueueItems = unitsForActiveRecordView();' in html
+    assert "if (currentPlayingUnitId === unit.itemId) {" in html
+    assert "togglePauseTrack();" in html
     assert "forceRecordSelectedBtn" not in html
     assert "loadPacksBtn" not in html
     assert "record-inline-player" not in html

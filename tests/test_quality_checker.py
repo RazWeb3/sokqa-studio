@@ -332,6 +332,24 @@ def test_quality_prompt_requires_full_replace_suggestion_for_text_categories() -
     assert "suggestion は original 全体を置き換える完全なテキストであること。" in prompt
 
 
+def test_quality_prompt_requires_minimal_fix_and_original_preservation_for_text_categories() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "本文です。"}],
+        },
+        50,
+        mode="text",
+    )
+
+    assert "指摘した問題点に対応する最小限の修正のみを行い、それ以外の文・情報は原文のまま完全に保持すること。" in prompt
+    assert "文章全体の要約・簡潔化・再構成・情報の間引きを行ってはならない。" in prompt
+    assert 'suggestionは「問題箇所を直した原文」であり、「短くまとめ直した文」ではない。' in prompt
+    assert '指摘対象に含まれる冗長な参照表現(例:「本文中で述べられている」)や明確な重複語の削除・言い換えは許容する。' in prompt
+
+
 def test_detect_multilingual_prioritizes_metadata_over_tags_and_structure() -> None:
     assert (
         detect_multilingual(

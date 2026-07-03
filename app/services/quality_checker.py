@@ -820,8 +820,16 @@ Notation rule:
 """.strip()
         focus = "Inspect only source/display text quality. Do not report TTS pronunciation issues here."
 
+    preservation_rule = (
+        """
+- 指摘した問題点に対応する最小限の修正のみを行い、それ以外の文・情報は原文のまま完全に保持すること。文章全体の要約・簡潔化・再構成・情報の間引きを行ってはならない。suggestionは「問題箇所を直した原文」であり、「短くまとめ直した文」ではない。ただし、指摘対象に含まれる冗長な参照表現(例:「本文中で述べられている」)や明確な重複語の削除・言い換えは許容する。
+""".strip()
+        if mode == "text"
+        else ""
+    )
     prompt = f"""
 Return strict JSON only. Do not use markdown fences.
+
 
 You are a quality check agent for a Sokqa learning pack. Inspect the generated doc/quiz JSON before audio recording.
 Detect only clear issues. Do not report minor wording preferences.
@@ -840,6 +848,7 @@ Rules:
 - Write the issue and suggestion fields in Japanese. Keep category, severity, confidence, and location field names in the specified JSON schema.
 - suggestion には修正後の本文のみを入れること。説明・注釈・理由・AIへの指示文・メタコメントを含めてはならない。
 - suggestion は対象テキスト全体の「修正後の完全な形」を返すこと。部分差分・断片・途中で終わる文・省略形を出力してはならない。suggestion は original 全体を置き換える完全なテキストであること。
+{preservation_rule}
 - Fill location.fileName with "{file_name}".
 - Fill location.unitId with the document item id or quiz question id when available.
 - Fill location.field with "text", "question", "choices", "explanation", or another concrete field.

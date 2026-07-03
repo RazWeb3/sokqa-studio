@@ -578,17 +578,18 @@ def test_quality_issue_ui_supports_fulltext_and_diff_highlight() -> None:
     assert 'if ((leftMiddle.length * rightMiddle.length) > 20000)' in quality_html
     assert 'function renderDiffMarkupForSide(segments, side)' in quality_html
     assert 'const targetType = side === "before" ? "delete" : "insert";' in quality_html
-    assert 'function renderQualityDiffPanel(label, text, html, tone)' in quality_html
-    assert 'function renderInlineDiffPair(before, after)' in quality_html
+    assert 'function renderQualityDiffPanel(label, text, html, tone, { expand = false } = {})' in quality_html
+    assert 'function renderInlineDiffPair(before, after, { expand = false } = {})' in quality_html
     assert 'const b = String(before || "");' in quality_html
     assert 'const a = String(after || "");' in quality_html
-    assert 'renderQualityDiffPanel("変更前", b, renderDiffMarkupForSide(segments, "before"), "before")' in quality_html
-    assert 'renderQualityDiffPanel("変更後", a, renderDiffMarkupForSide(segments, "after"), "after")' in quality_html
+    assert 'renderQualityDiffPanel("変更前", b, renderDiffMarkupForSide(segments, "before"), "before", { expand })' in quality_html
+    assert 'renderQualityDiffPanel("変更後", a, renderDiffMarkupForSide(segments, "after"), "after", { expand })' in quality_html
     assert 'function renderQualityDiffPair(issue)' in quality_html
-    assert 'return renderInlineDiffPair(before, after);' in quality_html
+    assert 'const expand = Boolean(issue?.original && String(issue.original).trim());' in quality_html
+    assert 'return renderInlineDiffPair(before, after, { expand });' in quality_html
     assert 'class="quality-diff-panel"' in quality_html
     assert 'class="quality-diff-text ${tone}"' in quality_html
-    assert 'String(text || "").length > 180 || /\\n/.test(String(text || ""))' in quality_html
+    assert 'const collapsible = !expand && (String(text || "").length > 180 || /\\n/.test(String(text || "")))' in quality_html
     assert 'String(text || "").length <= 360 ? "open" : ""' in quality_html
     assert '${renderQualityDiffPair(issue)}' in quality_html
     assert ".quality-diff-grid { display: grid; gap: 10px; }" in html

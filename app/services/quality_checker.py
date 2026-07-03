@@ -196,6 +196,8 @@ def _quality_response_from_data(
     filtered_count = before_count - len(issues)
     if filtered_count:
         _logger.info("quality_check.filtered_duplicate_issues count=%s file=%s", filtered_count, file_name)
+    if allowed_categories == TEXT_QUALITY_CATEGORIES and source_content is not None:
+        issues = [_attach_original_text(issue, source_content) for issue in issues]
     truncated = response_truncated or input_truncated or len(issues) > max_issues
     return QualityCheckResponse(
         fileName=response_file_name,
@@ -550,6 +552,15 @@ def _source_text_for_issue_location(content: dict[str, Any], issue: QualityIssue
 
 def _is_quality_choice_field(field: str | None) -> bool:
     return bool(field and ("choice" in field.lower() or field.startswith("choices")))
+
+
+def _attach_original_text(issue: QualityIssue, content: dict[str, Any]) -> QualityIssue:
+    if issue.original is not None and issue.original.strip():
+        return issue
+    source_text = _source_text_for_issue_location(content, issue)
+    if not source_text:
+        return issue
+    return issue.model_copy(update={"original": source_text})
 
 
 def _quality_choice_index(field: str | None) -> int | None:

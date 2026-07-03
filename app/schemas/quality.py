@@ -23,6 +23,7 @@ class QualityIssue(BaseModel):
     excerpt: str = Field(..., min_length=1)
     issue: str = Field(..., min_length=1)
     suggestion: str = Field(..., min_length=1)
+    original: str | None = None
 
 
 class QualityCheckRequest(BaseModel):

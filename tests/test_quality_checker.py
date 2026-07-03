@@ -1605,6 +1605,148 @@ def test_tts_quality_response_does_not_filter_non_reading_already_corrected_issu
     assert [issue.category for issue in response.issues] == ["tts_text_mismatch"]
 
 
+def test_text_quality_response_attaches_original_unit_full_text() -> None:
+    doc_content = {
+        "type": "document",
+        "documents": [
+            {"id": "doc-2", "text": "クラウドは重要になります。応用範囲が広がります。", "tts": {"text": "クラウドはじゅうようになります。"}},
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_02.json", "unitId": "doc-2", "field": "text"},
+                    "excerpt": "重要になります",
+                    "issue": "断定的な表現です。",
+                    "suggestion": "重要になる可能性があります",
+                },
+            ]
+        },
+        file_name="doc_02.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=doc_content,
+    )
+
+    assert len(response.issues) == 1
+    issue = response.issues[0]
+    assert issue.original == doc_content["documents"][0]["text"]
+    assert issue.excerpt == "重要になります"
+
+
+def test_text_quality_response_attaches_original_for_quiz_explanation_and_choices() -> None:
+    quiz_content = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-5",
+                "question": "クラウドの特徴として正しいものはどれですか。",
+                "choices": ["拡張性が高い", "拡張性が低い", "費用が高い", "利用が難しい"],
+                "answerIndex": 0,
+                "explanation": "クラウドは必要な時に必要な分だけ利用できます。拡張性が高いのが特徴です。",
+            }
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz_05.json", "unitId": "q-5", "field": "explanation"},
+                    "excerpt": "拡張性が高いのが特徴です。",
+                    "issue": "冗長な表現です。",
+                    "suggestion": "拡張性が高いのが特徴です",
+                },
+                {
+                    "category": "factual",
+                    "severity": "medium",
+                    "confidence": 0.6,
+                    "location": {"fileName": "quiz_05.json", "unitId": "q-5", "field": "choices[1]"},
+                    "excerpt": "拡張性が低い",
+                    "issue": "事実誤認の可能性があります。",
+                    "suggestion": "拡張性が低い可能性があります",
+                },
+            ]
+        },
+        file_name="quiz_05.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=quiz_content,
+    )
+
+    assert len(response.issues) == 2
+    explanation_issue, choice_issue = response.issues
+    assert explanation_issue.original == quiz_content["questions"][0]["explanation"]
+    assert choice_issue.original == quiz_content["questions"][0]["choices"][1]
+    assert explanation_issue.excerpt == "拡張性が高いのが特徴です。"
+
+
+def test_text_quality_response_leaves_original_none_without_source_content() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "style",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_02.json", "unitId": "doc-2", "field": "text"},
+                    "excerpt": "重要になります",
+                    "issue": "断定的な表現です。",
+                    "suggestion": "重要になる可能性があります",
+                },
+            ]
+        },
+        file_name="doc_02.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TEXT_QUALITY_CATEGORIES,
+        source_content=None,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].original is None
+
+
+def test_tts_quality_response_does_not_attach_original() -> None:
+    content = {
+        "type": "document",
+        "documents": [
+            {"id": "doc-1", "text": "ITを説明します。", "tts": {"text": "アイティーを説明します。"}},
+        ],
+    }
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "tts_text_mismatch",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc_01.json", "unitId": "doc-1", "field": "tts.text"},
+                    "excerpt": "IT",
+                    "issue": "意味のずれを確認してください。",
+                    "suggestion": "アイティー",
+                },
+            ]
+        },
+        file_name="doc_01.json",
+        model="test-model",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        source_content=content,
+    )
+
+    assert len(response.issues) == 1
+    assert response.issues[0].original is None
+
+
 def test_quality_check_invalid_llm_response_is_error(tmp_path, monkeypatch) -> None:
     target = _write_document_pack(tmp_path, monkeypatch)
     settings = get_settings()

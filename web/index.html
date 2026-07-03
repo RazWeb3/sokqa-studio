@@ -1253,14 +1253,14 @@
         return html || `<span class="muted">-</span>`;
       }
 
-      function renderQualityDiffPanel(label, text, html, tone) {
+      function renderQualityDiffPanel(label, text, html, tone, { expand = false } = {}) {
         const content = `
           <div class="quality-diff-body">
             <div class="quality-diff-text ${tone}">${html}</div>
           </div>
         `;
         const meta = `<span class="quality-diff-meta">${Number(String(text || "").length).toLocaleString("ja-JP")}字</span>`;
-        const collapsible = String(text || "").length > 180 || /\n/.test(String(text || ""));
+        const collapsible = !expand && (String(text || "").length > 180 || /\n/.test(String(text || "")));
         if (!collapsible) {
           return `
             <section class="quality-diff-panel">
@@ -1277,14 +1277,14 @@
         `;
       }
 
-      function renderInlineDiffPair(before, after) {
+      function renderInlineDiffPair(before, after, { expand = false } = {}) {
         const b = String(before || "");
         const a = String(after || "");
         const segments = buildInlineDiffSegments(b, a);
         return `
           <div class="quality-diff-grid">
-            ${renderQualityDiffPanel("変更前", b, renderDiffMarkupForSide(segments, "before"), "before")}
-            ${renderQualityDiffPanel("変更後", a, renderDiffMarkupForSide(segments, "after"), "after")}
+            ${renderQualityDiffPanel("変更前", b, renderDiffMarkupForSide(segments, "before"), "before", { expand })}
+            ${renderQualityDiffPanel("変更後", a, renderDiffMarkupForSide(segments, "after"), "after", { expand })}
           </div>
         `;
       }
@@ -1292,7 +1292,8 @@
       function renderQualityDiffPair(issue) {
         const before = qualityIssueSourceText(issue);
         const after = String(issue?.suggestion || "");
-        return renderInlineDiffPair(before, after);
+        const expand = Boolean(issue?.original && String(issue.original).trim());
+        return renderInlineDiffPair(before, after, { expand });
       }
       const LABELS = {
         scale: { quick: "小規模", standard: "中規模", large: "大規模", auto: "おまかせ" },

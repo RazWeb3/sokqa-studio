@@ -8,7 +8,7 @@ from urllib.request import urlopen
 from app.schemas.common import TtsRule
 from app.schemas.pack_v2 import ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import RevisePackTtsRequest, TtsRecordingTarget
-from app.schemas.sokqa import GeneratedFile, PackRevisionResponse, TtsReport
+from app.schemas.sokqa import GeneratedFile, PackRevisionResponse, TtsReport, TtsRevisionDetail
 from app.services.pack_paths import doc_object_relative_path, pack_root_prefix, quiz_object_relative_path
 from app.services.revision_commit import build_revision_commit
 from app.services.revision_store import persist_revision_commit
@@ -23,7 +23,7 @@ def revise_pack_tts(request: RevisePackTtsRequest) -> PackRevisionResponse:
     storage = StorageClient()
     manifest, creator_id, content_id = _resolve_manifest(storage, request.target)
     files = _files_from_manifest(storage, manifest, creator_id, content_id)
-    revised_files = apply_tts_replacement_rules(files, request.ttsRules)
+    revised_files, tts_revisions = apply_tts_replacement_rules(files, request.ttsRules)
     changed_files = [
         ChangedPackFile(
             name=file.name,
@@ -44,6 +44,7 @@ def revise_pack_tts(request: RevisePackTtsRequest) -> PackRevisionResponse:
             manifest=manifest,
             validation=validation,
             ttsReport=tts_report,
+            ttsRevisions=tts_revisions,
             logs=["Loading latest manifest", "Applying TTS replacement rules", "No TTS replacement changes"],
         )
     commit_request = CommitPackRevisionInput(
@@ -72,31 +73,48 @@ def revise_pack_tts(request: RevisePackTtsRequest) -> PackRevisionResponse:
         manifest=result.manifest,
         validation=validation,
         ttsReport=tts_report,
+        ttsRevisions=tts_revisions,
         logs=["Loading latest manifest", "Applying TTS replacement rules", "Persisting TTS revision"],
     )
 
 
-def apply_tts_replacement_rules(files: list[GeneratedFile], rules: list[TtsRule]) -> list[GeneratedFile]:
+def apply_tts_replacement_rules(files: list[GeneratedFile], rules: list[TtsRule]) -> tuple[list[GeneratedFile], list[TtsRevisionDetail]]:
     revised: list[GeneratedFile] = []
+    details: list[TtsRevisionDetail] = []
     for file in files:
         content = copy.deepcopy(file.content)
         if file.kind == "document":
-            _patch_document_pack_tts(content, rules)
+            _patch_document_pack_tts(content, rules, file.name, details)
         elif file.kind == "quiz":
-            _patch_quiz_pack_tts(content, rules)
+            _patch_quiz_pack_tts(content, rules, file.name, details)
         if content != file.content:
             revised.append(GeneratedFile(name=file.name, kind=file.kind, content=content, url=file.url))
-    return revised
+    return revised, details
 
 
-def _patch_document_pack_tts(content: dict, rules: list[TtsRule]) -> None:
+def _patch_document_pack_tts(
+    content: dict,
+    rules: list[TtsRule],
+    file_name: str,
+    details: list[TtsRevisionDetail],
+) -> None:
     for item in content.get("documents") or []:
+        unit_id = str(item.get("id") or "")
         source_text = item.get("text")
         if not isinstance(source_text, str):
             continue
         tts = item.get("tts")
         if isinstance(tts, dict) and isinstance(tts.get("text"), str) and tts.get("text"):
-            changed = _patch_text_field(tts, "text", rules)
+            changed = _patch_text_field(
+                tts,
+                "text",
+                rules,
+                file_name=file_name,
+                unit_id=unit_id,
+                field="tts.text",
+                before_value=tts.get("text"),
+                details=details,
+            )
         else:
             reading = _replacement_or_none(source_text, rules)
             changed = reading is not None
@@ -104,37 +122,98 @@ def _patch_document_pack_tts(content: dict, rules: list[TtsRule]) -> None:
                 tts = tts if isinstance(tts, dict) else {}
                 tts["text"] = reading
                 item["tts"] = tts
+                details.append(
+                    TtsRevisionDetail(
+                        fileName=file_name,
+                        unitId=unit_id,
+                        field="tts.text",
+                        before=source_text,
+                        after=reading,
+                    )
+                )
         if changed and isinstance(tts, dict):
             tts.pop("audioUrl", None)
             tts.pop("audioPath", None)
 
 
-def _patch_quiz_pack_tts(content: dict, rules: list[TtsRule]) -> None:
+def _patch_quiz_pack_tts(
+    content: dict,
+    rules: list[TtsRule],
+    file_name: str,
+    details: list[TtsRevisionDetail],
+) -> None:
     for question in content.get("questions") or []:
+        unit_id = str(question.get("id") or "")
         tts = question.get("tts")
         if not isinstance(tts, dict):
             tts = {}
         changed = False
-        changed = _patch_or_create_quiz_text_field(question, tts, "question", "questionText", rules) or changed
-        if _patch_quiz_choice_texts(question, tts, rules):
+        changed = _patch_or_create_quiz_text_field(
+            question,
+            tts,
+            "question",
+            "questionText",
+            rules,
+            file_name=file_name,
+            unit_id=unit_id,
+            details=details,
+        ) or changed
+        if _patch_quiz_choice_texts(question, tts, rules, file_name=file_name, unit_id=unit_id, details=details):
             changed = True
-        changed = _patch_or_create_quiz_text_field(question, tts, "explanation", "explanationText", rules) or changed
+        changed = _patch_or_create_quiz_text_field(
+            question,
+            tts,
+            "explanation",
+            "explanationText",
+            rules,
+            file_name=file_name,
+            unit_id=unit_id,
+            details=details,
+        ) or changed
         if changed:
             question["tts"] = tts
         elif not question.get("tts"):
             question.pop("tts", None)
 
 
-def _patch_or_create_quiz_text_field(question: dict, tts: dict, source_key: str, tts_key: str, rules: list[TtsRule]) -> bool:
+def _patch_or_create_quiz_text_field(
+    question: dict,
+    tts: dict,
+    source_key: str,
+    tts_key: str,
+    rules: list[TtsRule],
+    *,
+    file_name: str,
+    unit_id: str,
+    details: list[TtsRevisionDetail],
+) -> bool:
     existing = tts.get(tts_key)
     if isinstance(existing, str) and existing:
-        changed = _patch_text_field(tts, tts_key, rules)
+        changed = _patch_text_field(
+            tts,
+            tts_key,
+            rules,
+            file_name=file_name,
+            unit_id=unit_id,
+            field=f"tts.{tts_key}",
+            before_value=existing,
+            details=details,
+        )
     else:
         source_text = question.get(source_key)
         reading = _replacement_or_none(source_text, rules) if isinstance(source_text, str) else None
         changed = reading is not None
         if changed:
             tts[tts_key] = reading
+            details.append(
+                TtsRevisionDetail(
+                    fileName=file_name,
+                    unitId=unit_id,
+                    field=f"tts.{tts_key}",
+                    before=source_text,
+                    after=reading,
+                )
+            )
     if changed:
         if tts_key == "questionText":
             tts.pop("questionAudioUrl", None)
@@ -145,7 +224,15 @@ def _patch_or_create_quiz_text_field(question: dict, tts: dict, source_key: str,
     return changed
 
 
-def _patch_quiz_choice_texts(question: dict, tts: dict, rules: list[TtsRule]) -> bool:
+def _patch_quiz_choice_texts(
+    question: dict,
+    tts: dict,
+    rules: list[TtsRule],
+    *,
+    file_name: str,
+    unit_id: str,
+    details: list[TtsRevisionDetail],
+) -> bool:
     choices = question.get("choices")
     if not isinstance(choices, list):
         return False
@@ -160,11 +247,22 @@ def _patch_quiz_choice_texts(question: dict, tts: dict, rules: list[TtsRule]) ->
         current = choice_texts[index] if index < len(choice_texts) else ""
         if isinstance(current, str) and current:
             replacement = _replacement_or_none(current, rules)
+            before_value = current
         else:
             replacement = _replacement_or_none(choice, rules)
+            before_value = choice
         if replacement is not None and replacement != current:
             choice_texts[index] = replacement
             changed_indexes.append(index)
+            details.append(
+                TtsRevisionDetail(
+                    fileName=file_name,
+                    unitId=unit_id,
+                    field=f"tts.choiceTexts[{index}]",
+                    before=before_value,
+                    after=replacement,
+                )
+            )
     if not changed_indexes:
         return False
     tts["choiceTexts"] = choice_texts
@@ -189,7 +287,17 @@ def _clear_choice_audio(tts: dict, changed_indexes: list[int], choice_count: int
             tts.pop(key, None)
 
 
-def _patch_text_field(container: dict, key: str, rules: list[TtsRule]) -> bool:
+def _patch_text_field(
+    container: dict,
+    key: str,
+    rules: list[TtsRule],
+    *,
+    file_name: str,
+    unit_id: str,
+    field: str,
+    before_value: str | None,
+    details: list[TtsRevisionDetail],
+) -> bool:
     value = container.get(key)
     if not isinstance(value, str) or not value:
         return False
@@ -197,6 +305,15 @@ def _patch_text_field(container: dict, key: str, rules: list[TtsRule]) -> bool:
     if replacement is None:
         return False
     container[key] = replacement
+    details.append(
+        TtsRevisionDetail(
+            fileName=file_name,
+            unitId=unit_id,
+            field=field,
+            before=str(before_value or ""),
+            after=replacement,
+        )
+    )
     return True
 
 

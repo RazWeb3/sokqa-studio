@@ -382,7 +382,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         for file in existing.files
         if file.kind in {"document", "quiz"}
     ]
-    revised_files = apply_tts_replacement_rules(content_files, request.ttsRules)
+    revised_files, tts_revisions = apply_tts_replacement_rules(content_files, request.ttsRules)
 
     logs = [*existing.logs, "Revising TTS", "Applying TTS replacement rules"]
     if not isinstance(existing.manifest, PackManifestV2):
@@ -391,7 +391,14 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     if not revised_files:
         validation = validate_files(existing.files, existing.manifest)
         append_validation_logs(logs, validation)
-        revised = existing.model_copy(update={"plan": plan, "validation": validation, "logs": [*logs, "No TTS replacement changes"]})
+        revised = existing.model_copy(
+            update={
+                "plan": plan,
+                "validation": validation,
+                "ttsRevisions": [],
+                "logs": [*logs, "No TTS replacement changes"],
+            }
+        )
         update_job(revised)
         return revised
 
@@ -412,6 +419,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         manifest=manifest,
         validation=validation,
         ttsReport=None,
+        ttsRevisions=tts_revisions,
         logs=logs,
     )
     update_job(revised)

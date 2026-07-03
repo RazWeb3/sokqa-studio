@@ -410,6 +410,21 @@ def test_tts_rule_editors_expose_simple_inputs_and_json_imports() -> None:
     assert '"note"' not in html[html.index('<section class="panel" id="postTtsReplacePanel"'):html.index('id="dictionaryRulesModal"')]
 
 
+def test_revise_tts_result_renders_summary_and_diff_cards() -> None:
+    html = _html()
+    start = html.index("async function reviseTts()")
+    end = html.index("async function exportJsonZip()", start)
+    revise_html = html[start:end]
+
+    assert "const revisions = revised.ttsRevisions || [];" in revise_html
+    assert "const unitCount = new Set(revisions.map((item) => `${item.fileName}::${item.unitId}`)).size;" in revise_html
+    assert "const fileCount = new Set(revisions.map((item) => item.fileName)).size;" in revise_html
+    assert "TTS読み置換を適用: 対象ファイル" in revise_html
+    assert "置換対象はありませんでした" in revise_html
+    assert "renderInlineDiffPair(item.before, item.after)" in revise_html
+    assert "${escapeHtml(item.fileName || \"-\")} / ${escapeHtml(item.unitId || \"-\")} / ${escapeHtml(item.field || \"-\")}" in revise_html
+
+
 def test_json_zip_export_ui_is_available_for_selected_pack() -> None:
     html = _html()
 

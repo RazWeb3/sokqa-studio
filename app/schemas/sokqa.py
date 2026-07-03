@@ -295,6 +295,14 @@ class TtsReport(BaseModel):
     llmGeneratedIds: list[str] = Field(default_factory=list)
 
 
+class TtsRevisionDetail(BaseModel):
+    fileName: str
+    unitId: str
+    field: str
+    before: str
+    after: str
+
+
 class GeneratePackResponse(BaseModel):
     status: Literal["completed"]
     jobId: str
@@ -303,6 +311,7 @@ class GeneratePackResponse(BaseModel):
     manifest: PackManifestV2
     validation: ValidationResult
     ttsReport: TtsReport | None = None
+    ttsRevisions: list[TtsRevisionDetail] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
 
 
@@ -312,4 +321,5 @@ class PackRevisionResponse(BaseModel):
     manifest: PackManifestV2
     validation: ValidationResult
     ttsReport: TtsReport | None = None
+    ttsRevisions: list[TtsRevisionDetail] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)

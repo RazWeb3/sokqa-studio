@@ -44,7 +44,7 @@ def test_tts_replacement_patch_preserves_unrelated_existing_quiz_tts() -> None:
         },
     )
 
-    revised = apply_tts_replacement_rules([file], [TtsRule(source="ガバナンス", reading="ガバガバ")])
+    revised, details = apply_tts_replacement_rules([file], [TtsRule(source="ガバナンス", reading="ガバガバ")])
 
     assert len(revised) == 1
     questions = revised[0].content["questions"]
@@ -54,6 +54,29 @@ def test_tts_replacement_patch_preserves_unrelated_existing_quiz_tts() -> None:
         "choiceTexts": ["ガバガバ", "", "", ""],
         "explanationText": "ガバガバは統治の仕組みです。",
     }
+    assert [detail.model_dump() for detail in details] == [
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-2",
+            "field": "tts.questionText",
+            "before": "ガバナンスの説明はどれですか?",
+            "after": "ガバガバの説明はどれですか?",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-2",
+            "field": "tts.choiceTexts[0]",
+            "before": "ガバナンス",
+            "after": "ガバガバ",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-2",
+            "field": "tts.explanationText",
+            "before": "ガバナンスは統治の仕組みです。",
+            "after": "ガバガバは統治の仕組みです。",
+        },
+    ]
 
 
 def test_tts_replacement_patch_updates_existing_tts_and_clears_only_changed_audio() -> None:
@@ -85,7 +108,7 @@ def test_tts_replacement_patch_updates_existing_tts_and_clears_only_changed_audi
         },
     )
 
-    revised = apply_tts_replacement_rules([file], [TtsRule(source="ガバナンス", reading="ガバガバ")])
+    revised, details = apply_tts_replacement_rules([file], [TtsRule(source="ガバナンス", reading="ガバガバ")])
 
     tts = revised[0].content["questions"][0]["tts"]
     assert tts["questionText"] == "ガバガバの説明はどれですか?"
@@ -94,6 +117,29 @@ def test_tts_replacement_patch_updates_existing_tts_and_clears_only_changed_audi
     assert tts["choiceAudioPaths"] == [None, "audio/choice1.mp3", None, None]
     assert tts["explanationText"] == "ガバガバは統治の仕組みです。"
     assert "explanationAudioPath" not in tts
+    assert [detail.model_dump() for detail in details] == [
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-1",
+            "field": "tts.questionText",
+            "before": "ガバナンスの説明はどれですか?",
+            "after": "ガバガバの説明はどれですか?",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-1",
+            "field": "tts.choiceTexts[0]",
+            "before": "ガバナンス",
+            "after": "ガバガバ",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-1",
+            "field": "tts.explanationText",
+            "before": "ガバナンスは統治の仕組みです。",
+            "after": "ガバガバは統治の仕組みです。",
+        },
+    ]
 
 
 def test_tts_replacement_patch_leaves_nonmatching_file_unchanged() -> None:
@@ -115,9 +161,90 @@ def test_tts_replacement_patch_leaves_nonmatching_file_unchanged() -> None:
         },
     )
 
-    revised = apply_tts_replacement_rules([file], [TtsRule(source="ガバナンス", reading="ガバガバ")])
+    revised, details = apply_tts_replacement_rules([file], [TtsRule(source="ガバナンス", reading="ガバガバ")])
 
     assert revised == []
+    assert [detail.model_dump() for detail in details] == []
+
+
+def test_tts_replacement_patch_collects_document_and_quiz_revision_details() -> None:
+    files = [
+        GeneratedFile(
+            name="doc.json",
+            kind="document",
+            content={
+                "id": "doc",
+                "type": "document",
+                "schemaVersion": 1,
+                "title": "Document",
+                "documents": [
+                    {
+                        "id": "doc-1",
+                        "text": "日本橋を学びます。",
+                        "tts": {"text": "日本橋を学びます。"},
+                    }
+                ],
+            },
+        ),
+        GeneratedFile(
+            name="quiz.json",
+            kind="quiz",
+            content={
+                "id": "quiz",
+                "type": "quiz",
+                "schemaVersion": 1,
+                "title": "Quiz",
+                "questions": [
+                    {
+                        "id": "q-1",
+                        "question": "日本橋はどこですか?",
+                        "choices": ["日本橋", "京都", "大阪", "奈良"],
+                        "answerIndex": 0,
+                        "explanation": "日本橋は地名です。",
+                        "tts": {
+                            "questionText": "日本橋はどこですか?",
+                            "choiceTexts": ["日本橋", "", "", ""],
+                            "explanationText": "日本橋は地名です。",
+                        },
+                    }
+                ],
+            },
+        ),
+    ]
+
+    revised, details = apply_tts_replacement_rules(files, [TtsRule(source="日本橋", reading="にほんばし")])
+
+    assert len(revised) == 2
+    assert [detail.model_dump() for detail in details] == [
+        {
+            "fileName": "doc.json",
+            "unitId": "doc-1",
+            "field": "tts.text",
+            "before": "日本橋を学びます。",
+            "after": "にほんばしを学びます。",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-1",
+            "field": "tts.questionText",
+            "before": "日本橋はどこですか?",
+            "after": "にほんばしはどこですか?",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-1",
+            "field": "tts.choiceTexts[0]",
+            "before": "日本橋",
+            "after": "にほんばし",
+        },
+        {
+            "fileName": "quiz.json",
+            "unitId": "q-1",
+            "field": "tts.explanationText",
+            "before": "日本橋は地名です。",
+            "after": "にほんばしは地名です。",
+        },
+    ]
 
 
 def test_tts_revision_creates_new_manifest_revision() -> None:
@@ -165,6 +292,8 @@ def test_tts_revision_creates_new_manifest_revision() -> None:
     assert revised["manifest"]["sourceVersionId"] == generated["manifest"]["versionId"]
     assert revised["manifest"]["change"]["operation"] == "tts_fix"
     assert revised["validation"]["valid"] is True
+    assert revised["ttsRevisions"]
+    assert all(detail["before"] != detail["after"] for detail in revised["ttsRevisions"])
 
 
 def test_pack_tts_revision_applies_to_manifest_and_increments_once(tmp_path, monkeypatch) -> None:
@@ -211,6 +340,7 @@ def test_pack_tts_revision_applies_to_manifest_and_increments_once(tmp_path, mon
     assert revised["manifest"]["sourceVersionId"] == manifest["versionId"]
     assert revised["manifest"]["change"]["operation"] == "tts_fix"
     assert len(revised["manifest"]["change"]["changedFiles"]) == len(manifest["items"])
+    assert revised["ttsRevisions"]
     document_file = next(file for file in revised["files"] if file["kind"] == "document")
     assert any("にほんばし" in item.get("tts", {}).get("text", "") for item in document_file["content"]["documents"])
 

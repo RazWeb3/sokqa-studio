@@ -4291,7 +4291,16 @@
           const revised = selectedPack
             ? await requestJson("/packs/revise-tts", { target: recordingTarget(selectedPack), ttsRules: temporaryTtsRules, persist: true })
             : await requestJson("/debug/revise-tts", { jobId: currentJobId, ttsRules: temporaryTtsRules, persist: true });
-          $("result").insertAdjacentHTML("beforeend", `<p><strong>TTS再最適化:</strong> ${escapeHtml(revised.validation?.valid ? "valid" : "invalid")}</p>`);
+          const revisions = revised.ttsRevisions || [];
+          const unitCount = new Set(revisions.map((item) => `${item.fileName}::${item.unitId}`)).size;
+          const fileCount = new Set(revisions.map((item) => item.fileName)).size;
+          const summaryHtml = revisions.length
+            ? `<div class="applied"><strong>TTS再最適化:</strong><span>${escapeHtml(revised.validation?.valid ? "valid" : "invalid")}</span></div><div class="applied"><strong>TTS読み置換を適用: 対象ファイル ${fileCount}件 / 置換ユニット ${unitCount}件</strong><span>置換フィールド ${revisions.length}件</span></div>`
+            : `<div class="applied"><strong>TTS再最適化:</strong><span>${escapeHtml(revised.validation?.valid ? "valid" : "invalid")}</span></div><div class="applied"><strong>TTS読み置換を適用: 置換ユニット 0件</strong><span>置換対象はありませんでした</span></div>`;
+          const revisionsHtml = revisions.length
+            ? revisions.map((item) => `<article class="issue"><div class="issue-top"><span class="issue-title">${escapeHtml(item.fileName || "-")} / ${escapeHtml(item.unitId || "-")} / ${escapeHtml(item.field || "-")}</span><span class="badge info">置換</span></div>${renderInlineDiffPair(item.before, item.after)}</article>`).join("")
+            : "";
+          $("result").insertAdjacentHTML("beforeend", `${summaryHtml}${revisionsHtml}`);
           const before = selectedPack;
           await loadPacks({ keepSelection: true });
           if (before) {

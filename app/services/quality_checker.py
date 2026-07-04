@@ -915,6 +915,12 @@ Notation rule:
 - Do not report intended finished blanks such as ＿＿＿ or _____.
 - Do not report valid 〜 usage such as 〜てください, numeric ranges like 10〜20, or notation used in math, chemistry, or grammar explanations.
 - Treat completed fictional names or other fixed learner-facing expressions as non-issues when they are already finished text rather than unresolved placeholders.
+
+Fix policy (placeholder fixes, strict):
+- The goal of each fix is to make the text a learner-ready finished material that can be recorded and published as-is. Fixes serve that goal first.
+- Replacing one placeholder symbol with another placeholder symbol is forbidden (for example, replacing ○○ with ◯◯, or vice versa). Placeholder-to-placeholder substitution does not resolve the issue.
+- When the placeholder indicates a real-world entity (company name, person name, department name, date, etc.), resolve it to a context-fitting natural concrete name. Do not hard-code or reuse any fixed sample name; do not use the same example name across fixes or borrow names that resemble reporting examples.
+- Do not add a concrete name when the theme does not require one; when the text reads naturally without an example name, prefer removing the placeholder fragment over inventing a name.
 """.strip()
         focus = "Inspect only source/display text quality. Do not report TTS pronunciation issues here."
 

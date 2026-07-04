@@ -13,6 +13,7 @@ from app.services.prompts import (
     _generation_guidance_block,
     document_generation_prompt,
     quiz_generation_prompt,
+    self_check_block,
 )
 from app.services.quiz_generator import generate_mock_quiz_pack, normalize_quiz_content
 from app.services.repairer import QUIZ_REPAIR_INSTRUCTIONS, repair_files
@@ -1191,6 +1192,113 @@ def test_listening_quiz_prompt_excludes_speaker_role() -> None:
 
     assert "話し手・語り手" not in prompt
     assert "耳で聞いて理解できるように" not in prompt
+
+
+# --- プレースホルダー・未完成表現の根本対策(目的文 + セルフチェック + 品質チェック修正指示) ---
+
+
+def test_compose_generation_purpose_includes_completion_story_and_contextual_placeholder_prohibition() -> None:
+    """_compose_generation_purpose は『完成教材』のストーリーと慣用文脈伏せ字禁止を各 policy に織り込むこと。"""
+    for policy in ["listening", "summary", "reading", "japanese_learning"]:
+        plan = _plan()
+        plan.structurePolicy = policy
+        plan.targetUser = "初めて学ぶ社会人"
+        plan.difficulty = "beginner"
+        plan.customInstructions = None
+
+        purpose = _compose_generation_purpose(plan)
+
+        # 完成教材ストーリーの核となる文言
+        assert "生成後そのまま録音・公開される" in purpose, f"completion story missing in {policy}"
+        assert "完成教材" in purpose, f"completion phrase missing in {policy}"
+        assert "社内ドラフト" in purpose, f"draft exclusion missing in {policy}"
+        assert "テンプレート" in purpose, f"template exclusion missing in {policy}"
+        # 慣用文脈伏せ字の明示列挙(社名/敬称/括弧表記)
+        assert "株式会社○○" in purpose, f"contextual placeholder missing in {policy}"
+        assert "□□様" in purpose, f"honorific placeholder missing in {policy}"
+        assert "〇〇(会社名)" in purpose, f"bracketed placeholder missing in {policy}"
+        # 既存プレースホルダー禁止(単独記号)は維持
+        assert "記号プレースホルダー(△△・××・〇〇 等)" in purpose, f"legacy placeholder rule missing in {policy}"
+        # 固定サンプル名は絶対に含めない
+        assert "株式会社サトウ" not in purpose, f"fixed sample name leaked in {policy}"
+        assert "山田様" not in purpose, f"fixed sample name leaked in {policy}"
+        assert "John Smith" not in purpose, f"fixed sample name leaked in {policy}"
+        assert "ABC Company" not in purpose, f"fixed sample name leaked in {policy}"
+
+
+def test_self_check_block_is_distinct_from_finished_quality_block() -> None:
+    """self_check_block は事後確認であり、_finished_quality_block(事前指示)と文言が重複しないこと。"""
+    block = self_check_block()
+    finished = """
+- Finished output quality (strict):
+  - Do not leave drafting-stage placeholders, unfinished sentences, TODOs, AI instructions, or meta comments in learner-facing text.
+""".strip()
+
+    # セルフチェック固有の文言
+    assert "Self-check" in block
+    assert "出力前" in block or "最終確認" in block
+    assert "TODO" in block
+    assert "後述します" in block
+
+    # _finished_quality_block の特徴的な文言は重複しない
+    assert "Drafting-stage placeholders" not in block
+    assert "Do not leave drafting-stage placeholders" not in block
+    assert "Finished output quality" not in block
+    # 文面の独立性を担保
+    assert block != finished
+
+
+def test_document_and_quiz_prompts_contain_self_check_section() -> None:
+    """document/quiz 双方の生成プロンプト末尾に self_check_block が挿入されていること。"""
+    plan = _plan()
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "Self-check (出力前最終確認):" in prompt
+        assert "完成教材" in prompt
+        assert "TODO/FIXME" in prompt
+        # 固定サンプル名禁止ガードが引き続き成立
+        assert "John Smith" not in prompt
+        assert "ABC Company" not in prompt
+        assert "Company Name" not in prompt
+        assert "[Name]" not in prompt
+
+
+def test_quality_checker_text_mode_includes_fix_policy_with_purpose_first() -> None:
+    """quality_checker text モードの修正指示に『目的優先 + 記号→記号禁止 + 具体名置換』が含まれ、固定サンプル名が混入しないこと。"""
+    from app.services.quality_checker import _quality_prompt
+
+    content = {
+        "type": "document",
+        "language": "ja",
+        "documents": [
+            {"id": "doc-1", "text": "株式会社○○の□□様が〇〇(会社名)で発表しました。"},
+        ],
+    }
+    prompt, _ = _quality_prompt("doc_01.json", content, max_issues=10, mode="text")
+
+    # 目的優先の修正ゴール
+    assert "learner-ready finished material" in prompt
+    assert "recorded and published as-is" in prompt
+    # 記号→記号置換の禁止
+    assert "Replacing one placeholder symbol with another placeholder symbol is forbidden" in prompt
+    assert "○○" in prompt and "◯◯" in prompt
+    # 固定サンプル名(使わない側の例示)が混入しない
+    assert "John Smith" not in prompt
+    assert "ABC Company" not in prompt
+    assert "山田様" not in prompt
+    assert "株式会社サトウ" not in prompt
+
+
+def test_quiz_prompt_does_not_contain_speaker_role_regression() -> None:
+    """前回までの役割分離回帰テスト — quiz に話し手役割が混入しないこと(セルフチェック追加後の退行防止)。"""
+    for policy in ["listening", "summary", "reading", "japanese_learning"]:
+        plan = _plan()
+        plan.structurePolicy = policy
+        prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+        assert "話し手・語り手" not in prompt, f"speaker role leaked in quiz {policy}"
+        assert "耳で聞いて理解できるように" not in prompt, f"speaker instruction leaked in quiz {policy}"
 
 
 def test_quiz_validator_warns_for_to_sareteimasu_suffix_without_invalidating() -> None:

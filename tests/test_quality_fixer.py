@@ -1105,3 +1105,92 @@ def test_quality_fix_missing_pack_returns_404(tmp_path, monkeypatch) -> None:
     )
 
     assert response.status_code == 404
+
+
+# 追加ログ経路(2026-07-05 中間物保持タスク)の検証
+
+
+def test_pending_fix_normalization_logs_before_and_after(caplog) -> None:
+    """_normalize_pending_fix が before/after を INFO で記録することを検証。
+    text 修正(pending 系)の追跡が機能することを担保。q-30 の「重要だ重要な」破損経路に直結。"""
+    caplog.set_level("INFO", logger="app.services.quality_fixer")
+    from app.services.quality_fixer import _normalize_pending_fix
+
+    # style カテゴリの pending fix を疑似的に構築
+    original_json: dict[str, Any] = {
+        "type": "quiz",
+        "questions": [
+            {
+                "id": "q-30",
+                "question": "これは重要だとされています。",
+                "choices": ["a", "b", "c", "d"],
+                "answerIndex": 0,
+                "explanation": "重要だとされている理由は明白です。",
+            }
+        ],
+    }
+    raw_fix = {
+        "id": "pending-1",
+        "category": "style",
+        "severity": "medium",
+        "confidence": 0.8,
+        "location": {"fileName": "quiz_30.json", "unitId": "q-30", "field": "explanation"},
+        "excerpt": "重要だとされている",
+        "issue": "伝聞調を断定に直します。",
+        "suggestedAfter": "重要です。",
+        "reason": "本文変更のため承認が必要です。",
+        "sourceIssue": "style: hearsay wording detected",
+    }
+
+    result = _normalize_pending_fix(raw_fix, original_json, "quiz_30.json", 1)
+
+    assert result is not None
+    assert result.before == "重要だとされている理由は明白です。"
+    assert result.suggestedAfter == "重要です。"
+    assert "quality_fix.pending_applied" in caplog.text
+    assert "before=" in caplog.text
+    assert "after=" in caplog.text
+    assert "file=quiz_30.json" in caplog.text
+    assert "unit_id=q-30" in caplog.text
+    assert "field=explanation" in caplog.text
+    assert "category=style" in caplog.text
+
+
+def test_apply_approved_fixes_logs_before_and_after(caplog) -> None:
+    """apply_approved_fixes が承認適用時に before/after を INFO で記録することを検証。
+    text 修正の最終段(承認後)の追跡が機能することを担保。"""
+    caplog.set_level("INFO", logger="app.services.quality_fixer")
+    from app.services.quality_fixer import apply_approved_fixes
+    from app.schemas.quality_fix import PendingFix
+    from app.schemas.quality import QualityLocation
+
+    updated_json: dict[str, Any] = {
+        "id": "quality_pack_doc_18",
+        "type": "document",
+        "schemaVersion": 1,
+        "title": "異物混入",
+        "language": "ja",
+        "documents": [
+            {"id": "doc-18", "text": "この役割はシステムの安定性を担います。"}
+        ],
+    }
+    pending_fixes = [
+        PendingFix(
+            id="pending-1",
+            category="style",
+            location=QualityLocation(fileName="doc_18.json", unitId="doc-18", field="text"),
+            field="text",
+            before="この役割はシステムの安定性を担います。",
+            suggestedAfter="この役割はシステムの安定性を担います。",
+            reason="本文変更のため承認が必要です。",
+            sourceIssue="style issue",
+        )
+    ]
+
+    apply_approved_fixes(updated_json, pending_fixes, ["pending-1"], reset_tts_on_text_change=False)
+
+    assert "quality_fix.pending_approved" in caplog.text
+    assert "before=" in caplog.text
+    assert "after=" in caplog.text
+    assert "file=doc_18.json" in caplog.text
+    assert "unit_id=doc-18" in caplog.text

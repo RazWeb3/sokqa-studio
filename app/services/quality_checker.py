@@ -26,6 +26,31 @@ TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_m
 FULL_REPLACE_CATEGORIES = {"factual", "style", "leak", "tts_text_mismatch"}
 _logger = logging.getLogger(__name__)
 
+
+def _log_quality_issues(*, file_name: str, mode: str, issues: list[QualityIssue]) -> None:
+    """品質チェック後の issue 一覧を、後段追跡のために件数とカテゴリ別集計で記録する。
+    excerpt は破損検出に必要な範囲(先頭 fingerprint)に絞る。"""
+    if not issues:
+        _logger.info("quality_check.issues file=%s mode=%s count=0", file_name, mode)
+        return
+    category_counts: dict[str, int] = {}
+    for issue in issues:
+        category_counts[issue.category] = category_counts.get(issue.category, 0) + 1
+        fingerprint = (issue.excerpt or "")[:60].replace("\n", " ")
+        _logger.info(
+            "quality_check.issue file=%s mode=%s unit_id=%s field=%s category=%s severity=%s excerpt_fingerprint=%r",
+            file_name,
+            mode,
+            issue.location.unitId,
+            issue.location.field,
+            issue.category,
+            issue.severity,
+            fingerprint,
+        )
+    summary = " ".join(f"{category}={count}" for category, count in sorted(category_counts.items()))
+    _logger.info("quality_check.issues file=%s mode=%s count=%s %s", file_name, mode, len(issues), summary)
+
+
 _UNSPOKEN_READING_SYMBOLS = set("「」『』（）()・、。，．,. 　\t\r\n")
 _UNSPOKEN_SYMBOL_NAMES = {
     "かぎ括弧",
@@ -79,6 +104,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         response = _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
         if mode == "tts":
             response.issues = (deterministic_issues + response.issues)[:max_issues]
+        _log_quality_issues(file_name=loaded.file.name, mode=mode, issues=response.issues)
         return response
 
     prompt, input_truncated = _quality_prompt(
@@ -108,6 +134,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
             llm_issues = response.issues
             response.issues = (deterministic_issues + llm_issues)[:max_issues]
             response.truncated = response.truncated or len(deterministic_issues) + len(llm_issues) > max_issues
+        _log_quality_issues(file_name=loaded.file.name, mode=mode, issues=response.issues)
         return response
     except (TypeError, ValidationError, ValueError) as exc:
         raise QualityCheckError(f"quality check response validation failed: {exc}") from exc
@@ -597,6 +624,19 @@ def _build_text_replacement_suggestion(
         return issue.model_copy(update={"suggestion": ""})
 
     built = _apply_replacement_to_original(original, replace_from, replace_to)
+    # 後段の破損追跡のため、LLM が返した replaceFrom/replaceTo と構築結果を記録する。
+    # 失敗時は built が None になり suggestion も空になる経路も含めて痕跡を残す。
+    _logger.info(
+        "quality_check.replacement_built file=%s unit_id=%s field=%s replace_from=%r replace_to=%r built=%s original_chars=%s built_chars=%s",
+        issue.location.fileName,
+        issue.location.unitId,
+        issue.location.field,
+        replace_from,
+        replace_to,
+        "ok" if built is not None else "fail",
+        len(original),
+        len(built) if built is not None else 0,
+    )
     if built is None:
         return issue.model_copy(update={"suggestion": ""})
 

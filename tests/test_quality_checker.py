@@ -14,10 +14,12 @@ from app.services import quality_checker
 from app.services.quality_checker import (
     TEXT_QUALITY_CATEGORIES,
     TTS_QUALITY_CATEGORIES,
+    _build_text_replacement_suggestion,
     _generate_json_with_retry,
     _quality_prompt,
     _quality_response_from_data,
 )
+from app.schemas.quality import QualityIssue, QualityLocation
 from main import app
 
 
@@ -2197,3 +2199,81 @@ def test_quality_check_missing_pack_returns_404(tmp_path, monkeypatch) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_build_text_replacement_suggestion_logs_replace_from_replace_to_and_built_ok(caplog) -> None:
+    """_build_text_replacement_suggestion が replaceFrom/replaceTo/built/original_chars/built_chars を記録するか検証。
+    q-30 相当(伝聞調の置換)を疑似的に再現し、ログから経路を追跡できることを担保する。"""
+    caplog.set_level("INFO", logger="app.services.quality_checker")
+
+    issue = QualityIssue(
+        category="style",
+        severity="medium",
+        confidence=0.8,
+        location=QualityLocation(fileName="quiz_30.json", unitId="q-30", field="explanation"),
+        excerpt="重要だとされている",
+        issue="伝聞調を断定に直します。",
+    )
+    original = "この設定は重要だとされているため遵守してください。"
+
+    _build_text_replacement_suggestion(issue, original, "重要だとされている", "重要です")
+
+    # キーが出力されることを検証(値の完全一致固定は避ける)
+    assert "quality_check.replacement_built" in caplog.text
+    assert "replace_from=" in caplog.text
+    assert "replace_to=" in caplog.text
+    assert "built=ok" in caplog.text
+    assert "original_chars=" in caplog.text
+    assert "built_chars=" in caplog.text
+    assert "file=quiz_30.json" in caplog.text
+    assert "unit_id=q-30" in caplog.text
+
+
+def test_build_text_replacement_suggestion_logs_built_fail_when_match_misses(caplog) -> None:
+    """replaceFrom が original に存在しない場合 built=fail が記録され、suggestion は空になる。
+    この経路でも replace_from/replace_to/original_chars が記録され、後段追跡が可能であることを検証。"""
+    caplog.set_level("INFO", logger="app.services.quality_checker")
+
+    issue = QualityIssue(
+        category="style",
+        severity="medium",
+        confidence=0.7,
+        location=QualityLocation(fileName="doc_18.json", unitId="doc-18", field="text"),
+        excerpt="にな-ないます",
+        issue="混入記号を除去します。",
+    )
+    original = "この役割はシステムの安定性をにないます。"
+    # original に存在しない断片を replace_from に与えて失敗経路を通す
+    result = _build_text_replacement_suggestion(issue, original, "にな-ないます", "になないます")
+
+    assert result.suggestion == ""
+    assert "quality_check.replacement_built" in caplog.text
+    assert "replace_from=" in caplog.text
+    assert "replace_to=" in caplog.text
+    assert "built=fail" in caplog.text
+
+
+def test_build_text_replacement_suggestion_logs_broken_replace_to_for_q30_breakage_path(caplog) -> None:
+    """LLM が壊れた replaceTo(意味改変)を返した場合でも、経路が記録されることを検証。
+    q-30 の「重要だ重要な」破損経路を疑似的に再現し、ログから原因を追跡できることを担保。"""
+    caplog.set_level("INFO", logger="app.services.quality_checker")
+
+    issue = QualityIssue(
+        category="style",
+        severity="medium",
+        confidence=0.7,
+        location=QualityLocation(fileName="quiz_30.json", unitId="q-30", field="explanation"),
+        excerpt="重要だとされている",
+        issue="伝聞調を直します。",
+    )
+    original = "この設定は重要だとされているため遵守してください。"
+    # LLM が壊れた replaceTo を返した想定
+    result = _build_text_replacement_suggestion(issue, original, "重要だとされている", "重要だ重要な")
+
+    assert "quality_check.replacement_built" in caplog.text
+    assert "replace_from=" in caplog.text
+    assert "replace_to=" in caplog.text
+    assert "built=ok" in caplog.text
+    # 壊れた replaceTo が適用されて suggestion が原始と異なること(破損経路成立の確認)
+    assert result.suggestion != original
+    assert "重要だ重要な" in result.suggestion

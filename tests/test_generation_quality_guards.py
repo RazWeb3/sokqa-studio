@@ -1353,3 +1353,123 @@ def test_quiz_validator_warns_for_tatoerareteimasu_suffix_without_invalidating()
     assert result.valid is True
     warnings = [error for error in result.errors if error.severity == "warning"]
     assert any("挙げられています" in error.message for error in warnings)
+
+
+# 追加ログ経路(2026-07-05 中間物保持タスク)の検証
+
+
+def test_document_generation_log_records_unit_id_and_fingerprint(caplog) -> None:
+    """_log_generated_units が file/unit_id/chars/fingerprint を INFO で記録することを検証。
+    値が完全一致固定ではなく、キー項目(unit_id, fingerprint)が出ることを保証する。"""
+    caplog.set_level("INFO", logger="app.services.document_generator")
+    from app.services.document_generator import _log_generated_units
+    from app.schemas.sokqa import SokqaDocumentItem, SokqaDocumentPack
+
+    pack = SokqaDocumentPack(
+        id="quality_pack_doc_01",
+        title="基礎",
+        documents=[SokqaDocumentItem(id="doc-1", text="学習者は基礎を順に積み上げることで理解が深まります。")],
+    )
+    _log_generated_units(pack, model="test-model")
+
+    assert "generation.document_produced" in caplog.text
+    assert "file=quality_pack_doc_01" in caplog.text
+    assert "unit_id=doc-1" in caplog.text
+    assert "model=test-model" in caplog.text
+    assert "chars=" in caplog.text
+    assert "fingerprint=" in caplog.text
+
+
+def test_quiz_generation_log_records_unit_id_and_fingerprints(caplog) -> None:
+    """_log_generated_quiz_units が question/explanation の chars と fingerprint を記録することを検証。
+    q-30 のような explanation の伝聞調混入を生成直後から fingerprint で追跡できることを担保。"""
+    caplog.set_level("INFO", logger="app.services.quiz_generator")
+    from app.services.quiz_generator import _log_generated_quiz_units
+    from app.schemas.sokqa import SokqaQuestion, SokqaQuizPack
+
+    pack = SokqaQuizPack(
+        id="quality_pack_quiz_30",
+        title="確認クイズ",
+        questions=[
+            SokqaQuestion(
+                id="q-30",
+                question="長く一意なパスワードは重要だとされています。その理由はどれですか？",
+                choices=["短いから", "他と被らないから", "辞書にあるから", "短い文字列だから"],
+                answerIndex=1,
+                explanation="長く一意なパスワードは安全だとされています。",
+            )
+        ],
+    )
+    _log_generated_quiz_units(pack, model="test-model")
+
+    assert "generation.quiz_produced" in caplog.text
+    assert "file=quality_pack_quiz_30" in caplog.text
+    assert "unit_id=q-30" in caplog.text
+    assert "question_chars=" in caplog.text
+    assert "explanation_chars=" in caplog.text
+    assert "question_fingerprint=" in caplog.text
+    assert "explanation_fingerprint=" in caplog.text
+
+
+def test_repairer_logs_citation_style_rewrite_before_after(caplog) -> None:
+    """repair_files が「記載されています」を含む text を通過したとき before/after がログに出ること、
+    対応する置換が無い text ではログが出ないことを検証。
+    q-30 経路ではなく、repairer 段階の追跡手段が機能することを担保する。"""
+    caplog.set_level("INFO", logger="app.services.repairer")
+    from app.schemas.sokqa import GeneratedFile
+    from app.services.repairer import repair_files
+
+    quiz_file_rewritten = GeneratedFile(
+        name="quiz_repair_01.json",
+        kind="quiz",
+        content={
+            "id": "repair_test_quiz",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "確認",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "これは記載されている通りです。",
+                    "choices": ["a", "b", "c", "d"],
+                    "answerIndex": 0,
+                    "explanation": "資料によると推奨されています。",
+                }
+            ],
+        },
+    )
+    quiz_file_unchanged = GeneratedFile(
+        name="quiz_repair_02.json",
+        kind="quiz",
+        content={
+            "id": "repair_test_quiz_unchanged",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "確認",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-2",
+                    "question": "これは普通の文です。",
+                    "choices": ["a", "b", "c", "d"],
+                    "answerIndex": 0,
+                    "explanation": "普通の解説です。",
+                }
+            ],
+        },
+    )
+
+    repair_files([quiz_file_rewritten, quiz_file_unchanged])
+
+    # rewrite される側は before/after が記録される(explanation が置換対象で「資料によると」含む)
+    assert "repair.citation_style_rewritten" in caplog.text
+    assert "file=quiz_repair_01.json" in caplog.text
+    assert "unit_id=q-1" in caplog.text
+    assert "explanation" in caplog.text
+    assert "before=" in caplog.text
+    assert "after=" in caplog.text
+    # rewrite されない側には記録が残らない("普通の文です" では記録されない)は assert しない(副作用の細部は実装追認回避のため)
+    # 代わりに q-2 関連の行が出ないことのみ確認し、過度な assert を避ける
+    q2_lines = [record.message for record in caplog.records if "unit_id=q-2" in record.message]
+    assert q2_lines == []

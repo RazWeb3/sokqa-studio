@@ -1,4 +1,9 @@
+import logging
+
 from app.schemas.sokqa import GeneratedFile, SokqaDocumentPack, SokqaQuizPack
+
+
+logger = logging.getLogger(__name__)
 
 
 QUIZ_REPAIR_INSTRUCTIONS = """
@@ -38,9 +43,12 @@ def repair_files(files: list[GeneratedFile]) -> list[GeneratedFile]:
                 question.choices = question.choices[:4]
                 if question.answerIndex < 0 or question.answerIndex > 3:
                     question.answerIndex = 0
-                question.question = rewrite_citation_style(question.question)
-                question.choices = [rewrite_citation_style(choice) for choice in question.choices]
-                question.explanation = rewrite_citation_style(question.explanation)
+                question.question = _rewrite_and_log_citation_style(file.name, question.id, "question", question.question)
+                question.choices = [
+                    _rewrite_and_log_citation_style(file.name, question.id, f"choices[{index}]", choice)
+                    for index, choice in enumerate(question.choices)
+                ]
+                question.explanation = _rewrite_and_log_citation_style(file.name, question.id, "explanation", question.explanation)
             file.content = pack.model_dump(exclude_none=True)
         elif file.kind == "document":
             pack = SokqaDocumentPack.model_validate(file.content)
@@ -48,6 +56,20 @@ def repair_files(files: list[GeneratedFile]) -> list[GeneratedFile]:
             file.content = pack.model_dump(exclude_none=True)
         repaired.append(file)
     return repaired
+
+
+def _rewrite_and_log_citation_style(file_name: str, unit_id: str, field: str, text: str) -> str:
+    after = rewrite_citation_style(text)
+    if after != text:
+        logger.info(
+            "repair.citation_style_rewritten file=%s unit_id=%s field=%s before=%r after=%r",
+            file_name,
+            unit_id,
+            field,
+            text,
+            after,
+        )
+    return after
 
 
 def rewrite_citation_style(text: str) -> str:

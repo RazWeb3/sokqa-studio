@@ -213,6 +213,15 @@ def _generate_tts_fix_without_llm(
                 skipped += 1
                 logger.info("tts fix skipped issue: failed to set tts field %s", location.model_dump())
                 continue
+            logger.info(
+                "quality_fix.auto_applied file=%s unit_id=%s field=%s category=%s before=%r after=%r",
+                loaded.file.name,
+                location.unitId,
+                _tts_field_name(updated_json, location),
+                issue.category,
+                before,
+                after,
+            )
             applied.append(
                 AppliedFix(
                     id=f"auto-{index}",
@@ -263,6 +272,15 @@ def _generate_tts_fix_without_llm(
             logger.info("tts fix skipped issue: failed to set tts field %s", location.model_dump())
             continue
 
+        logger.info(
+            "quality_fix.auto_applied file=%s unit_id=%s field=%s category=%s before=%r after=%r",
+            loaded.file.name,
+            location.unitId,
+            _tts_field_name(updated_json, location),
+            issue.category,
+            before,
+            after,
+        )
         applied.append(
             AppliedFix(
                 id=f"auto-{index}",
@@ -326,7 +344,17 @@ def apply_approved_fixes(
         if fix.id not in approved:
             skipped.append(fix.id)
             continue
+        before = _get_raw_field(final_json, fix.location)
         if _set_raw_field(final_json, fix.location, fix.suggestedAfter):
+            logger.info(
+                "quality_fix.pending_approved file=%s unit_id=%s field=%s category=%s before=%r after=%r",
+                fix.location.fileName,
+                fix.location.unitId,
+                fix.location.field or fix.field,
+                fix.category,
+                before,
+                fix.suggestedAfter,
+            )
             if reset_tts_on_text_change:
                 _reset_unit_tts(final_json, fix.location)
             applied.append(fix.id)
@@ -630,6 +658,15 @@ def _normalize_applied_fix(
         return None
     before = _get_tts_field(original_json, location) or _get_raw_field(original_json, location)
     _set_tts_field(updated_json, location, after)
+    logger.info(
+        "quality_fix.auto_applied file=%s unit_id=%s field=%s category=%s before=%r after=%r",
+        file_name,
+        location.unitId,
+        _tts_field_name(original_json, location),
+        category,
+        before,
+        after,
+    )
     return AppliedFix(
         id=str(raw.get("id") or f"auto-{index}"),
         category=category,
@@ -670,12 +707,22 @@ def _normalize_pending_fix(raw: Any, original_json: dict[str, Any], file_name: s
     if suggested_after is None:
         logger.info("quality fix skipped pending fix: missing suggestedAfter for %s", raw.get("id"))
         return None
+    before = _get_raw_field(original_json, location)
+    logger.info(
+        "quality_fix.pending_applied file=%s unit_id=%s field=%s category=%s before=%r after=%r",
+        file_name,
+        location.unitId,
+        location.field,
+        category,
+        before,
+        suggested_after,
+    )
     return PendingFix(
         id=str(raw.get("id") or f"pending-{index}"),
         category=category,
         location=location,
         field=str(raw.get("field") or location.field or "text"),
-        before=_get_raw_field(original_json, location),
+        before=before,
         suggestedAfter=suggested_after,
         reason=str(raw.get("reason") or "本文変更のため承認が必要です。"),
         sourceIssue=str(raw.get("sourceIssue") or raw.get("issue") or "quality issue"),

@@ -6,6 +6,8 @@ from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import (
     _mode_or_default,
     _normalize_language_tag_markup,
+    _tts_batch_quiz_prompt,
+    _tts_quiz_question_prompt,
     _tts_reading_prompt,
     _tts_reading_rules_block,
     optimize_generated_files_with_report,
@@ -434,6 +436,41 @@ def test_llm_prompt_keeps_original_punctuation_instruction() -> None:
         assert "〜します。 -> 〜します、" not in text
 
 
+def test_tts_prompts_define_reading_assistant_role_without_fixed_samples() -> None:
+    quiz_prompt = _tts_quiz_question_prompt(
+        "q-role",
+        "重複とJSONを確認しますか？",
+        ["JSONを確認する", "保存する", "削除する", "開始する"],
+        "重複とJSONの読みを確認します。",
+        [],
+    )
+    batch_prompt = _tts_batch_quiz_prompt(
+        [
+            type(
+                "Question",
+                (),
+                {
+                    "id": "q-role-batch",
+                    "question": "重複とJSONを確認しますか？",
+                    "choices": ["JSONを確認する", "保存する", "削除する", "開始する"],
+                    "explanation": "重複とJSONの読みを確認します。",
+                },
+            )()
+        ],
+        [],
+    )
+    prompts = [_tts_reading_prompt("重複を確認します。", []), _tts_reading_rules_block([]), quiz_prompt, batch_prompt]
+    for text in prompts:
+        assert "あなたの役割は、表示用文章を編集することではなく、読み上げ用テキストを作成することです。" in text
+        assert "守る対象: 文の意味、構造、語順、助詞、句読点、文体。" in text
+        assert "変更してよい対象: 読み補助が必要な語句" in text
+        assert "読み補助が不要な語句は変更しないでください。" in text
+        assert "文章全体を読み仮名へ変換してはいけません。" in text
+        assert "pronunciation-sensitive terms" in text
+        assert "株式会社サトウ" not in text
+        assert "John Smith" not in text
+
+
 def test_quiz_tts_schema_keeps_answer_text_but_removes_choices_text() -> None:
     assert "answerText" in QuizTts.model_fields
     assert "choicesText" not in QuizTts.model_fields
@@ -498,6 +535,91 @@ def test_llm_document_tts_falls_back_when_unexpected_script_appears(monkeypatch)
 
     assert tts["text"] == "シーアールエムを確認します。"
     assert any(issue.issueType == "unexpected_script" and issue.field == "text" for issue in report.issues)
+
+
+def test_llm_document_tts_falls_back_when_source_kanji_mostly_disappears(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_kanji_loss.json",
+        kind="document",
+        content={
+            "id": "pack_doc_kanji_loss",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "JSON確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "会社ではJSONを利用します。"}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {"items": [{"id": "doc-1", "text": "かいしゃではジェイソンをりようします。"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [TtsRule(source="JSON", reading="ジェイソン")], mode="llm")
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "会社ではジェイソンを利用します。"
+    assert any(issue.issueType == "source_kanji_loss" and issue.field == "text" for issue in report.issues)
+
+
+def test_llm_document_tts_keeps_partial_reading_corrections_when_source_kanji_remain(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_partial_reading.json",
+        kind="document",
+        content={
+            "id": "pack_doc_partial_reading",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "読み補助確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "重複とJSONを確認します。"}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {"items": [{"id": "doc-1", "text": "ちょうふくとジェイソンを確認します。"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [TtsRule(source="JSON", reading="ジェイソン")], mode="llm")
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "ちょうふくとジェイソンを確認します。"
+    assert not any(issue.issueType == "source_kanji_loss" for issue in report.issues)
+    assert not any(issue.issueType == "particle_sequence_edit" for issue in report.issues)
+
+
+def test_llm_document_tts_falls_back_when_particle_sequence_edit_appears(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="doc_particle_edit.json",
+        kind="document",
+        content={
+            "id": "pack_doc_particle_edit",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "助詞崩壊確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "互いの身分とJSONを確認します。"}],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        return {"items": [{"id": "doc-1", "text": "たがいのをみぶんとジェイソンを確認します。"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [TtsRule(source="JSON", reading="ジェイソン")], mode="llm")
+    tts = files[0].content["documents"][0]["tts"]
+
+    assert tts["text"] == "互いの身分とジェイソンを確認します。"
+    assert any(issue.issueType == "particle_sequence_edit" and issue.field == "text" for issue in report.issues)
 
 
 def test_llm_document_tts_falls_back_for_non_cjk_foreign_scripts(monkeypatch) -> None:
@@ -647,6 +769,34 @@ def test_tts_report_detects_raw_period_and_duplicate_punctuation() -> None:
     report = validate_tts_files([file], mode="rule")
     issue_types = {issue.issueType for issue in report.issues}
     assert {"ascii_after_dot_reading", "raw_period", "duplicate_punctuation"}.issubset(issue_types)
+
+
+def test_tts_report_does_not_flag_hiragana_dominant_text_or_natural_particles() -> None:
+    file = GeneratedFile(
+        name="doc_no_false_positive.json",
+        kind="document",
+        content={
+            "id": "pack_doc_no_false_positive",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "誤検出確認",
+            "language": "ja",
+            "documents": [
+                {"id": "doc-1", "text": "ひらがなが多いです。", "tts": {"text": "ひらがなが多いです。"}},
+                {"id": "doc-2", "text": "今日はあさです。", "tts": {"text": "きょうはあさです。"}},
+                {"id": "doc-3", "text": "わたしは東京にいます。", "tts": {"text": "わたしはとうきょうにいます。"}},
+                {"id": "doc-4", "text": "資料を確認してから、案内を送ります。", "tts": {"text": "資料を確認してから、案内を送ります。"}},
+                {"id": "doc-5", "text": "仕様だと理解しやすい説明です。", "tts": {"text": "仕様だと理解しやすい説明です。"}},
+                {"id": "doc-6", "text": "目的とは異なる結果です。", "tts": {"text": "目的とは異なる結果です。"}},
+                {"id": "doc-7", "text": "画面に応じて表示します。", "tts": {"text": "画面に応じて表示します。"}},
+            ],
+        },
+    )
+
+    report = validate_tts_files([file], mode="rule")
+
+    assert not any(issue.issueType == "source_kanji_loss" for issue in report.issues)
+    assert not any(issue.issueType == "particle_sequence_edit" for issue in report.issues)
 
 
 def test_plan_rules_still_override_llm_output(monkeypatch) -> None:
@@ -876,7 +1026,8 @@ def test_llm_quiz_omits_choice_texts_when_choices_match_source(monkeypatch) -> N
     assert "tts" not in question
 
 
-def test_llm_quiz_outputs_choice_texts_and_removes_language_tags(monkeypatch) -> None:
+def test_llm_quiz_outputs_no_language_tags_by_default(monkeypatch) -> None:
+    """llm モードは言語タグを出力しない。プロンプトで禁止指示され、LLM が誤ってタグを出しても残存タグは機械除去される。"""
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
@@ -888,12 +1039,12 @@ def test_llm_quiz_outputs_choice_texts_and_removes_language_tags(monkeypatch) ->
                     "id": "q-plain",
                     "questionText": "次の説明として正しいものはどれですか?",
                     "choices": [
-                        {"index": 0, "text": "[en-US]Save it、"},
-                        {"index": 1, "text": "OK."},
+                        {"index": 0, "text": "[ja-JP]保存します"},
+                        {"index": 1, "text": "[ja-JP]確認します"},
                         {"index": 2, "text": "続けます?"},
                         {"index": 3, "text": "本当です？"},
                     ],
-                    "explanationText": "[en-US]Save it? [ja-JP]を選びます.",
+                    "explanationText": "保存する操作を選びます.",
                 }
             ]
         }
@@ -901,13 +1052,16 @@ def test_llm_quiz_outputs_choice_texts_and_removes_language_tags(monkeypatch) ->
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
     files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="llm")
-    tts = files[0].content["questions"][0]["tts"]
+    question = files[0].content["questions"][0]
+    tts = question["tts"]
 
-    assert tts["choiceTexts"] == ["Save it", "OK.", "続けます?", "本当です？"]
     assert "choicesText" not in tts
     assert "questionText" not in tts
-    assert tts["explanationText"] == "Save it? を選びます."
     assert tts.get("answerText") is None
+    assert len(tts["choiceTexts"]) == len(question["choices"])
+    for value in [str(tts.get("explanationText", "")), *tts.get("choiceTexts", [])]:
+        assert "[en-US]" not in value
+        assert "[ja-JP]" not in value
 
 
 def test_multilingual_quiz_outputs_choice_texts_and_preserves_language_tags(monkeypatch) -> None:

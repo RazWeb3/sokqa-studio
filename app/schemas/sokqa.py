@@ -284,7 +284,14 @@ class TtsReportItem(BaseModel):
     file: str
     itemId: str
     field: str
-    issueType: Literal["ascii_after_dot_reading", "raw_period", "duplicate_punctuation", "unexpected_script"]
+    issueType: Literal[
+        "ascii_after_dot_reading",
+        "raw_period",
+        "duplicate_punctuation",
+        "unexpected_script",
+        "source_kanji_loss",
+        "particle_sequence_edit",
+    ]
     snippet: str
     recommendation: str
     suggestedRuleSource: str | None = None

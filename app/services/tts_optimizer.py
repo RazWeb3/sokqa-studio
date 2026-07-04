@@ -27,6 +27,16 @@ _DUP_SEPARATORS = set(" \t\r\n　、。，．,.")
 _BLANK_PLACEHOLDER_RE = re.compile(r"\s*[_＿]{3,}\s*")
 _JAPANESE_CIRCLE_PLACEHOLDER_RE = re.compile(r"[◯○]{2,}")
 _TTS_SILENT_BLANK = "  "
+_SOURCE_KANJI_RE = re.compile(r"[一-龥々〆ヵヶ]")
+_SOURCE_KANJI_LOSS_MIN_COUNT = 4
+_SOURCE_KANJI_RETAIN_RATIO_THRESHOLD = 0.4
+_EDIT_TRACE_PATTERNS = [
+    {
+        "issue_type": "particle_sequence_edit",
+        "pattern": re.compile(r"(?:をを|がを|にを|のを|だとを|とはを)"),
+        "recommendation": "助詞の連続が不自然で、LLMが読み補助ではなく文章編集に入った疑いがあります。このフィールドは辞書ベースの読みへフォールバックしました。",
+    }
+]
 
 
 def _katakana_word(value: str) -> str | None:
@@ -64,6 +74,84 @@ def _consume_leading_separators(value: str) -> int:
     while index < len(text) and (text[index].isspace() or text[index] in _DUP_SEPARATORS):
         index += 1
     return index
+
+
+def _ordered_source_kanji(text: str) -> list[str]:
+    return list(dict.fromkeys(_SOURCE_KANJI_RE.findall(str(text or ""))))
+
+
+def _match_snippet(text: str, match: re.Match[str], radius: int = 12) -> str:
+    start = max(0, match.start() - radius)
+    end = min(len(text), match.end() + radius)
+    return text[start:end]
+
+
+def _source_kanji_loss_issue(
+    file_name: str,
+    item_id: str,
+    field: str,
+    source_text: str,
+    tts_text: str,
+) -> TtsReportItem | None:
+    if leading_script(tts_text) == "latin":
+        return None
+    source_kanji = _ordered_source_kanji(source_text)
+    if len(source_kanji) < _SOURCE_KANJI_LOSS_MIN_COUNT:
+        return None
+    retained_kanji = [char for char in source_kanji if char in tts_text]
+    retain_ratio = len(retained_kanji) / len(source_kanji)
+    if retain_ratio > _SOURCE_KANJI_RETAIN_RATIO_THRESHOLD:
+        return None
+    missing_kanji = "".join(char for char in source_kanji if char not in tts_text)[:16] or None
+    return TtsReportItem(
+        file=file_name,
+        itemId=item_id,
+        field=field,
+        issueType="source_kanji_loss",
+        snippet=tts_text[:32],
+        recommendation="原文にあった漢字の大半が消失しており、全文かな化または大規模書き換えの疑いがあります。このフィールドは辞書ベースの読みへフォールバックしました。",
+        suggestedRuleSource=missing_kanji,
+    )
+
+
+def _editing_trace_issues(
+    file_name: str,
+    item_id: str,
+    field: str,
+    tts_text: str,
+) -> list[TtsReportItem]:
+    issues: list[TtsReportItem] = []
+    for definition in _EDIT_TRACE_PATTERNS:
+        match = definition["pattern"].search(tts_text)
+        if not match:
+            continue
+        issues.append(
+            TtsReportItem(
+                file=file_name,
+                itemId=item_id,
+                field=field,
+                issueType=definition["issue_type"],
+                snippet=_match_snippet(tts_text, match),
+                recommendation=definition["recommendation"],
+                suggestedRuleSource=None,
+            )
+        )
+    return issues
+
+
+def _tts_editing_issues(
+    file_name: str,
+    item_id: str,
+    field: str,
+    source_text: str,
+    tts_text: str,
+) -> list[TtsReportItem]:
+    issues: list[TtsReportItem] = []
+    kanji_loss_issue = _source_kanji_loss_issue(file_name, item_id, field, source_text, tts_text)
+    if kanji_loss_issue:
+        issues.append(kanji_loss_issue)
+    issues.extend(_editing_trace_issues(file_name, item_id, field, tts_text))
+    return issues
 
 
 def _is_source_inside_existing_reading_parentheses(text: str, start: int, rule: TtsRule) -> bool:
@@ -226,6 +314,7 @@ def _guard_llm_text(
     value: str | None,
     fallback: str | None,
     *,
+    source_text: str,
     file_name: str,
     item_id: str,
     field: str,
@@ -239,27 +328,38 @@ def _guard_llm_text(
     if not allow_language_tags:
         value = re.sub(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]", "", value)
     snippet = _unexpected_script_snippet(value, allowed_scripts)
-    if not snippet:
-        return value
-    logger.warning(
-        "tts_optimizer.unexpected_script_fallback file=%s item=%s field=%s snippet=%s",
-        file_name,
-        item_id,
-        field,
-        snippet,
-    )
-    warnings.append(
-        TtsReportItem(
-            file=file_name,
-            itemId=item_id,
-            field=field,
-            issueType="unexpected_script",
-            snippet=snippet,
-            recommendation="LLMのTTS補正に想定外の文字体系が混入したため、このフィールドは辞書ベースの読みへフォールバックしました。",
-            suggestedRuleSource=None,
+    if snippet:
+        logger.warning(
+            "tts_optimizer.unexpected_script_fallback file=%s item=%s field=%s snippet=%s",
+            file_name,
+            item_id,
+            field,
+            snippet,
         )
-    )
-    return fallback
+        warnings.append(
+            TtsReportItem(
+                file=file_name,
+                itemId=item_id,
+                field=field,
+                issueType="unexpected_script",
+                snippet=snippet,
+                recommendation="LLMのTTS補正に想定外の文字体系が混入したため、このフィールドは辞書ベースの読みへフォールバックしました。",
+                suggestedRuleSource=None,
+            )
+        )
+        return fallback
+    editing_issues = _tts_editing_issues(file_name, item_id, field, source_text, value)
+    if editing_issues:
+        logger.warning(
+            "tts_optimizer.editing_fallback file=%s item=%s field=%s issue_types=%s",
+            file_name,
+            item_id,
+            field,
+            ",".join(issue.issueType for issue in editing_issues),
+        )
+        warnings.extend(editing_issues)
+        return fallback
+    return value
 
 
 def _guard_llm_quiz_tts(
@@ -280,6 +380,7 @@ def _guard_llm_quiz_tts(
     question_text = _guard_llm_text(
         tts.questionText,
         fallback.questionText if fallback else None,
+        source_text=question.question,
         file_name=file_name,
         item_id=question.id,
         field="questionText",
@@ -290,6 +391,7 @@ def _guard_llm_quiz_tts(
     explanation_text = _guard_llm_text(
         tts.explanationText,
         fallback.explanationText if fallback else None,
+        source_text=question.explanation,
         file_name=file_name,
         item_id=question.id,
         field="explanationText",
@@ -304,6 +406,7 @@ def _guard_llm_quiz_tts(
             choice_texts[index] = _guard_llm_text(
                 value,
                 fallback_value,
+                source_text=question.choices[index] if index < len(question.choices) else "",
                 file_name=file_name,
                 item_id=question.id,
                 field=f"choiceTexts.{index}",
@@ -386,29 +489,16 @@ def _needs_tts_locally(text: str, rules: list[TtsRule]) -> bool:
 
 
 def _tts_reading_prompt(text: str, rules: list[TtsRule]) -> str:
-    rules_text = _rules_text(rules)
     return f"""
 Return strict JSON only. Do not use markdown fences.
 
 Create a Sokqa TTS reading text for the fixed source text.
 
-Rules:
-- Preserve the meaning and sentence order.
-- Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
-- This kana conversion is only for pronunciation-sensitive terms, acronyms, symbols, and proper nouns. Do not transliterate a full English sentence or phrase into katakana; keep English phrases in the original English text.
-- A dot is read as "ドット" only when it is immediately followed by an ASCII letter, matching \\.[a-zA-Z].
-- Keep the original Japanese punctuation as-is. Do not convert sentence-ending "。" to "、", and do not add or remove punctuation.
-- A period "." between digits or inside numbers/codes must stay as the source; do not convert it.
-- Do not read dots between digits as "ドット"; for example, 1.2 should be read like "いってんに".
-- If an unfamiliar dot-prefixed word or acronym appears, infer a natural katakana reading from the examples.
-- If a katakana reading and the immediately following parenthetical would become the same spoken word, keep it only once. For example, Governance（ガバナンス） should become ガバナンス, not ガバナンス（ガバナンス）.
+{_tts_reading_rules_block(rules)}
 
 Contrast examples:
 - .gitignore -> ドット ギットイグノア
 - 1.2 -> いってんに
-
-Pronunciation examples. Treat these as normative examples, not as the only allowed replacements:
-{rules_text}
 
 Source text:
 {text}
@@ -427,6 +517,11 @@ def _rules_text(rules: list[TtsRule]) -> str:
 def _tts_reading_rules_block(rules: list[TtsRule]) -> str:
     return f"""
 Rules:
+- あなたの役割は、表示用文章を編集することではなく、読み上げ用テキストを作成することです。
+- 守る対象: 文の意味、構造、語順、助詞、句読点、文体。これらは編集しないでください。
+- 変更してよい対象: 読み補助が必要な語句（英略語・記号・固有名詞・難読語・文脈で読みが変わる語・辞書指定語）だけを、その語句の読みへ置き換えてください。
+- 読み補助が不要な語句は変更しないでください。
+- 文章全体を読み仮名へ変換してはいけません。読み補助が必要な語句だけを書き換えてください。
 - Preserve the meaning and sentence order.
 - Convert only pronunciation-sensitive terms to readable Japanese/kana where useful.
 - This kana conversion is only for pronunciation-sensitive terms, acronyms, symbols, and proper nouns. Do not transliterate a full English sentence or phrase into katakana; keep English phrases in the original English text.
@@ -1219,7 +1314,7 @@ def _field_issues(
     source_text: str,
     tts_text: str,
 ) -> list[TtsReportItem]:
-    issues: list[TtsReportItem] = []
+    issues = _tts_editing_issues(file_name, item_id, field, source_text, tts_text)
     dot_words = re.findall(r"\.[A-Za-z][A-Za-z0-9_-]*", source_text)
     dot_word_index = 0
     for match in re.finditer(r"ドット\s*[ァ-ヶーぁ-ん一-龥]*[A-Za-z][A-Za-z0-9_-]*", tts_text):
@@ -1280,15 +1375,20 @@ def validate_tts_file(file: GeneratedFile) -> list[TtsReportItem]:
         for question in pack.questions:
             if not question.tts:
                 continue
-            source = " ".join([question.question, *question.choices, question.explanation])
+            source_fields = {
+                "questionText": question.question,
+                "answerText": question.choices[question.answerIndex] if 0 <= question.answerIndex < len(question.choices) else "",
+                "explanationText": question.explanation,
+            }
             for field_name in ["questionText", "answerText", "explanationText"]:
                 value = getattr(question.tts, field_name)
                 if value:
-                    issues.extend(_field_issues(file.name, question.id, field_name, source, value))
+                    issues.extend(_field_issues(file.name, question.id, field_name, source_fields[field_name], value))
             if question.tts.choiceTexts:
                 for index, value in enumerate(question.tts.choiceTexts):
                     if value:
-                        issues.extend(_field_issues(file.name, question.id, f"choiceTexts.{index}", source, value))
+                        source_choice = question.choices[index] if index < len(question.choices) else ""
+                        issues.extend(_field_issues(file.name, question.id, f"choiceTexts.{index}", source_choice, value))
     return issues
 
 
@@ -1350,6 +1450,7 @@ def optimize_document_pack(
                 speech = _guard_llm_text(
                     llm_readings[item.id],
                     rule_speech,
+                    source_text=item.text,
                     file_name=file_name,
                     item_id=item.id,
                     field="text",

@@ -11,6 +11,7 @@ from app.services.pack_agent import generate_pack
 from app.services.prompts import (
     _compose_generation_purpose,
     _generation_guidance_block,
+    _learner_facing_role_block,
     document_generation_prompt,
     quiz_generation_prompt,
     self_check_block,
@@ -49,7 +50,11 @@ def _source_pack() -> SokqaDocumentPack:
 
 
 def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() -> None:
-    """一貫性・整数・直接叙述スタイル + hearsay/冗長参照のフィールド分離を検証。"""
+    """一貫性・整数・quiz 固有の冗長参照抑制(文体責務)を検証。
+
+    A/B方針(伝聞・引用調/第三者視点の抑制)は _learner_facing_role_block() が
+    single source of truth であるため、本テストでは quiz 本体に残る別責務のみ検査する。
+    """
     plan = _plan()
     quiz_pack = plan.quizPacks[0]
 
@@ -59,10 +64,6 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "question, choices, answerIndex, and explanation are logically consistent" in prompt
     assert "Use 2, not \"2\"" in prompt
     assert "do not mention the source or documents" in prompt
-    assert "ドキュメントによると" in prompt
-    assert "推奨されています" in prompt
-    # hearsay 抑制は question/choices/explanation の全フィールド対象と明示されていること
-    assert "This hearsay/citation suppression applies to question, choices, and explanation" in prompt
     # 冗長参照抑制(「本文中で述べられている」系) は question のみに留保し、explanation には広げない
     assert "Write question as a natural finished question for learners." in prompt
     assert "For question only, suppress mechanical or redundant document-reference wording" in prompt
@@ -1014,7 +1015,6 @@ def test_compose_generation_purpose_listening_policy_includes_audio_and_placehol
     assert "音声で連続して聞き流される用途" in purpose
     assert "記号プレースホルダー(△△・××・〇〇 等)" in purpose
     assert "具体例" in purpose
-    assert "伝聞・引用調ではなく、事実を直接叙述" in purpose
     assert "初めて学ぶ社会人(初学者)" in purpose
     assert "なお、上記に加えユーザー指定の追加条件" not in purpose
 
@@ -1128,42 +1128,45 @@ def test_generation_prompts_omit_guidance_block_when_guidance_is_none() -> None:
         assert "# 生成目的(パック全体の執筆方針)" not in prompt
 
 
-def test_quiz_generation_prompt_includes_examiner_role_block() -> None:
-    """quiz プロンプトに出題者・講師の役割定義ブロック(3原則)が含まれること。"""
+def test_quiz_generation_prompt_includes_learner_facing_role_block() -> None:
+    """quiz プロンプトが共通の learner-facing role block を1回だけ含むこと(責務ベース検査)。"""
     plan = _plan()
     prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
-    # 役割定義ブロックの見出し(# 生成目的 と区別)
+    role_block = _learner_facing_role_block()
+    assert role_block in prompt
+    # 共通 role block は1回だけ出現すること(重複注入の検出)
+    assert prompt.count(role_block) == 1
+    # quiz 固有の出題者役割見出しは別途保持されること(共通化で消失しない)
     assert "# 出題者の役割" in prompt
-    # 3原則の核となる文言
-    assert "講師・出題者" in prompt
-    assert "自分の言葉で" in prompt
-    assert "断言" in prompt
+    # quiz 固有の断言可能性指標は残置されること
     assert "諸説ある論点" in prompt
     assert "断言できる内容から選んで" in prompt
-    # 伝聞調の代表語彙が役割定義内で言及されていること
-    assert "とされています" in prompt
-    assert "と説明されています" in prompt
 
 
-def test_quiz_generation_prompt_examiner_role_block_is_separate_from_generation_purpose() -> None:
-    """役割定義ブロックが # 生成目的 と別見出しで区別され、Course: の前に配置されること。"""
+def test_quiz_generation_prompt_role_block_is_separate_from_generation_purpose() -> None:
+    """role block と generation purpose は別責務として別ブロックに分かれていること(順序非依存の構造検査)。"""
     plan = _plan()
     plan.generationGuidance = _compose_generation_purpose(plan)
 
     prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
-    # 2つの見出しが両方存在し、別物として区別されている
+    role_block = _learner_facing_role_block()
+    # 両ブロックが別物として存在する
+    assert role_block in prompt
     assert "# 生成目的(パック全体の執筆方針)" in prompt
+    # 両者は別文字列(同一化されていないこと)
+    assert role_block != "# 生成目的(パック全体の執筆方針)"
+    # 役割定義ブロックと生成目的ブロックの見出しがそれぞれ独立して出現すること
+    assert "# 話者の姿勢（学習者向けロール）" in prompt
     assert "# 出題者の役割" in prompt
-    # 役割定義は Course: の前に配置されていること
+    # 生成目的は Course: の後ろ、出題者固有ブロックは Course: の前(setup 準拠)を維持
     assert prompt.index("# 出題者の役割") < prompt.index("Course:")
-    # 生成目的は Course: の後ろ(setup に準拠)に配置されていること
     assert prompt.index("# 生成目的(パック全体の執筆方針)") > prompt.index("Course:")
 
 
 def test_listening_document_prompt_includes_speaker_role() -> None:
-    """listening の document プロンプトには「話し手・語り手」役割が含まれること。"""
+    """listening の document プロンプトには「話し手・語り手」役割が含まれること(document 固有)。"""
     plan = _plan()
     plan.structurePolicy = "listening"
 
@@ -1174,7 +1177,7 @@ def test_listening_document_prompt_includes_speaker_role() -> None:
 
 
 def test_non_listening_document_prompts_exclude_speaker_role() -> None:
-    """reading / japanese_learning / summary の document プロンプトには「話し手」役割が含まれないこと(listening 限定の担保)。"""
+    """reading / japanese_learning / summary の document プロンプトには listening 固有の「話し手」役割が含まれないこと(listening 限定の担保)。"""
     for policy in ["reading", "japanese_learning", "summary"]:
         plan = _plan()
         plan.structurePolicy = policy
@@ -1192,6 +1195,80 @@ def test_listening_quiz_prompt_excludes_speaker_role() -> None:
 
     assert "話し手・語り手" not in prompt
     assert "耳で聞いて理解できるように" not in prompt
+
+
+def test_document_generation_prompt_includes_learner_facing_role_block() -> None:
+    """document プロンプトが共通の learner-facing role block を1回だけ含むこと(責務ベース検査)。"""
+    plan = _plan()
+    prompt = document_generation_prompt(plan, plan.documents[0])
+
+    role_block = _learner_facing_role_block()
+    assert role_block in prompt
+    assert prompt.count(role_block) == 1
+
+
+def test_learner_facing_role_block_suppresses_third_person_perspective() -> None:
+    """A系(第三者口調)抑制: 共通 role block が第三者視点・客観描写の回避と話者直接語りを明示すること。"""
+    role_block = _learner_facing_role_block()
+    # A系: 第三者視点・客観描写の否定が明示されていること
+    assert "第三者視点" in role_block
+    assert "客観描写" in role_block or "客観報告" in role_block
+    # 話者が学習者に直接語る姿勢が明示されていること
+    assert "直接語る" in role_block or "直接・断定的に語る" in role_block
+
+
+def test_learner_facing_role_block_is_single_source_of_truth_for_ab_policy() -> None:
+    """A/B方針の唯一の定義源が _learner_facing_role_block() であること(責務ベース検査)。
+
+    検査設計:
+    - residual 方式(語彙走査)は不採用。正当な仕様追加(引用部での引用表現許可、
+      guidance 側からの role 参照など)で壊れ、文言依存を再導入するため。
+    - 「定義源でない」を「語彙を持たない」では検査しない。他ブロックが role block を
+      参照・補完することは許容されるため、語彙の有無ではなく「独自の A/B ポリシーを
+      定義していないこと」で検査する。
+    """
+    role_block = _learner_facing_role_block()
+
+    # role block が A/B方針の責務を明示的に持つこと(A/B系の定義源としての資格)
+    # A系: 第三者視点・客観描写の否定
+    assert "第三者視点" in role_block
+    assert "客観描写" in role_block or "客観報告" in role_block
+    # B系: 伝聞・引用調の抑制方針
+    assert "伝聞" in role_block and "引用調" in role_block
+
+    # _compose_generation_purpose は A/B方針の定義源ではないこと
+    # (完成教材ストーリー・用途別執筆水準は執筆方針責務として保持し、
+    #  A/B方針を独自定義しないことを検査)
+    plan = _plan()
+    for policy in ["listening", "summary", "reading", "japanese_learning", "standard"]:
+        plan.structurePolicy = policy
+        purpose = _compose_generation_purpose(plan)
+        # 伝聞禁止の直接方針行を持たないこと(方針の独自定義でないこと)
+        assert "伝聞・引用調ではなく、事実を直接叙述" not in purpose
+
+    # _generation_guidance_block は A/B方針の定義源ではないこと
+    # (plan.generationGuidance に A/B方針を含めれば出現し得るが、
+    #  本関数自体は A/B方針を独自定義しないことを検査。空 guidance 時の空文字と、
+    #  非A/B guidance 時の出力に伝聞禁止方針が混入しないことを確認)
+    plan.structurePolicy = "summary"
+    plan.generationGuidance = None
+    assert _generation_guidance_block(plan) == ""
+    plan.generationGuidance = "具体的な学習目標を達成すること。"
+    guidance_block = _generation_guidance_block(plan)
+    assert "伝聞・引用調ではなく" not in guidance_block
+    assert "第三者視点" not in guidance_block
+
+
+def test_learner_facing_role_block_is_injected_into_both_prompts() -> None:
+    """quiz/document 双方が _learner_facing_role_block() を1回だけ取り込むこと(1箇所修正で双方に効く担保)。"""
+    role_block = _learner_facing_role_block()
+    plan = _plan()
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    assert role_block in quiz_prompt
+    assert quiz_prompt.count(role_block) == 1
+    assert role_block in document_prompt
+    assert document_prompt.count(role_block) == 1
 
 
 # --- プレースホルダー・未完成表現の根本対策(目的文 + セルフチェック + 品質チェック修正指示) ---

@@ -227,35 +227,30 @@ def _compose_generation_purpose(plan: CoursePlan, *, language: str = "ja") -> st
         purpose_lines = [
             "この教材は音声で連続して聞き流される用途であることを前提に執筆すること。",
             *completion_lines,
-            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
             f"{target_user}({difficulty_label})に合った表現水準で書くこと。",
         ]
     elif structure_policy == "summary":
         purpose_lines = [
             "この教材は要点を簡潔にまとめる用途であることを前提に執筆すること。",
             *completion_lines,
-            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
             f"{target_user}({difficulty_label})に合った表現水準で、冗長な脱線を避け要点に絞ること。",
         ]
     elif structure_policy == "reading":
         purpose_lines = [
             "この教材は文章で読んで学ぶ用途であることを前提に執筆すること。",
             *completion_lines,
-            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
             f"{target_user}({difficulty_label})に合った表現水準で、明快で曖昧さの少ない文にすること。",
         ]
     elif structure_policy == "japanese_learning":
         purpose_lines = [
             "この教材は日本語学習者に向けた日本語学習用途であることを前提に執筆すること。",
             *completion_lines,
-            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
             f"{target_user}({difficulty_label})に合った漢字語彙の水準で書くこと。",
         ]
     else:
         purpose_lines = [
             "この教材は学習者に向けて要点を簡潔にまとめる用途であることを前提に執筆すること。",
             *completion_lines,
-            "説明は伝聞・引用調ではなく、事実を直接叙述すること。",
             f"{target_user}({difficulty_label})に合った表現水準で書くこと。",
         ]
 
@@ -309,6 +304,23 @@ def _finished_quality_block() -> str:
   - Use fill-in-the-blank placeholders only when that blank format is the intended finished exercise style. Use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
   - Judge by whether the expression is an unfinished or unresolved placeholder, not by banning a symbol itself.
   - Do not ban valid symbols that carry meaning, such as 〜 in normal phrasing, numeric ranges like 10〜20, or notation used in math, chemistry, or grammar explanations.
+""".strip()
+
+
+def _learner_facing_role_block() -> str:
+    """学習者向けテキストを生成する話者の姿勢（ロール）の共通ブロック。
+
+    quiz / document の両プロンプトで共有される「学習者に直接・断定的に語る話者」という
+    単一責務をここに集約する。文脈固有の役割（quiz: 出題者として断言できる論点を選ぶ、
+    document: listening で耳で聞いて理解できる話し手・語り手）は各プロンプト側に残す。
+    generation purpose（パック全体の執筆方針）とは別責務であり、本ブロックとは統合しない。
+    """
+    return """
+# 話者の姿勢（学習者向けロール）
+学習者向け本文・設問・解説は、第三者視点の客観描写や資料報告ではなく、話者が学習者に直接語る形式で書くこと。
+- 事実は事実として断定的に述べ、伝聞・引用調・軟化表現は使わない。話者自身が責任を持って断言する姿勢で書くこと。
+- 伝聞・引用調の代表語彙（「〜とされています」「〜と説明されています」「資料によると」「記載されています」「述べられています」「書かれています」「推奨されています」「ドキュメントでは」「ドキュメントによると」等）は使わない。本文・設問・解説のいずれにも出現させないこと。
+- 学習者に直接・断定的に語ることを前提とし、資料を客観報告する第三者視点の文章で逃げないこと。
 """.strip()
 
 
@@ -449,6 +461,8 @@ Required JSON shape:
   ]
 }}
 
+{_learner_facing_role_block()}
+
 {self_check_block()}
 """
 
@@ -528,7 +542,7 @@ Rules:
 - Every question must be grounded in the quiz context.
 - Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
-- Write directly for learners. Do not use hearsay/citation wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", or "推奨されています". This hearsay/citation suppression applies to question, choices, and explanation (all learner-facing quiz fields).
+- Write directly for learners. Hearsay/citation wording suppression for question, choices, and explanation (all learner-facing quiz fields) is defined by the learner-facing role block below; do not duplicate that policy here.
 - Write question as a natural finished question for learners.
 - For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it. Avoid phrases such as "本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている".
 - Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work, and keep it brief.
@@ -537,11 +551,12 @@ Rules:
 {_json_output_rules_block()}
 {integration_rules}
 
-# 出題者の役割
-あなたはこの教材の内容を教える講師・出題者である。問題文と解説は、資料を引用・報告するのではなく、講師自身が正しいと理解している知識として、学習者に直接・断定的に説明すること。
+# 出題者の役割（quiz 固有）
+あなたはこの教材の内容を教える講師・出題者である。
 - 解説(explanation)は、なぜその選択肢が正解なのかを講師が自分の言葉で説明するものである。本文の要約や引用に留めず、事実は事実として断言すること。
-- 「〜とされています」「〜と説明されています」「資料によると」のような伝聞・引用調は、出題者が責任を持って断言していないことの表れなので使わない。
 - 諸説ある論点や流派差のある曖昧な事柄は出題を避け、確実に断言できる内容から選んで出題すること。出題数を無理に減らす必要はなく、断言できる論点は十分にあるので、そこから選ぶこと。
+
+{_learner_facing_role_block()}
 
 Course:
 - title: {plan.title}

@@ -4,6 +4,7 @@ from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import (
+    _guard_llm_text,
     _mode_or_default,
     _normalize_language_tag_markup,
     _tts_batch_quiz_prompt,
@@ -292,6 +293,73 @@ def test_rule_mode_reports_ascii_left_after_partial_dot_replacement(monkeypatch)
     assert any(issue.issueType == "ascii_after_dot_reading" for issue in report.issues)
     assert any(issue.suggestedRuleSource == ".gitconfig" for issue in report.issues)
     assert report.llmGeneratedIds == []
+
+
+# ── _guard_llm_text space-diff guard ──────────────────────────────
+
+def test_guard_llm_removes_surplus_spaces_when_only_space_differs() -> None:
+    """LLM出力とfallbackの差が半角スペースのみでLLM側に余分がある場合、余分スペースを除去したvalueを返す。"""
+    warnings: list = []
+    result = _guard_llm_text(
+        "役割も にないます",        # LLM output: surplus space between も and に
+        "役割もにないます",          # fallback: rule-based, no space
+        source_text="役割も担います",
+        file_name="test.json",
+        item_id="doc-18",
+        field="text",
+        warnings=warnings,
+    )
+    assert result == "役割もにないます"
+    assert warnings == []
+
+
+def test_guard_llm_preserves_value_when_content_differs_beyond_spaces() -> None:
+    """LLM出力とfallbackがスペース除去後も不一致（=読み補助を含む）の場合、LLM出力をそのまま保持する。"""
+    warnings: list = []
+    result = _guard_llm_text(
+        "いってんに も確認します",  # LLM output with intentional reading-assist space
+        "1.2 も確認します",          # fallback: rule-based, different content
+        source_text="1.2 も確認します",
+        file_name="test.json",
+        item_id="doc-1",
+        field="text",
+        warnings=warnings,
+    )
+    assert result == "いってんに も確認します"
+    assert warnings == []
+
+
+def test_guard_llm_preserves_value_when_identical_to_fallback() -> None:
+    """LLM出力とfallbackが完全一致の場合、値を一切変更せずそのまま返す。"""
+    warnings: list = []
+    result = _guard_llm_text(
+        "エーアイ の出力",
+        "エーアイ の出力",
+        source_text="AI の出力",
+        file_name="test.json",
+        item_id="doc-1",
+        field="text",
+        warnings=warnings,
+    )
+    assert result == "エーアイ の出力"
+    assert warnings == []
+
+
+def test_guard_llm_preserves_value_when_fallback_none_or_empty() -> None:
+    """fallbackがNoneまたは空の場合、従来通りvalueをそのまま保持する。"""
+    for fb in [None, ""]:
+        warnings: list = []
+        result = _guard_llm_text(
+            "役割も にないます",
+            fb,
+            source_text="役割も担います",
+            file_name="test.json",
+            item_id="doc-18",
+            field="text",
+            warnings=warnings,
+        )
+        assert result == "役割も にないます"
+        assert warnings == []
 
 
 def test_rule_mode_applies_document_rules_without_extra_punctuation_conversion(monkeypatch) -> None:

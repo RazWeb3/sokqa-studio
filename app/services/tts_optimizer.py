@@ -303,6 +303,47 @@ def _is_allowed_tts_char(char: str, allowed_scripts: set[str] | None = None) -> 
     return False
 
 
+def _remove_spaces(value: str) -> str:
+    """半角スペース（\\x20）のみを除去した文字列を返す。全角スペース・タブ・改行は除去しない。"""
+    return value.replace("\x20", "")
+
+
+def _remove_surplus_spaces(value: str, fallback: str) -> str:
+    """value から fallback より余分な半角スペースを除去した文字列を返す。
+
+    value と fallback は半角スペース以外が完全一致している前提。
+    fallback 内のスペース位置を anchor に、value 内の対応する位置に余分な
+    半角スペースがあれば除去する。
+    """
+    result: list[str] = []
+    vi = 0  # index into value
+    fi = 0  # index into fallback
+    while vi < len(value) and fi < len(fallback):
+        if fallback[fi] == " ":
+            # anchor: fallback has a space here → consume value chars up to and including one space
+            while vi < len(value) and value[vi] != " ":
+                result.append(value[vi])
+                vi += 1
+            if vi < len(value):
+                result.append(value[vi])  # keep exactly one space
+                vi += 1
+            fi += 1
+        else:
+            # fallback has non-space → skip any surplus spaces in value, then consume matching non-space
+            while vi < len(value) and value[vi] == " ":
+                vi += 1  # drop surplus spaces
+            if vi < len(value):
+                result.append(value[vi])
+                vi += 1
+            fi += 1
+    # any remaining chars in value (should only be trailing spaces, if any)
+    while vi < len(value):
+        if value[vi] != " ":
+            result.append(value[vi])
+        vi += 1
+    return "".join(result)
+
+
 def _unexpected_script_snippet(value: str, allowed_scripts: set[str] | None = None) -> str | None:
     for index, char in enumerate(value):
         if not _is_allowed_tts_char(char, allowed_scripts):
@@ -327,6 +368,8 @@ def _guard_llm_text(
     value = _normalize_language_tag_markup(value)
     if not allow_language_tags:
         value = re.sub(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]", "", value)
+    if fallback and value != fallback and _remove_spaces(value) == _remove_spaces(fallback) and value.count(" ") > fallback.count(" "):
+        value = _remove_surplus_spaces(value, fallback)
     snippet = _unexpected_script_snippet(value, allowed_scripts)
     if snippet:
         logger.warning(

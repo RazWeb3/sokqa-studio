@@ -20,6 +20,7 @@ class LlmJsonParseContext:
     language: str | None = None
     difficulty: str | None = None
     scale: str | None = None
+    file_name: str | None = None
     phase: str | None = None
     run_index: int = 0
     extra: dict[str, Any] = field(default_factory=dict)

@@ -647,7 +647,7 @@ def test_jobs_prompts_download_returns_zip_with_prompt_records() -> None:
     assert f"{job_id}_prompts.zip" in response.headers["content-disposition"]
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     names = archive.namelist()
-    assert names == ["quiz_quiz_range_01_prompt.txt"]
+    assert names == ["quiz_quiz_range_01_default_0_prompt.txt"]
     body = archive.read(names[0]).decode("utf-8")
     assert "Prompt Type : quiz" in body
     assert "Target      : quiz_range_01" in body
@@ -669,3 +669,120 @@ def test_jobs_prompts_download_404_when_no_prompts() -> None:
 
     response = client.get("/jobs/job-debug-empty/prompts/download")
     assert response.status_code == 404
+
+
+# ── prompt filename uniqueness with pack file_name ──────────────
+
+def test_prompt_filename_different_packs_produce_unique_names() -> None:
+    """異なる2つの document pack で file_name が異なるとファイル名も衝突しない。"""
+    from app.routes.jobs import _prompt_filename
+    from app.schemas.sokqa import DebugPromptRecordSchema
+
+    pack1 = DebugPromptRecordSchema(
+        prompt_type="tts_batch_doc",
+        target="doc-1",
+        model="dummy",
+        prompt="dummy",
+        phase="tts_optimizer",
+        run_index=0,
+        file_name="cnt_001_doc_01.json",
+    )
+    pack2 = DebugPromptRecordSchema(
+        prompt_type="tts_batch_doc",
+        target="doc-1",
+        model="dummy",
+        prompt="dummy",
+        phase="tts_optimizer",
+        run_index=0,
+        file_name="cnt_002_doc_02.json",
+    )
+    name1 = _prompt_filename(pack1)
+    name2 = _prompt_filename(pack2)
+    assert name1 != name2
+    assert "cnt_001_doc_01" in name1
+    assert "cnt_002_doc_02" in name2
+    assert "doc-1" in name1
+    assert "doc-1" in name2
+
+
+def test_prompt_filename_same_pack_chunks_differ_by_run_index() -> None:
+    """同一 pack で chunk 分割時は run_index で区別されることを維持。"""
+    from app.routes.jobs import _prompt_filename
+    from app.schemas.sokqa import DebugPromptRecordSchema
+
+    chunk0 = DebugPromptRecordSchema(
+        prompt_type="tts_batch_doc",
+        target="doc-1",
+        model="dummy",
+        prompt="dummy",
+        phase="tts_optimizer",
+        run_index=0,
+        file_name="cnt_001_doc_01.json",
+    )
+    chunk1 = DebugPromptRecordSchema(
+        prompt_type="tts_batch_doc",
+        target="doc-2",
+        model="dummy",
+        prompt="dummy",
+        phase="tts_optimizer",
+        run_index=1,
+        file_name="cnt_001_doc_01.json",
+    )
+    assert _prompt_filename(chunk0) != _prompt_filename(chunk1)
+    assert _prompt_filename(chunk0).endswith("_0_prompt.txt")
+    assert _prompt_filename(chunk1).endswith("_1_prompt.txt")
+
+
+def test_prompt_filename_no_file_name_falls_back_to_legacy_format() -> None:
+    """file_name が None の場合は従来のフォーマットにフォールバックする。"""
+    from app.routes.jobs import _prompt_filename
+    from app.schemas.sokqa import DebugPromptRecordSchema
+
+    record = DebugPromptRecordSchema(
+        prompt_type="quiz",
+        target="quiz_range_01",
+        model="dummy",
+        prompt="dummy",
+        phase="generator",
+        run_index=0,
+        file_name=None,
+    )
+    filename = _prompt_filename(record)
+    assert filename == "quiz_quiz_range_01_generator_0_prompt.txt"
+
+
+def test_prompt_filename_quiz_packs_produce_unique_names() -> None:
+    """異なる quiz pack で file_name が異なるとファイル名が衝突しない。"""
+    from app.routes.jobs import _prompt_filename
+    from app.schemas.sokqa import DebugPromptRecordSchema
+
+    q1 = DebugPromptRecordSchema(
+        prompt_type="tts_batch_quiz",
+        target="q-1",
+        model="dummy",
+        prompt="dummy",
+        phase="tts_optimizer",
+        run_index=0,
+        file_name="cnt_001_quiz_01.json",
+    )
+    q2 = DebugPromptRecordSchema(
+        prompt_type="tts_batch_quiz",
+        target="q-1",
+        model="dummy",
+        prompt="dummy",
+        phase="tts_optimizer",
+        run_index=0,
+        file_name="cnt_002_quiz_02.json",
+    )
+    assert _prompt_filename(q1) != _prompt_filename(q2)
+
+
+def test_safe_filename_token_strips_special_chars() -> None:
+    from app.routes.jobs import _safe_filename_token
+
+    assert _safe_filename_token("cnt_001_doc_01.json") == "cnt_001_doc_01.json"
+    assert _safe_filename_token("path/to/file.json") == "path_to_file.json"
+    assert _safe_filename_token("file:name?.txt") == "file_name_.txt"
+    assert _safe_filename_token("") == "unknown"
+    assert _safe_filename_token("  ") == "unknown"
+    assert _safe_filename_token("__valid__") == "valid"

@@ -845,6 +845,8 @@ def _gemini_document_speech_map(
     language: str = "ja",
     allow_language_tags: bool = False,
     language_settings: TtsLanguageSettings | None = None,
+    *,
+    file_name: str | None = None,
 ) -> dict[str, str]:
     readings: dict[str, str] = {}
     source_by_id = {entry_id: text for entry_id, text in entries}
@@ -857,6 +859,7 @@ def _gemini_document_speech_map(
                 doc_id=first_entry_id,
                 phase="tts_optimizer",
                 run_index=chunk_index,
+                file_name=file_name,
             ),
         )
         items = _llm_response_items(data)
@@ -1263,6 +1266,8 @@ def _gemini_quiz_tts_map(
     language_settings: TtsLanguageSettings | None = None,
     learning_language: str | None = None,
     choice_language_mode: str | None = None,
+    *,
+    file_name: str | None = None,
 ) -> dict[str, QuizTts | None]:
     readings: dict[str, QuizTts | None] = {}
     for chunk_index, chunk in enumerate(_chunk_quiz_questions(questions)):
@@ -1287,6 +1292,7 @@ def _gemini_quiz_tts_map(
                 quiz_id=first_question_id,
                 phase="tts_optimizer",
                 run_index=chunk_index,
+                file_name=file_name,
             ),
         )
         items = _llm_response_items(data)
@@ -1520,7 +1526,7 @@ def optimize_document_pack(
     if active_mode in {"llm", "multilingual"}:
         selected_entries = [(item.id, item.text) for item in pack.documents if item.id in selected_ids]
         try:
-            llm_readings = _gemini_document_speech_map(selected_entries, rules, pack.language, active_mode == "multilingual", language_settings)
+            llm_readings = _gemini_document_speech_map(selected_entries, rules, pack.language, active_mode == "multilingual", language_settings, file_name=file_name)
             llm_ids.extend(entry_id for entry_id, _ in selected_entries)
         except Exception as exc:
             logger.warning("tts_optimizer.llm_document_fallback file=%s error=%s", file_name, exc)
@@ -1599,6 +1605,7 @@ def optimize_quiz_pack(
                 language_settings,
                 pack.learningLanguage,
                 pack.choiceLanguageMode,
+                file_name=file_name,
             )
             llm_ids.extend(question.id for question in selected_questions)
         except Exception as exc:

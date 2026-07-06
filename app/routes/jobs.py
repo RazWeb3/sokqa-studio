@@ -32,7 +32,16 @@ def _prompt_filename(record: DebugPromptRecordSchema) -> str:
     slug = record.target.replace("/", "_") if record.target else "unknown"
     phase = record.phase or "default"
     run_index = record.run_index or 0
+    pack_segment = _safe_filename_token(record.file_name) if record.file_name else ""
+    if pack_segment:
+        return f"{record.prompt_type}_{pack_segment}_{slug}_{phase}_{run_index}_prompt.txt"
     return f"{record.prompt_type}_{slug}_{phase}_{run_index}_prompt.txt"
+
+
+def _safe_filename_token(value: str) -> str:
+    import re
+    token = re.sub(r'[\\/:\"*?<>|]+', "_", value.strip())
+    return token.strip("_") or "unknown"
 
 
 def _prompt_header(record: DebugPromptRecordSchema) -> str:

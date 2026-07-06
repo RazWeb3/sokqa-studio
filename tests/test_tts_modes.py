@@ -423,7 +423,7 @@ def test_llm_mode_omits_document_tts_when_reading_matches_source(monkeypatch) ->
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -466,7 +466,7 @@ def test_llm_mode_omits_matching_document_tts_and_keeps_changed_document_tts(mon
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -549,7 +549,7 @@ def test_llm_mode_generates_kana_for_unknown_dot_words_and_keeps_core_rules(monk
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         calls.append(prompt)
         return {
             "items": [
@@ -593,7 +593,7 @@ def test_llm_document_tts_falls_back_when_unexpected_script_appears(monkeypatch)
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {"items": [{"id": "doc-1", "text": "シーアールエム의確認をします。"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -621,7 +621,7 @@ def test_llm_document_tts_falls_back_when_source_kanji_mostly_disappears(monkeyp
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {"items": [{"id": "doc-1", "text": "かいしゃではジェイソンをりようします。"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -649,7 +649,7 @@ def test_llm_document_tts_keeps_partial_reading_corrections_when_source_kanji_re
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {"items": [{"id": "doc-1", "text": "ちょうふくとジェイソンを確認します。"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -678,7 +678,7 @@ def test_llm_document_tts_falls_back_when_particle_sequence_edit_appears(monkeyp
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {"items": [{"id": "doc-1", "text": "たがいのをみぶんとジェイソンを確認します。"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -713,7 +713,7 @@ def test_llm_document_tts_falls_back_for_non_cjk_foreign_scripts(monkeypatch) ->
             },
         )
 
-        def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+        def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
             return {"items": [{"id": "doc-1", "text": sample}]}
 
         monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -741,7 +741,7 @@ def test_llm_document_tts_keeps_allowed_japanese_latin_and_symbols(monkeypatch) 
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {"items": [{"id": "doc-1", "text": "シーアールエムとエーアイ、GitHub v1.2を確認します。"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -777,7 +777,7 @@ def test_llm_quiz_tts_falls_back_only_for_field_with_unexpected_script(monkeypat
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -871,7 +871,7 @@ def test_plan_rules_still_override_llm_output(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {"id": "doc-1", "text": ".git を確認します。"},
@@ -895,7 +895,7 @@ def test_llm_quiz_batches_questions_and_reuses_answer_choice(monkeypatch) -> Non
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         calls.append(prompt)
         return {
             "items": [
@@ -945,7 +945,7 @@ def test_llm_quiz_batch_accepts_top_level_item_array(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> list:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> list:
         return [
             {
                 "id": "q-1",
@@ -985,7 +985,7 @@ def test_llm_quiz_uses_chunk_count_instead_of_question_count(monkeypatch) -> Non
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         calls.append(prompt)
         items = []
         for index in range(1, 13):
@@ -1049,7 +1049,7 @@ def test_llm_single_question_path_falls_back_on_top_level_array(monkeypatch) -> 
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> list:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> list:
         return [{"text": "invalid"}]
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -1069,7 +1069,7 @@ def test_llm_quiz_omits_choice_texts_when_choices_match_source(monkeypatch) -> N
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -1099,7 +1099,7 @@ def test_llm_quiz_outputs_no_language_tags_by_default(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "Do not output language tags" in prompt
         return {
             "items": [
@@ -1136,7 +1136,7 @@ def test_multilingual_quiz_outputs_choice_texts_and_preserves_language_tags(monk
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert 'scenario default language is "ja"' in prompt
         return {
             "items": [
@@ -1189,7 +1189,7 @@ def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch)
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -1250,7 +1250,7 @@ def test_learning_language_auto_keeps_only_non_pack_choice_texts(monkeypatch) ->
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -1279,7 +1279,7 @@ def test_multilingual_prompt_includes_field_language_policy(monkeypatch) -> None
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     seen_prompts: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         seen_prompts.append(prompt)
         return {
             "items": [
@@ -1316,7 +1316,7 @@ def test_multilingual_select_non_default_choice_language_prefixes_each_choice_wi
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert 'scenario default language is "id"' in prompt
         assert "choiceTexts: read this field in ja (ja-JP)" in prompt
         return {
@@ -1362,7 +1362,7 @@ def test_multilingual_select_default_choice_language_omits_tags(monkeypatch) -> 
         "Orang yang baru pertama kali ditemui",
     ]
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -1399,7 +1399,7 @@ def test_multilingual_select_pack_choice_language_resolves_to_pack_language(monk
         "Orang yang baru pertama kali ditemui",
     ]
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "choiceTexts: read this field in id (id-ID)" in prompt
         return {
             "items": [
@@ -1436,7 +1436,7 @@ def test_multilingual_select_non_default_choice_language_keeps_tags_when_text_ma
         "あいさつ",
     ]
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "choiceTexts: read this field in ja (ja-JP)" in prompt
         return {
             "items": [
@@ -1480,7 +1480,7 @@ def test_multilingual_mixed_choices_keep_only_needed_default_return_tags(monkeyp
         "Orang yang baru pertama kali ditemui",
     ]
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "choiceTexts: mixed-language field" in prompt
         return {
             "items": [
@@ -1525,7 +1525,7 @@ def test_multilingual_document_allows_selected_korean_script(monkeypatch) -> Non
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "document text: read this field in ko (ko-KR)" in prompt
         return {"items": [{"id": "doc-1", "text": "[ko-KR]안녕하세요를 확인합니다."}]}
 
@@ -1555,7 +1555,7 @@ def test_multilingual_document_mixed_normalizes_language_tags(monkeypatch) -> No
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert 'scenario default language is "id"' in prompt
         assert "document text: mixed-language field" in prompt
         assert "Do not output XML tags" in prompt
@@ -1608,7 +1608,7 @@ def test_multilingual_document_does_not_apply_katakana_dictionary_rules(monkeypa
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "IT -> アイティー" not in prompt
         return {"items": [{"id": "doc-1", "text": "[en-US]IT[ja-JP]を確認します。"}]}
 
@@ -1642,7 +1642,7 @@ def test_llm_document_still_falls_back_for_korean_script_without_multilingual(mo
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {"items": [{"id": "doc-1", "text": "シーアールエム안녕하세요"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
@@ -1659,7 +1659,7 @@ def test_llm_quiz_falls_back_to_rules_when_batch_response_omits_question(monkeyp
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     calls: list[str] = []
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         calls.append(prompt)
         return {
             "items": [
@@ -1713,7 +1713,7 @@ def test_llm_document_tts_collapses_duplicate_katakana_parenthetical(monkeypatch
         },
     )
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         return {
             "items": [
                 {
@@ -1850,7 +1850,7 @@ def test_llm_batch_outputs_choice_texts_when_choice_reading_differs_from_source(
     monkeypatch.setattr(settings, "gemini_provider", "mock")
     rules = [TtsRule(source="AI", reading="エーアイ")]
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
         assert "- id: q-20" in prompt
         return {
             "items": [

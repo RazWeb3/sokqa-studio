@@ -760,7 +760,7 @@ def test_tts_quality_check_filters_null_audio_issues(tmp_path, monkeypatch) -> N
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs: object) -> dict:
         return {
             "issues": [
                 {
@@ -798,7 +798,7 @@ def test_tts_quality_check_accepts_top_level_issue_array(tmp_path, monkeypatch) 
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> list:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs: object) -> list:
         return [
             {
                 "category": "reading",
@@ -2134,7 +2134,7 @@ def test_quality_check_invalid_llm_response_is_error(tmp_path, monkeypatch) -> N
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
 
-    def fake_generate_json(self, prompt: str, model: str | None = None) -> dict:
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs: object) -> dict:
         return {"issues": [{"category": "unknown"}]}
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)

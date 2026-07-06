@@ -31,6 +31,7 @@ from app.schemas.pack_v2 import (
 from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentPack, SokqaQuizPack
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
+from app.services.llm_json import LlmJsonParseContext
 from app.services.pack_paths import pack_root_prefix
 from app.services.quality_checker import _generate_json_with_retry
 from app.services.revision_store import persist_revision_commit
@@ -113,9 +114,19 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
     llm_start = time.perf_counter()
     llm_attempts = {"count": 0}
 
+    fix_unit = "fix_text" if mode == "text" else "fix_tts"
     def _call_gemini() -> dict[str, Any]:
         llm_attempts["count"] += 1
-        return GeminiClient().generate_json(prompt, model=model, temperature=0.2)
+        return GeminiClient().generate_json(
+            prompt,
+            model=model,
+            temperature=0.2,
+            parse_context=LlmJsonParseContext(
+                generation_unit=fix_unit,
+                model=model,
+                title=loaded.file.name,
+            ),
+        )
 
     try:
         data = _generate_json_with_retry(_call_gemini)

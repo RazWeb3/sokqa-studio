@@ -76,13 +76,15 @@ def _record_prompt_from_context(
         "plan": "planner",
         "doc": "document",
         "quiz": "quiz",
-        "tts_reading": "tts",
-        "tts_batch_quiz": "tts",
-        "tts_quiz_question": "tts",
-        "quality_text": "quality",
-        "quality_tts": "quality",
-        "fix_text": "fix",
-        "fix_tts": "fix",
+        "tts_reading": "tts_reading",
+        "tts_batch_doc": "tts_batch_doc",
+        "tts_batch_quiz": "tts_batch_quiz",
+        "tts_quiz_question": "tts_quiz_question",
+        "tts_decision": "tts_decision",
+        "quality_text": "quality_text",
+        "quality_tts": "quality_tts",
+        "fix_text": "fix_text",
+        "fix_tts": "fix_tts",
         "plan_suggest_conditions": "planner",
     }
     prompt_type = prompt_type_map.get(unit, unit)
@@ -98,6 +100,12 @@ def _record_prompt_from_context(
         quiz_title = ctx.title or ""
     elif unit == "plan":
         target = "planner"
+    elif ctx.doc_id:
+        target = ctx.doc_id
+    elif ctx.quiz_id:
+        target = ctx.quiz_id
+    elif ctx.title:
+        target = ctx.title
     else:
         target = unit
 

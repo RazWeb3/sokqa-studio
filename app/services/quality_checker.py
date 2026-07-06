@@ -16,6 +16,7 @@ from app.schemas.quality import QualityCheckResponse, QualityIssue
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
 from app.services.language_detection import choice_set_language_state, language_script, leading_script
+from app.services.llm_json import LlmJsonParseContext
 from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.tts_recording_api import load_target_pack
 
@@ -114,8 +115,19 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         mode=mode,
         multilingual=allow_language_tags,
     )
+    quality_unit = "quality_text" if mode == "text" else "quality_tts"
     try:
-        data = _generate_json_with_retry(lambda: GeminiClient().generate_json(prompt, model=model))
+        data = _generate_json_with_retry(
+            lambda: GeminiClient().generate_json(
+                prompt,
+                model=model,
+                parse_context=LlmJsonParseContext(
+                    generation_unit=quality_unit,
+                    model=model,
+                    title=loaded.file.name,
+                ),
+            )
+        )
     except Exception as exc:
         raise QualityCheckError(f"quality check LLM call failed: {exc}") from exc
 

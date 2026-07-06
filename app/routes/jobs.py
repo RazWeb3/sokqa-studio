@@ -1,7 +1,11 @@
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.schemas.pack_v2 import PackManifestV2
-from app.schemas.sokqa import GeneratePackResponse
+from app.schemas.sokqa import DebugPromptRecordSchema, GeneratePackResponse
 from app.services.job_store import get_job
 
 
@@ -22,3 +26,49 @@ def read_job_manifest(job_id: str) -> PackManifestV2:
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     return job.manifest
+
+
+def _prompt_filename(record: DebugPromptRecordSchema) -> str:
+    slug = record.target.replace("/", "_") if record.target else "unknown"
+    return f"{record.prompt_type}_{slug}_prompt.txt"
+
+
+def _prompt_header(record: DebugPromptRecordSchema) -> str:
+    lines = [
+        "========================================",
+        f"Prompt Type : {record.prompt_type}",
+        f"Target      : {record.target}",
+        f"Model       : {record.model}",
+        f"Generated   : {record.generated_at}",
+        f"Characters  : {record.characters:,}",
+    ]
+    if record.doc_title:
+        lines.append(f"Doc Title   : {record.doc_title}")
+    if record.quiz_title:
+        lines.append(f"Quiz Title  : {record.quiz_title}")
+    lines.extend(["========================================", ""])
+    return "\n".join(lines)
+
+
+@router.get("/jobs/{job_id}/prompts/download")
+def download_job_prompts(job_id: str) -> StreamingResponse:
+    """ZIPでプロンプト全文をダウンロードする。DEBUG_PROMPTS_ENABLED=true でのみ有効。"""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not job.prompts:
+        raise HTTPException(status_code=404, detail="no prompts available (DEBUG_PROMPTS_ENABLED may be false)")
+
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as zf:
+        for record in job.prompts:
+            header = _prompt_header(record)
+            body = record.prompt
+            filename = _prompt_filename(record)
+            zf.writestr(filename, header + "\n" + body + "\n")
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}_prompts.zip"'},
+    )

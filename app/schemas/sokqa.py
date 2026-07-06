@@ -311,6 +311,17 @@ class TtsRevisionDetail(BaseModel):
     after: str
 
 
+class DebugPromptRecordSchema(BaseModel):
+    prompt_type: str
+    target: str
+    model: str
+    prompt: str
+    generated_at: str = ""
+    characters: int = 0
+    doc_title: str = ""
+    quiz_title: str = ""
+
+
 class GeneratePackResponse(BaseModel):
     status: Literal["completed"]
     jobId: str
@@ -321,6 +332,7 @@ class GeneratePackResponse(BaseModel):
     ttsReport: TtsReport | None = None
     ttsRevisions: list[TtsRevisionDetail] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
+    prompts: list[DebugPromptRecordSchema] = Field(default_factory=list)
 
 
 class PackRevisionResponse(BaseModel):
@@ -331,3 +343,4 @@ class PackRevisionResponse(BaseModel):
     ttsReport: TtsReport | None = None
     ttsRevisions: list[TtsRevisionDetail] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
+    prompts: list[DebugPromptRecordSchema] = Field(default_factory=list)

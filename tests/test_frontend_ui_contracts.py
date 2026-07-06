@@ -850,6 +850,31 @@ def test_generated_result_delegates_share_url_and_qr_to_version_modal() -> None:
     assert 'new QRCode($("qrcode")' not in html
 
 
+def test_generated_result_debug_prompts_section_only_renders_when_prompts_present() -> None:
+    html = _html()
+    start = html.index("function renderGeneratedResult")
+    end = html.index("async function createPlan", start)
+    result_html = html[start:end]
+
+    # renderPromptRecord テンプレート内の存在確認(html全体で確認)
+    assert 'function renderPromptRecord(' in html
+    assert 'class="secondary debug-copy-btn"' in html
+    assert 'class="secondary debug-download-btn"' in html
+    assert '<pre class="debug-prompt-fulltext"' in html
+    assert 'pre.debug-prompt-fulltext' in html  # CSS定義
+    # 折りたたみコンテナ・prompts存在時のみ展開
+    assert 'id="debugPromptsPanel"' in result_html
+    assert 'const prompts = generated.prompts || [];' in result_html
+    assert 'prompts.length' in result_html
+    # ZIP 一括ダウンロード(APIエンドポイント呼び出し)
+    assert 'id="downloadAllPromptsZipBtn"' in result_html
+    assert '/jobs/${encodeURIComponent(generated.jobId)}/prompts/download' in result_html
+    # コピー / 個別ダウンロードのハンドラ
+    assert 'navigator.clipboard.writeText' in result_html
+    assert 'document.querySelectorAll(".debug-copy-btn")' in result_html
+    assert 'document.querySelectorAll(".debug-download-btn")' in result_html
+
+
 def test_generated_result_share_button_is_enabled_by_global_status() -> None:
     html = _html()
     start = html.index("function updateGlobalStatus()")

@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from app.services.gemini_client import parse_json_response
+from app.services.gemini_client import (
+    DebugPromptRecord,
+    parse_json_response,
+    pop_debug_prompts,
+    record_debug_prompt,
+)
 from app.services.llm_json import LlmJsonParseContext, LlmJsonParseError, parse_llm_json_or_raise
 
 
@@ -61,3 +66,47 @@ def test_unrepairable_json_saves_raw_response(tmp_path, monkeypatch) -> None:
     assert meta["sourceTextPreview"] == "A" * 200
     assert "A" * 201 not in meta_files[0].read_text(encoding="utf-8")
     assert exc_info.value.saved_prefix
+
+
+def test_record_debug_prompt_is_noop_when_debug_disabled(monkeypatch) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "debug_prompts_enabled", False)
+    pop_debug_prompts()  # clear any leftovers
+    record_debug_prompt("planner", "planner", "model-x", "prompt body")
+    assert pop_debug_prompts() == []
+
+
+def test_record_debug_prompt_collects_records_when_enabled(monkeypatch) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "debug_prompts_enabled", True)
+    pop_debug_prompts()  # clear any leftovers
+    record_debug_prompt(
+        "quiz",
+        "quiz_range_01",
+        "gemini-2.5-pro",
+        "Create one Sokqa quiz JSON...",
+        quiz_title="前半の理解チェック",
+    )
+    records = pop_debug_prompts()
+    assert len(records) == 1
+    record = records[0]
+    assert isinstance(record, DebugPromptRecord)
+    assert record.prompt_type == "quiz"
+    assert record.target == "quiz_range_01"
+    assert record.model == "gemini-2.5-pro"
+    assert record.quiz_title == "前半の理解チェック"
+    assert record.doc_title == ""
+    assert record.characters == len("Create one Sokqa quiz JSON...")
+    assert record.generated_at  # ISO 8601
+
+
+def test_pop_debug_prompts_clears_buffer(monkeypatch) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "debug_prompts_enabled", True)
+    pop_debug_prompts()
+    record_debug_prompt("doc", "doc_01", "m", "p")
+    assert len(pop_debug_prompts()) == 1
+    assert pop_debug_prompts() == []

@@ -3,7 +3,7 @@ import logging
 from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
 from app.schemas.common import normalize_tts_reading_mode, source_mode_for_material_mode
-from app.schemas.sokqa import CoursePlan, GeneratePackResponse, GeneratedFile, PlanDocument
+from app.schemas.sokqa import CoursePlan, DebugPromptRecordSchema, GeneratePackResponse, GeneratedFile, PlanDocument
 from app.config import get_settings
 from app.services.document_generator import (
     STRICT_MAX_DOCUMENT_FILES,
@@ -14,6 +14,7 @@ from app.services.document_generator import (
     strict_source_paragraphs,
 )
 from app.services.exporter import build_generated_files
+from app.services.gemini_client import pop_debug_prompts
 from app.services.generation_status import pop_generation_events
 from app.services.job_store import get_job, save_job, update_job
 from app.services.model_resolver import resolve_task_models
@@ -353,6 +354,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
 
     validation = validate_files(files, manifest)
     append_validation_logs(logs, validation)
+    prompts = _collect_prompt_records()
     job_id = new_job_id()
     response = GeneratePackResponse(
         status="completed",
@@ -363,6 +365,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         validation=validation,
         ttsReport=tts_report,
         logs=logs,
+        prompts=prompts,
     )
     save_job(response)
     return response
@@ -411,6 +414,8 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
 
     validation = validate_files(revised_files, manifest)
     append_validation_logs(logs, validation)
+    new_prompts = _collect_prompt_records()
+    existing_prompts = list(existing.prompts or [])
     revised = GeneratePackResponse(
         status="completed",
         jobId=existing.jobId,
@@ -421,6 +426,7 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         ttsReport=None,
         ttsRevisions=tts_revisions,
         logs=logs,
+        prompts=existing_prompts + new_prompts,
     )
     update_job(revised)
     return revised
@@ -431,6 +437,22 @@ def append_validation_logs(logs: list[str], validation) -> None:
         return
     for error in validation.errors:
         logs.append(f"validation error: {error.file} {error.path}: {error.message}")
+
+
+def _collect_prompt_records() -> list[DebugPromptRecordSchema]:
+    return [
+        DebugPromptRecordSchema(
+            prompt_type=record.prompt_type,
+            target=record.target,
+            model=record.model,
+            prompt=record.prompt,
+            generated_at=record.generated_at,
+            characters=record.characters,
+            doc_title=record.doc_title,
+            quiz_title=record.quiz_title,
+        )
+        for record in pop_debug_prompts()
+    ]
 
 
 def _needs_generation_repair(validation) -> bool:

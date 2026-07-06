@@ -517,7 +517,10 @@
       .bar.static span { animation: none; }
       @keyframes sweep { 0% { transform: translateX(-105%); } 100% { transform: translateX(250%); } }
       .recording-result { overflow-wrap: anywhere; }
-
+      .debug-prompt-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+      .debug-prompt-meta > div { display: grid; gap: 2px; font-size: 12px; }
+      .debug-prompt-meta > div > span { color: var(--muted); font-size: 11px; }
+      pre.debug-prompt-fulltext { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; max-height: 60vh; overflow-y: auto; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); font-family: var(--mono); font-size: 12px; line-height: 1.5; }
       @media (max-width: 1180px) {
         .generate-action-bar {
           grid-template-columns: 1fr 1fr;
@@ -4171,11 +4174,64 @@
         }
       }
 
+      function renderPromptRecord(record, index) {
+        const headerLines = [
+          "========================================",
+          `Prompt Type : ${record.prompt_type}`,
+          `Target      : ${record.target}`,
+          `Model       : ${record.model}`,
+          `Generated   : ${record.generated_at}`,
+          `Characters  : ${record.characters.toLocaleString()}`,
+        ];
+        if (record.doc_title) headerLines.push(`Doc Title   : ${record.doc_title}`);
+        if (record.quiz_title) headerLines.push(`Quiz Title  : ${record.quiz_title}`);
+        headerLines.push("========================================");
+        const headerText = headerLines.join("\n");
+        const fullText = headerText + "\n\n" + record.prompt;
+        const labelMap = { planner: "Planner", document: "Document", quiz: "Quiz", tts: "TTS", quality: "Quality", fix: "Fix" };
+        const label = labelMap[record.prompt_type] || record.prompt_type;
+        const targetLabel = record.doc_title || record.quiz_title || record.target;
+        return `
+          <details class="plan-card debug-prompt-block" data-prompt-index="${index}">
+            <summary><span class="badge info">DEBUG</span> ${escapeHtml(label)} ${escapeHtml(record.target)} <span class="muted">/ ${escapeHtml(targetLabel)}</span></summary>
+            <div class="panel-body stack">
+              <div class="debug-prompt-meta">
+                <div><span>種類</span><strong>${escapeHtml(record.prompt_type)}</strong></div>
+                <div><span>対象</span><strong>${escapeHtml(record.target)}</strong></div>
+                <div><span>Document</span><strong>${escapeHtml(record.doc_title || "-")}</strong></div>
+                <div><span>Quiz</span><strong>${escapeHtml(record.quiz_title || "-")}</strong></div>
+                <div><span>Model</span><strong class="mono">${escapeHtml(record.model)}</strong></div>
+                <div><span>作成日時</span><strong class="mono">${escapeHtml(record.generated_at)}</strong></div>
+                <div><span>文字数</span><strong class="mono">${record.characters.toLocaleString()}</strong></div>
+              </div>
+              <div class="actions">
+                <button class="secondary debug-copy-btn" type="button" data-prompt-index="${index}">Copy</button>
+                <button class="secondary debug-download-btn" type="button" data-prompt-index="${index}">Download .txt</button>
+              </div>
+              <pre class="debug-prompt-fulltext" data-prompt-index="${index}">${escapeHtml(fullText)}</pre>
+            </div>
+          </details>
+        `;
+      }
+
       function renderGeneratedResult(generated) {
         batchQualityState = null;
         const manifestUrl = generated.files?.find((file) => file.kind === "manifest")?.url || generated.manifest?.manifestUrl || "";
         const logsHtml = DEBUG_LOGS_ENABLED
           ? `<ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`
+          : "";
+        const prompts = generated.prompts || [];
+        const promptsHtml = prompts.length
+          ? `
+            <details class="plan-card" id="debugPromptsPanel">
+              <summary><span class="badge">DEBUG</span> Debug: 最終プロンプト (${prompts.length})</summary>
+              <div class="panel-body stack">
+                <div class="actions">
+                  <button class="secondary" id="downloadAllPromptsZipBtn" type="button">ZIPで全Promptを保存</button>
+                </div>
+                ${prompts.map((record, index) => renderPromptRecord(record, index)).join("")}
+              </div>
+            </details>`
           : "";
         $("result").innerHTML = `
           <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.status)}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${generated.validation?.valid ? "ok" : "ng"}</strong></div></div>
@@ -4185,6 +4241,7 @@
           <p class="muted" id="openShareInfoHint"></p>
           <div id="autoTextQualityResult" class="stack"><div class="applied"><strong>品質チェック</strong><span>${isAutoQualityFixEnabled() ? "生成成功後に実行します。" : "自動品質チェックはOFFです。"}</span></div></div>
           <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
+          ${promptsHtml}
           ${logsHtml}`;
         if (!selectedPack?.manifestUrl && manifestUrl) {
           $("openShareInfoHint").textContent = "生成結果を対象パックとして選択するとURL・QRを表示できます。";
@@ -4194,6 +4251,40 @@
         $("exportGeneratedJsonZipBtn")?.addEventListener("click", exportJsonZip);
         $("goQualityBtn")?.addEventListener("click", () => setTab("quality"));
         $("goRecordBtn")?.addEventListener("click", () => setTab("record"));
+        $("downloadAllPromptsZipBtn")?.addEventListener("click", () => {
+          if (generated.jobId) window.open(`/jobs/${encodeURIComponent(generated.jobId)}/prompts/download`, "_blank");
+        });
+        document.querySelectorAll(".debug-copy-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const idx = Number(btn.dataset.promptIndex);
+            const pre = document.querySelector(`pre.debug-prompt-fulltext[data-prompt-index="${idx}"]`);
+            if (!pre) return;
+            navigator.clipboard.writeText(pre.textContent || "").then(() => {
+              const original = btn.textContent;
+              btn.textContent = "Copied!";
+              setTimeout(() => { btn.textContent = original; }, 1500);
+            });
+          });
+        });
+        document.querySelectorAll(".debug-download-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const idx = Number(btn.dataset.promptIndex);
+            const pre = document.querySelector(`pre.debug-prompt-fulltext[data-prompt-index="${idx}"]`);
+            if (!pre || !generated.prompts || !generated.prompts[idx]) return;
+            const record = generated.prompts[idx];
+            const slug = String(record.target || "unknown").replace(/\//g, "_");
+            const filename = `${record.prompt_type}_${slug}_prompt.txt`;
+            const blob = new Blob([pre.textContent || ""], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          });
+        });
       }
 
       async function createPlan() {

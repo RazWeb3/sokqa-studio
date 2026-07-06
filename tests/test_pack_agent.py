@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.schemas.pack_v2 import PackManifestV2
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
-from app.schemas.sokqa import CoursePlan
+from app.schemas.sokqa import CoursePlan, GeneratePackResponse, ValidationResult
 from app.services.pack_agent import generate_pack, plan_pack
 from app.services.pack_metadata import build_pack_metadata
 from main import app
@@ -92,6 +92,8 @@ def test_quick_plan_and_generate() -> None:
     assert _kind_count(generated["manifest"]["items"], "document") == document_count
     assert _kind_count(generated["manifest"]["items"], "quiz") == quiz_count
     assert len(generated["files"]) == len(generated["manifest"]["items"]) + 1
+    # Debug prompts: default disabled -> empty list
+    assert generated["prompts"] == []
 
 
 def test_generation_unit_document_only_generates_only_documents() -> None:
@@ -608,3 +610,62 @@ def test_auto_quiz_pack_count_for_eleven_or_more_documents() -> None:
     assert titles[2].startswith("ITパスポート試験対策 理解チェック3（7〜9章")
     assert titles[3].startswith("ITパスポート試験対策 理解チェック4（10〜11章")
     assert titles[4] == "ITパスポート試験対策 総合確認（1〜11章: 全範囲）"
+
+
+def test_jobs_prompts_download_returns_zip_with_prompt_records() -> None:
+    import io
+    import zipfile
+
+    """APIエンドポイントの smoke test: 生成結果から prompts が取り出せること"""
+    from app.schemas.sokqa import DebugPromptRecordSchema
+    from app.services.job_store import save_job
+
+    record = DebugPromptRecordSchema(
+        prompt_type="quiz",
+        target="quiz_range_01",
+        model="gemini-2.5-pro",
+        prompt="Create one Sokqa quiz JSON.",
+        generated_at="2026-07-06T01:23:45+00:00",
+        characters=28,
+        quiz_title="前半の理解チェック",
+    )
+    # generate_pack は prompts を未注入状態で返すため、静的に組み立てた job で API を検証する
+    # PackManifestV2 のスキーマは複雑で再現コストが高いため、job_store -> API のみを単体テストする
+    job_id = "job-debug-zip-01"
+    # モック生成結果を直接構築する代わりに、既存 generate_pack の job を流用する
+    request = GeneratePackRequest(
+        plan=plan_pack(PlanPackRequest(theme="Debug Download", targetUser="Learner", scale="quick")),
+        persist=False,
+    )
+    generated = generate_pack(request)
+    generated = generated.model_copy(update={"jobId": job_id, "prompts": [record]})
+    save_job(generated)
+
+    response = client.get(f"/jobs/{job_id}/prompts/download")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert f"{job_id}_prompts.zip" in response.headers["content-disposition"]
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    names = archive.namelist()
+    assert names == ["quiz_quiz_range_01_prompt.txt"]
+    body = archive.read(names[0]).decode("utf-8")
+    assert "Prompt Type : quiz" in body
+    assert "Target      : quiz_range_01" in body
+    assert "Model       : gemini-2.5-pro" in body
+    assert "Quiz Title  : 前半の理解チェック" in body
+    assert "Create one Sokqa quiz JSON." in body
+
+
+def test_jobs_prompts_download_404_when_no_prompts() -> None:
+    from app.services.job_store import save_job
+
+    request = GeneratePackRequest(
+        plan=plan_pack(PlanPackRequest(theme="Empty Prompts", targetUser="Learner", scale="quick")),
+        persist=False,
+    )
+    generated = generate_pack(request)
+    generated = generated.model_copy(update={"jobId": "job-debug-empty"})
+    save_job(generated)
+
+    response = client.get("/jobs/job-debug-empty/prompts/download")
+    assert response.status_code == 404

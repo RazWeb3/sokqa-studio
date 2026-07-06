@@ -450,6 +450,8 @@ def _collect_prompt_records() -> list[DebugPromptRecordSchema]:
             characters=record.characters,
             doc_title=record.doc_title,
             quiz_title=record.quiz_title,
+            phase=record.phase,
+            run_index=record.run_index,
         )
         for record in pop_debug_prompts()
     ]

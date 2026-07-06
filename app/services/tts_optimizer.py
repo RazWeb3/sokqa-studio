@@ -780,6 +780,7 @@ def _gemini_speech_text(value: str, rules: list[TtsRule], language: str | None =
         parse_context=LlmJsonParseContext(
             generation_unit="tts_reading",
             doc_id=entry_id,
+            phase="tts_optimizer",
         ),
     )
     data = _llm_response_object_or_raise(data, context="tts reading")
@@ -847,13 +848,15 @@ def _gemini_document_speech_map(
 ) -> dict[str, str]:
     readings: dict[str, str] = {}
     source_by_id = {entry_id: text for entry_id, text in entries}
-    for chunk in _chunk_entries(entries):
+    for chunk_index, chunk in enumerate(_chunk_entries(entries)):
         first_entry_id = chunk[0][0] if chunk else "unknown"
         data = GeminiClient().generate_json(
             _tts_batch_document_prompt(chunk, rules, language, allow_language_tags, language_settings),
             parse_context=LlmJsonParseContext(
                 generation_unit="tts_batch_doc",
                 doc_id=first_entry_id,
+                phase="tts_optimizer",
+                run_index=chunk_index,
             ),
         )
         items = _llm_response_items(data)
@@ -1102,6 +1105,7 @@ def _gemini_quiz_question_tts(
             generation_unit="tts_quiz_question",
             quiz_id=question.id,
             title=question.question[:40],
+            phase="tts_optimizer",
         ),
     )
     data = _llm_response_object_or_raise(data, context="quiz tts")
@@ -1261,7 +1265,7 @@ def _gemini_quiz_tts_map(
     choice_language_mode: str | None = None,
 ) -> dict[str, QuizTts | None]:
     readings: dict[str, QuizTts | None] = {}
-    for chunk in _chunk_quiz_questions(questions):
+    for chunk_index, chunk in enumerate(_chunk_quiz_questions(questions)):
         if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
             question = chunk[0]
             readings[question.id] = _gemini_quiz_question_tts(
@@ -1281,6 +1285,8 @@ def _gemini_quiz_tts_map(
             parse_context=LlmJsonParseContext(
                 generation_unit="tts_batch_quiz",
                 quiz_id=first_question_id,
+                phase="tts_optimizer",
+                run_index=chunk_index,
             ),
         )
         items = _llm_response_items(data)
@@ -1355,6 +1361,7 @@ def _gemini_tts_ids(kind: str, entries: list[tuple[str, str]], rules: list[TtsRu
         parse_context=LlmJsonParseContext(
             generation_unit="tts_decision",
             doc_id=first_entry_id,
+            phase="tts_optimizer",
         ),
     )
     ids = _llm_response_ids(data)

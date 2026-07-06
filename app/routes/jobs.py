@@ -30,7 +30,9 @@ def read_job_manifest(job_id: str) -> PackManifestV2:
 
 def _prompt_filename(record: DebugPromptRecordSchema) -> str:
     slug = record.target.replace("/", "_") if record.target else "unknown"
-    return f"{record.prompt_type}_{slug}_prompt.txt"
+    phase = record.phase or "default"
+    run_index = record.run_index or 0
+    return f"{record.prompt_type}_{slug}_{phase}_{run_index}_prompt.txt"
 
 
 def _prompt_header(record: DebugPromptRecordSchema) -> str:
@@ -41,6 +43,8 @@ def _prompt_header(record: DebugPromptRecordSchema) -> str:
         f"Model       : {record.model}",
         f"Generated   : {record.generated_at}",
         f"Characters  : {record.characters:,}",
+        f"Phase       : {record.phase or 'default'}",
+        f"Run Index   : {record.run_index or 0}",
     ]
     if record.doc_title:
         lines.append(f"Doc Title   : {record.doc_title}")

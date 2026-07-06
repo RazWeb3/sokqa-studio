@@ -320,6 +320,8 @@ class DebugPromptRecordSchema(BaseModel):
     characters: int = 0
     doc_title: str = ""
     quiz_title: str = ""
+    phase: str | None = None
+    run_index: int = 0
 
 
 class GeneratePackResponse(BaseModel):

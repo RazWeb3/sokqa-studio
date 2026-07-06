@@ -20,6 +20,8 @@ class LlmJsonParseContext:
     language: str | None = None
     difficulty: str | None = None
     scale: str | None = None
+    phase: str | None = None
+    run_index: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
     def safe_meta(self) -> dict[str, Any]:

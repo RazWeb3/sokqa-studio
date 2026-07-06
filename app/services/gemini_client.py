@@ -19,6 +19,8 @@ class DebugPromptRecord:
     characters: int = 0
     doc_title: str = ""
     quiz_title: str = ""
+    phase: str | None = None
+    run_index: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -39,6 +41,8 @@ def record_debug_prompt(
     *,
     doc_title: str = "",
     quiz_title: str = "",
+    phase: str | None = None,
+    run_index: int = 0,
     extra: dict[str, Any] | None = None,
 ) -> None:
     if not get_settings().debug_prompts_enabled:
@@ -51,6 +55,8 @@ def record_debug_prompt(
             prompt=prompt,
             doc_title=doc_title,
             quiz_title=quiz_title,
+            phase=phase,
+            run_index=run_index,
             extra=extra or {},
         )
     )
@@ -116,6 +122,8 @@ def _record_prompt_from_context(
         prompt=prompt,
         doc_title=doc_title,
         quiz_title=quiz_title,
+        phase=ctx.phase,
+        run_index=ctx.run_index,
     )
 
 

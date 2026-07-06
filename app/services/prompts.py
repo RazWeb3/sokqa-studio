@@ -539,7 +539,7 @@ Rules:
   - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
   - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
 - {_finished_quality_block()[2:]}
-- Every question must be grounded in the quiz context.
+- Every question and explanation must be grounded in the quiz context.
 - Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.
 - Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
 - Write directly for learners. Hearsay/citation wording suppression for question, choices, and explanation (all learner-facing quiz fields) is defined by the learner-facing role block below; do not duplicate that policy here.
@@ -553,7 +553,7 @@ Rules:
 
 # 出題者の役割（quiz 固有）
 あなたはこの教材の内容を教える講師・出題者である。
-- 解説(explanation)は、なぜその選択肢が正解なのかを講師が自分の言葉で説明するものである。本文の要約や引用に留めず、事実は事実として断言すること。
+- 解説(explanation)は、なぜその選択肢が正解なのかを講師が自分の言葉で説明するものである。quiz context を根拠としつつ、本文の要約や引用に留めず、事実は事実として断言すること。
 - 諸説ある論点や流派差のある曖昧な事柄は出題を避け、確実に断言できる内容から選んで出題すること。出題数を無理に減らす必要はなく、断言できる論点は十分にあるので、そこから選ぶこと。
 
 {_learner_facing_role_block()}

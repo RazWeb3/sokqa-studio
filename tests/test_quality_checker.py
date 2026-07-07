@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -18,6 +19,7 @@ from app.services.quality_checker import (
     _generate_json_with_retry,
     _quality_prompt,
     _quality_response_from_data,
+    _is_unresolved_placeholder_excerpt,
 )
 from app.schemas.quality import QualityIssue, QualityLocation
 from main import app
@@ -1353,6 +1355,36 @@ def test_quality_response_keeps_suggestion_when_text_changes_beyond_trailing_per
     )
 
     assert [issue.suggestion for issue in response.issues] == ["メモした内容はすぐに削除しないこと"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "〇〇株式会社",
+        "△△様",
+        "□□部長",
+        "株式会社〇〇",
+        "××商事",
+        "◯◯大学",
+    ],
+)
+def test_unresolved_placeholder_detects_masked_names(text: str) -> None:
+    assert _is_unresolved_placeholder_excerpt(text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "＿＿＿",
+        "10〜20",
+        "〜てください",
+        "〇か×で答える",
+        "三角形の性質",
+        "トヨタ自動車",
+    ],
+)
+def test_unresolved_placeholder_ignores_valid_text(text: str) -> None:
+    assert _is_unresolved_placeholder_excerpt(text) is False
 
 
 def test_quality_response_keeps_mid_sentence_punctuation_change() -> None:

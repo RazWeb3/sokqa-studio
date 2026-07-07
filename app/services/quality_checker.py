@@ -73,6 +73,9 @@ _PLACEHOLDER_KEYWORD_PATTERNS = (
     r"generic name",
     r"authoring comment",
 )
+# 伏せ字・仮置きに使われる幾何記号（丸・三角・四角・バツ・下駄記号）。
+# U+3007(〇 漢数字ゼロ) は NFKC で ◯/○ に正規化されないため個別に含める。
+_PLACEHOLDER_SHAPE_CHARS = "◯○〇△▲▽▼□■×✕✖＊*〓"
 _FRAGMENT_TRAILING_CONNECTIVES = ("ので", "ため", "て", "で")
 
 
@@ -521,7 +524,7 @@ def _is_unresolved_placeholder_excerpt(text: str) -> bool:
         return False
     if _has_valid_tilde_usage(normalized):
         return False
-    if re.search(r"[◯○]{2,}", normalized):
+    if re.search(rf"[{re.escape(_PLACEHOLDER_SHAPE_CHARS)}]{{2,}}", normalized):
         return True
     if re.search(r"(?<![A-Za-z0-9])X{3,}(?![A-Za-z0-9])", normalized, re.IGNORECASE):
         return True

@@ -2937,6 +2937,25 @@
         return Array.from(groups.values());
       }
 
+      function packKindDisplayName(kind) {
+        if (kind === "document") return "document";
+        if (kind === "quiz") return "quiz";
+        return kind || "-";
+      }
+
+      function packOrdinal(pack, fallbackIndex = null) {
+        const source = String(pack?.logicalId || pack?.packName || "");
+        const match = source.match(/(?:^|_)(\d+)(?:\.[a-z0-9]+)?$/i);
+        if (match) return String(Number(match[1]));
+        return Number.isInteger(fallbackIndex) ? String(fallbackIndex + 1) : "";
+      }
+
+      function packButtonLabel(pack, fallbackIndex = null) {
+        const kindLabel = packKindDisplayName(pack?.kind || "");
+        const ordinal = packOrdinal(pack, fallbackIndex);
+        return ordinal ? `${kindLabel} ${ordinal}` : kindLabel;
+      }
+
       function renderPackList() {
         const groups = groupPacks(currentPacks);
         $("packList").innerHTML = groups.length
@@ -2945,10 +2964,10 @@
                 <div class="pack-option-main">
                   <strong class="pack-option-title" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}</strong>
                   <p class="muted pack-option-detail">revision ${escapeHtml(group.revision || "-")} / ${escapeHtml(group.contentId || "")}</p>
-                  <p class="muted pack-option-detail" title="${escapeHtml(group.packs.map((pack) => `${pack.title || pack.packName} (${pack.kind})`).join(" / "))}">${group.packs.map((pack) => `${escapeHtml(pack.title || pack.packName)} (${escapeHtml(pack.kind)})`).join(" / ")}</p>
+                  <p class="muted pack-option-detail" title="${escapeHtml(group.packs.map((pack, index) => `${pack.title || pack.packName} (${packButtonLabel(pack, index)})`).join(" / "))}">${group.packs.map((pack, index) => `${escapeHtml(pack.title || pack.packName)} (${escapeHtml(packButtonLabel(pack, index))})`).join(" / ")}</p>
                 </div>
                 <div class="actions">
-                  ${group.packs.map((pack) => `<button type="button" class="${packIdentityMatches(pack, selectedPack, false) ? "" : "secondary"}" data-pack-url="${escapeHtml(pack.url || "")}" data-pack-key="${escapeHtml(pack.contentId + "::" + pack.packName)}">${escapeHtml(pack.kind)}</button>`).join("")}
+                  ${group.packs.map((pack, index) => `<button type="button" class="${packIdentityMatches(pack, selectedPack, false) ? "" : "secondary"}" data-pack-url="${escapeHtml(pack.url || "")}" data-pack-key="${escapeHtml(pack.contentId + "::" + pack.packName)}">${escapeHtml(packButtonLabel(pack, index))}</button>`).join("")}
                   <button type="button" class="danger-btn" data-delete-prefix="${escapeHtml(group.storagePrefix || "")}" data-delete-title="${escapeHtml(group.title)}">削除</button>
                 </div>
               </article>

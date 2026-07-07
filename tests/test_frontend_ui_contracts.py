@@ -147,6 +147,23 @@ def test_pack_modal_places_import_next_to_refresh() -> None:
     assert '$("importPackBtn").textContent = next ? "インポートを閉じる" : "インポート";' in html
 
 
+def test_pack_modal_buttons_show_file_order() -> None:
+    html = _html()
+
+    start = html.index("function packKindDisplayName(")
+    end = html.index("function findPackFromButton(", start)
+    pack_html = html[start:end]
+
+    assert 'function packOrdinal(pack, fallbackIndex = null)' in pack_html
+    assert 'const source = String(pack?.logicalId || pack?.packName || "");' in pack_html
+    assert r'const match = source.match(/(?:^|_)(\d+)(?:\.[a-z0-9]+)?$/i);' in pack_html
+    assert 'return Number.isInteger(fallbackIndex) ? String(fallbackIndex + 1) : "";' in pack_html
+    assert 'function packButtonLabel(pack, fallbackIndex = null)' in pack_html
+    assert 'return ordinal ? `${kindLabel} ${ordinal}` : kindLabel;' in pack_html
+    assert 'group.packs.map((pack, index) => `${pack.title || pack.packName} (${packButtonLabel(pack, index)})`).join(" / ")' in pack_html
+    assert '${escapeHtml(packButtonLabel(pack, index))}</button>' in pack_html
+
+
 def test_multilingual_language_settings_are_hidden_and_synced_by_mode() -> None:
     html = _html()
 

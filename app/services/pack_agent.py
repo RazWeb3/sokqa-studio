@@ -459,7 +459,7 @@ def _collect_prompt_records() -> list[DebugPromptRecordSchema]:
 
 
 def _needs_generation_repair(validation) -> bool:
-    return (not validation.valid) or any(_is_repairable_generation_warning(error) for error in validation.errors)
+    return not validation.valid
 
 
 def _is_repairable_generation_warning(error) -> bool:

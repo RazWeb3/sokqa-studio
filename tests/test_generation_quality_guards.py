@@ -823,10 +823,11 @@ def test_quiz_validator_warns_for_regular_answer_index_cycle() -> None:
 def test_quiz_repair_instructions_include_answer_index_consistency() -> None:
     assert "answerIndex points to the single correct choice" in QUIZ_REPAIR_INSTRUCTIONS
     assert "explanation explains the choice at answerIndex" in QUIZ_REPAIR_INSTRUCTIONS
-    assert "citation/hearsay wording" in QUIZ_REPAIR_INSTRUCTIONS
+    assert "Do not rewrite learner-facing natural language with string replacement" in QUIZ_REPAIR_INSTRUCTIONS
+    assert "Citation/hearsay wording must be handled at generation time" in QUIZ_REPAIR_INSTRUCTIONS
 
 
-def test_generation_repair_runs_for_citation_style_warning(monkeypatch) -> None:
+def test_generation_does_not_repair_for_citation_style_warning(monkeypatch) -> None:
     plan = _plan()
     plan.enableTtsOptimize = False
     bad_quiz = SokqaQuizPack(
@@ -854,47 +855,12 @@ def test_generation_repair_runs_for_citation_style_warning(monkeypatch) -> None:
 
     generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
 
-    assert calls["repair"] == 1
+    assert calls["repair"] == 0
     assert generated.validation.valid is True
     quiz_file = next(file for file in generated.files if file.kind == "quiz")
     explanation = quiz_file.content["questions"][0]["explanation"]
-    assert "ドキュメントによると" not in explanation
-    assert "推奨されています" not in explanation
-
-
-def test_generation_repair_limit_keeps_generation_successful_when_warning_remains(monkeypatch, caplog) -> None:
-    plan = _plan()
-    plan.enableTtsOptimize = False
-    bad_quiz = SokqaQuizPack(
-        id="quality_pack_quiz_01",
-        title="確認クイズ",
-        questions=[
-            {
-                "id": "q-1",
-                "question": "安全なパスワード管理として適切なものはどれですか？",
-                "choices": ["短い共通語を使う", "使い回す", "長く一意なものを使う", "保存しない"],
-                "answerIndex": 2,
-                "explanation": "ドキュメントによると、長く一意なパスワードが推奨されています。",
-            }
-        ],
-    )
-    calls = {"repair": 0}
-
-    def no_op_repair(files):
-        calls["repair"] += 1
-        return files
-
-    monkeypatch.setattr(pack_agent, "generate_document_pack", lambda *_args, **_kwargs: _source_pack())
-    monkeypatch.setattr(pack_agent, "generate_quiz_pack", lambda *_args, **_kwargs: bad_quiz)
-    monkeypatch.setattr(pack_agent, "repair_files", no_op_repair)
-
-    with caplog.at_level(logging.WARNING, logger="app.services.pack_agent"):
-        generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
-
-    assert calls["repair"] == 1
-    assert generated.validation.valid is True
-    assert any(error.severity == "warning" for error in generated.validation.errors)
-    assert "generation repair warning remains after repair" in caplog.text
+    assert explanation == "ドキュメントによると、長く一意なパスワードが推奨されています。"
+    assert any(error.severity == "warning" and "citation-style wording" in error.message for error in generated.validation.errors)
 
 
 def test_generation_does_not_repair_clean_quiz(monkeypatch) -> None:
@@ -1493,15 +1459,13 @@ def test_quiz_generation_log_records_unit_id_and_fingerprints(caplog) -> None:
     assert "explanation_fingerprint=" in caplog.text
 
 
-def test_repairer_logs_citation_style_rewrite_before_after(caplog) -> None:
-    """repair_files が「記載されています」を含む text を通過したとき before/after がログに出ること、
-    対応する置換が無い text ではログが出ないことを検証。
-    q-30 経路ではなく、repairer 段階の追跡手段が機能することを担保する。"""
+def test_repairer_preserves_natural_language_and_repairs_structure(caplog) -> None:
+    """repair_files は自然文を書き換えず、構造修復だけを行うことを検証。"""
     caplog.set_level("INFO", logger="app.services.repairer")
     from app.schemas.sokqa import GeneratedFile
     from app.services.repairer import repair_files
 
-    quiz_file_rewritten = GeneratedFile(
+    quiz_file = GeneratedFile(
         name="quiz_repair_01.json",
         kind="quiz",
         content={
@@ -1513,19 +1477,52 @@ def test_repairer_logs_citation_style_rewrite_before_after(caplog) -> None:
             "questions": [
                 {
                     "id": "q-1",
-                    "question": "これは記載されている通りです。",
-                    "choices": ["a", "b", "c", "d"],
-                    "answerIndex": 0,
+                    "question": "有効だと記載されていますか？",
+                    "choices": ["a", "b"],
+                    "answerIndex": 9,
                     "explanation": "資料によると推奨されています。",
                 }
             ],
         },
     )
-    quiz_file_unchanged = GeneratedFile(
-        name="quiz_repair_02.json",
+
+    repaired = repair_files([quiz_file])
+
+    question = repaired[0].content["questions"][0]
+    assert question["question"] == "有効だと記載されていますか？"
+    assert question["explanation"] == "資料によると推奨されています。"
+    assert question["choices"] == ["a", "b", "補足選択肢3", "補足選択肢4"]
+    assert question["answerIndex"] == 0
+    assert "repair.citation_style_rewritten" not in caplog.text
+
+
+def test_repairer_never_rewrites_natural_language_fields() -> None:
+    """repairer は自然文を変更せず、必要な構造修復だけを行う。"""
+    intact_quiz = GeneratedFile(
+        name="quiz_repair_intact.json",
         kind="quiz",
         content={
-            "id": "repair_test_quiz_unchanged",
+            "id": "repair_test_quiz_intact",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "確認",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "有効だと記載されていますか？",
+                    "choices": ["A", "B", "C", "D"],
+                    "answerIndex": 1,
+                    "explanation": "資料には有効だと記載されています。",
+                }
+            ],
+        },
+    )
+    broken_quiz = GeneratedFile(
+        name="quiz_repair_broken.json",
+        kind="quiz",
+        content={
+            "id": "repair_test_quiz_broken",
             "type": "quiz",
             "schemaVersion": 1,
             "title": "確認",
@@ -1533,25 +1530,25 @@ def test_repairer_logs_citation_style_rewrite_before_after(caplog) -> None:
             "questions": [
                 {
                     "id": "q-2",
-                    "question": "これは普通の文です。",
-                    "choices": ["a", "b", "c", "d"],
-                    "answerIndex": 0,
-                    "explanation": "普通の解説です。",
+                    "question": "有効だと記載されていますか？",
+                    "choices": ["A", "B", "C"],
+                    "answerIndex": 9,
+                    "explanation": "資料には有効だと記載されています。",
                 }
             ],
         },
     )
 
-    repair_files([quiz_file_rewritten, quiz_file_unchanged])
+    repaired_intact, repaired_broken = repair_files([intact_quiz, broken_quiz])
 
-    # rewrite される側は before/after が記録される(explanation が置換対象で「資料によると」含む)
-    assert "repair.citation_style_rewritten" in caplog.text
-    assert "file=quiz_repair_01.json" in caplog.text
-    assert "unit_id=q-1" in caplog.text
-    assert "explanation" in caplog.text
-    assert "before=" in caplog.text
-    assert "after=" in caplog.text
-    # rewrite されない側には記録が残らない("普通の文です" では記録されない)は assert しない(副作用の細部は実装追認回避のため)
-    # 代わりに q-2 関連の行が出ないことのみ確認し、過度な assert を避ける
-    q2_lines = [record.message for record in caplog.records if "unit_id=q-2" in record.message]
-    assert q2_lines == []
+    intact_question = repaired_intact.content["questions"][0]
+    assert intact_question["question"] == "有効だと記載されていますか？"
+    assert intact_question["choices"] == ["A", "B", "C", "D"]
+    assert intact_question["answerIndex"] == 1
+    assert intact_question["explanation"] == "資料には有効だと記載されています。"
+
+    broken_question = repaired_broken.content["questions"][0]
+    assert broken_question["question"] == "有効だと記載されていますか？"
+    assert broken_question["explanation"] == "資料には有効だと記載されています。"
+    assert broken_question["choices"] == ["A", "B", "C", "補足選択肢4"]
+    assert broken_question["answerIndex"] == 0

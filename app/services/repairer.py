@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from app.schemas.sokqa import GeneratedFile, SokqaDocumentPack, SokqaQuizPack
 
@@ -11,44 +12,16 @@ Repair quiz JSON conservatively.
 - Check that each answerIndex points to the single correct choice.
 - Check that each explanation explains the choice at answerIndex, not another choice.
 - If answerIndex, choices, and explanation are inconsistent, prefer rewriting explanation to match the correct choice; change answerIndex only when clearly necessary.
-- Rewrite citation/hearsay wording such as "ドキュメントでは", "ドキュメントによると", "資料によると", "記載されています", "述べられています", "書かれています", and "推奨されています" into direct learner-facing Japanese.
+- Do not rewrite learner-facing natural language with string replacement. Citation/hearsay wording must be handled at generation time and reported by validation only.
 - Do not change the learning content, correct answer, or choice order when fixing style.
 """.strip()
-
-CITATION_STYLE_REPLACEMENTS = (
-    ("ドキュメントでは、", ""),
-    ("ドキュメントでは", ""),
-    ("ドキュメントによると、", ""),
-    ("ドキュメントによると", ""),
-    ("資料によると、", ""),
-    ("資料によると", ""),
-    ("と記載されています", "です"),
-    ("記載されています", "説明できます"),
-    ("と述べられています", "です"),
-    ("述べられています", "説明できます"),
-    ("と書かれています", "です"),
-    ("書かれています", "説明できます"),
-    ("推奨されています", "適しています"),
-)
 
 
 def repair_files(files: list[GeneratedFile]) -> list[GeneratedFile]:
     repaired: list[GeneratedFile] = []
     for file in files:
         if file.kind == "quiz":
-            pack = SokqaQuizPack.model_validate(file.content)
-            for question in pack.questions:
-                while len(question.choices) < 4:
-                    question.choices.append(f"補足選択肢{len(question.choices) + 1}")
-                question.choices = question.choices[:4]
-                if question.answerIndex < 0 or question.answerIndex > 3:
-                    question.answerIndex = 0
-                question.question = _rewrite_and_log_citation_style(file.name, question.id, "question", question.question)
-                question.choices = [
-                    _rewrite_and_log_citation_style(file.name, question.id, f"choices[{index}]", choice)
-                    for index, choice in enumerate(question.choices)
-                ]
-                question.explanation = _rewrite_and_log_citation_style(file.name, question.id, "explanation", question.explanation)
+            pack = SokqaQuizPack.model_validate(_normalize_quiz_content_for_repair(file.content))
             file.content = pack.model_dump(exclude_none=True)
         elif file.kind == "document":
             pack = SokqaDocumentPack.model_validate(file.content)
@@ -58,22 +31,29 @@ def repair_files(files: list[GeneratedFile]) -> list[GeneratedFile]:
     return repaired
 
 
-def _rewrite_and_log_citation_style(file_name: str, unit_id: str, field: str, text: str) -> str:
-    after = rewrite_citation_style(text)
-    if after != text:
-        logger.info(
-            "repair.citation_style_rewritten file=%s unit_id=%s field=%s before=%r after=%r",
-            file_name,
-            unit_id,
-            field,
-            text,
-            after,
-        )
-    return after
+def _normalize_quiz_content_for_repair(content: Any) -> Any:
+    if not isinstance(content, dict):
+        return content
+    normalized = dict(content)
+    raw_questions = normalized.get("questions")
+    if not isinstance(raw_questions, list):
+        return normalized
 
-
-def rewrite_citation_style(text: str) -> str:
-    repaired = text
-    for old, new in CITATION_STYLE_REPLACEMENTS:
-        repaired = repaired.replace(old, new)
-    return repaired.strip()
+    normalized_questions: list[Any] = []
+    for raw_question in raw_questions:
+        if not isinstance(raw_question, dict):
+            normalized_questions.append(raw_question)
+            continue
+        question = dict(raw_question)
+        choices = question.get("choices")
+        if isinstance(choices, list):
+            normalized_choices = list(choices[:4])
+            while len(normalized_choices) < 4:
+                normalized_choices.append(f"補足選択肢{len(normalized_choices) + 1}")
+            question["choices"] = normalized_choices
+        answer_index = question.get("answerIndex")
+        if not isinstance(answer_index, int) or answer_index < 0 or answer_index > 3:
+            question["answerIndex"] = 0
+        normalized_questions.append(question)
+    normalized["questions"] = normalized_questions
+    return normalized

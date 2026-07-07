@@ -78,7 +78,8 @@ def test_quiz_generation_prompt_forbids_square_bracket_placeholders() -> None:
     prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
 
     assert "Placeholder policy (strict):" in prompt
-    assert "Do not leave unresolved placeholder tokens in learner-facing text" in prompt
+    assert "Do not leave masked-name notation or unresolved placeholder symbols in learner-facing text" in prompt
+    assert "resolve it into a natural context-appropriate concrete detail instead of placeholder notation" in prompt
     assert 'This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo"' in prompt
     assert "If a fill-in-the-blank exercise is intentionally required" in prompt
     assert "Do not use full-width spaces as blanks." in prompt
@@ -1215,6 +1216,10 @@ def test_learner_facing_role_block_suppresses_third_person_perspective() -> None
     assert "客観描写" in role_block or "客観報告" in role_block
     # 話者が学習者に直接語る姿勢が明示されていること
     assert "直接語る" in role_block or "直接・断定的に語る" in role_block
+    # 伏せ字抑制も話者ロールとして定義されていること
+    assert "完成教材を録音・公開する話し手" in role_block
+    assert "仮置きの記号" in role_block
+    assert "伏せ字へ逃げず" in role_block
 
 
 def test_learner_facing_role_block_is_single_source_of_truth_for_ab_policy() -> None:

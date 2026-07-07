@@ -324,6 +324,8 @@ def _learner_facing_role_block() -> str:
 学習者向け本文・設問・解説は、第三者視点の客観描写や資料報告ではなく、話者が学習者に直接語る形式で書くこと。
 - 事実は事実として断定的に述べ、伝聞・引用調・軟化表現は使わない。話者自身が責任を持って断言する姿勢で書くこと。
 - 伝聞・引用調の代表語彙（「〜とされています」「〜と説明されています」「資料によると」「記載されています」「述べられています」「書かれています」「推奨されています」「ドキュメントでは」「ドキュメントによると」等）は使わない。本文・設問・解説のいずれにも出現させないこと。
+- あなたは完成教材を録音・公開する話し手であり、聞き手に届く文章に仮置きの記号（〇〇・△△・××・□□・株式会社〇〇・〇〇様 等）を残さない。
+- 会社名・氏名・部署名・日付など具体が必要な場面では、文脈にふさわしい自然な具体名を自分で定めて語る。具体が思い浮かばないことを理由に伏せ字へ逃げず、同じ固定名を使い回さず、その都度文脈に合った名前を選ぶこと。
 - 学習者に直接・断定的に語ることを前提とし、資料を客観報告する第三者視点の文章で逃げないこと。
 """.strip()
 
@@ -401,7 +403,8 @@ def _document_quality_rules_block(plan: CoursePlan, global_tags: str) -> str:
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
 - Placeholder policy (strict):
-  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - Do not leave masked-name notation or unresolved placeholder symbols in learner-facing text, including 〇〇, ◯◯, △△, ××, □□, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - When a company, person, department, date, or other concrete detail is needed, resolve it into a natural context-appropriate concrete detail instead of placeholder notation.
   - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
   - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
   - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
@@ -420,7 +423,8 @@ def _quiz_quality_rules_block(plan: CoursePlan, global_tags: str) -> str:
 - globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 - Placeholder policy (strict):
-  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - Do not leave masked-name notation or unresolved placeholder symbols in learner-facing text, including 〇〇, ◯◯, △△, ××, □□, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - When a company, person, department, date, or other concrete detail is needed, resolve it into a natural context-appropriate concrete detail instead of placeholder notation.
   - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
   - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
   - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.

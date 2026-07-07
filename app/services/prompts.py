@@ -33,6 +33,10 @@ def _selected_reading_patterns_block(plan: CoursePlan) -> str:
     return "\n\n" + "\n".join(lines)
 
 
+def _join_non_empty_blocks(*blocks: str) -> str:
+    return "\n".join(block for block in blocks if block)
+
+
 def _structure_policy_block(plan: CoursePlan) -> str:
     structure_policy = plan.structurePolicy
     if structure_policy == "standard":
@@ -324,6 +328,112 @@ def _learner_facing_role_block() -> str:
 """.strip()
 
 
+def _quiz_teacher_role_block() -> str:
+    return """
+# 出題者の役割（quiz 固有）
+あなたはこの教材の内容を教える講師・出題者である。
+- 解説(explanation)は、なぜその選択肢が正解なのかを講師が自分の言葉で説明するものである。quiz context を根拠としつつ、本文の要約や引用に留めず、事実は事実として断言すること。
+- 諸説ある論点や流派差のある曖昧な事柄は出題を避け、確実に断言できる内容から選んで出題すること。出題数を無理に減らす必要はなく、断言できる論点は十分にあるので、そこから選ぶこと。
+""".strip()
+
+
+def _course_teaching_guidance_block(plan: CoursePlan) -> str:
+    return _join_non_empty_blocks(
+        _structure_policy_block(plan),
+        _material_mode_block(plan),
+        _japanese_learning_difficulty_block(plan),
+        _generation_guidance_block(plan),
+    )
+
+
+def _document_teaching_guidance_rules_block(plan: CoursePlan) -> str:
+    text_length_rule = (
+        "- Each text should be 3 to 6 sentences in the pack language when needed for a flowing spoken explanation; connect it to the surrounding sections."
+        if plan.structurePolicy == "listening"
+        else "- Each text should be 2 to 4 sentences in the pack language for listening study."
+    )
+    listening_rule = (
+        "- For structurePolicy listening, avoid starting sections with a term name followed by its definition; write as an ongoing explanation with context and transitions.\n"
+        "- この本文は音声で聞き流される。あなたは書き手ではなく話し手・語り手として、耳で聞いて理解できるように、自分の言葉で直接語ること。"
+        if plan.structurePolicy == "listening"
+        else ""
+    )
+    documents_flow_rule = "- The documents[] array should follow the document's key points in order."
+    if listening_rule:
+        documents_flow_rule = f"{documents_flow_rule}\n{listening_rule}"
+    return _join_non_empty_blocks(
+        _ruby_policy_block(plan),
+        "- Each text must be real explanatory learning content, not just a title or label.",
+        text_length_rule,
+        documents_flow_rule,
+        "- Do not copy existing learning materials verbatim.",
+    )
+
+
+def _quiz_integration_teaching_guidance_block(quiz_pack: PlanQuizPack) -> str:
+    if quiz_pack.purpose != "integrated_review":
+        return ""
+    return """
+- This is the integrated quiz pack. Do not create simple knowledge-check questions that can be answered within a single document.
+- Limit questions to integrated, applied, or practical scenario questions that connect multiple documents or fields.
+- Avoid repeating the same topics, angles, or issues covered by the range-specific quiz packs.
+""".strip()
+
+
+def _quiz_teaching_guidance_rules_block(plan: CoursePlan, quiz_pack: PlanQuizPack) -> str:
+    return _join_non_empty_blocks(
+        _ruby_policy_block(plan),
+        "- Every question and explanation must be grounded in the quiz context.",
+        "- Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.",
+        "- Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.",
+        "- Write directly for learners. Hearsay/citation wording suppression for question, choices, and explanation (all learner-facing quiz fields) is defined by the learner-facing role block below; do not duplicate that policy here.",
+        "- Write question as a natural finished question for learners.",
+        '- For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it. Avoid phrases such as "本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている".',
+        "- Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work, and keep it brief.",
+        "- This suppression applies only to question. Do not change TTS fields or answer-checking logic.",
+        "- Do not copy existing exam questions verbatim.",
+        _quiz_integration_teaching_guidance_block(quiz_pack),
+    )
+
+
+def _document_quality_rules_block(plan: CoursePlan, global_tags: str) -> str:
+    return f"""
+- globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
+- Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
+- Placeholder policy (strict):
+  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
+  - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
+  - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
+  - Language tagging belongs only to the later TTS optimization step, never to documents[].text.
+- Pack-language purity (strict):
+  - Learner-facing sentences must be written in the pack language ({plan.language}).
+  - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
+  - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
+- {_finished_quality_block()[2:]}
+{_json_output_rules_block()}
+""".strip()
+
+
+def _quiz_quality_rules_block(plan: CoursePlan, global_tags: str) -> str:
+    return f"""
+- globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
+- Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
+- Placeholder policy (strict):
+  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
+  - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
+  - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
+  - Language tagging belongs only to the later TTS optimization step, never to question, choices, or explanation.
+- Pack-language purity (strict):
+  - Learner-facing sentences must be written in the pack language ({plan.language}).
+  - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
+  - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
+- {_finished_quality_block()[2:]}
+{_json_output_rules_block()}
+""".strip()
+
+
 def _quiz_context_block(plan: CoursePlan, source_documents: list[SokqaDocumentPack]) -> str:
     document_context = "\n".join(
         f"- {doc.title}: " + " ".join(item.text for item in doc.documents[:5])
@@ -370,28 +480,10 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     source_block = source_prompt_block(plan.sourceText, plan.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
     reading_policy_section = _selected_reading_patterns_block(plan)
-    structure_policy = _structure_policy_block(plan)
-    ruby_policy = _ruby_policy_block(plan)
-    material_policy = _material_mode_block(plan)
-    japanese_learning_policy = _japanese_learning_difficulty_block(plan)
-    generation_guidance = _generation_guidance_block(plan)
     custom_instructions = _custom_instructions_block(plan)
     root_id = document_pack_id(plan, document)
     global_tags = json.dumps(document_global_tags(plan, document), ensure_ascii=False)
-    text_length_rule = (
-        "- Each text should be 3 to 6 sentences in the pack language when needed for a flowing spoken explanation; connect it to the surrounding sections."
-        if plan.structurePolicy == "listening"
-        else "- Each text should be 2 to 4 sentences in the pack language for listening study."
-    )
-    listening_rule = (
-        "\n- For structurePolicy listening, avoid starting sections with a term name followed by its definition; write as an ongoing explanation with context and transitions."
-        "\n- この本文は音声で聞き流される。あなたは書き手ではなく話し手・語り手として、耳で聞いて理解できるように、自分の言葉で直接語ること。"
-        if plan.structurePolicy == "listening"
-        else ""
-    )
-    return f"""Create one Sokqa document JSON.
-
-Rules:
+    generation_instruction = f"""
 - Return strict JSON only.
 - type must be "document".
 - schemaVersion must be 1.
@@ -403,34 +495,23 @@ Rules:
 - Each documents[] item must have text only.
 - Do not output tts in the first document generation step.
 - Do not output tags in document items.
-- globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
-- Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
-{ruby_policy}
-- Placeholder policy (strict):
-  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
-  - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
-  - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
-  - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
-  - Language tagging belongs only to the later TTS optimization step, never to documents[].text.
-- Pack-language purity (strict):
-  - Learner-facing sentences must be written in the pack language ({plan.language}).
-  - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
-  - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
-- {_finished_quality_block()[2:]}
-- Each text must be real explanatory learning content, not just a title or label.
-- {text_length_rule[2:]}
-- The documents[] array should follow the document's key points in order.{listening_rule}
-- Do not copy existing learning materials verbatim.
-{_json_output_rules_block()}
+""".strip()
+    quality_rules = _document_quality_rules_block(plan, global_tags)
+    teaching_guidance_rules = _document_teaching_guidance_rules_block(plan)
+    course_teaching_guidance = _course_teaching_guidance_block(plan)
+    teaching_guidance_role = _learner_facing_role_block()
+    return f"""Create one Sokqa document JSON.
+
+Rules:
+{generation_instruction}
+{quality_rules}
+{teaching_guidance_rules}
 
 Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
 - difficulty: {plan.difficulty}
-{structure_policy}
-{material_policy}
-{japanese_learning_policy}
-{generation_guidance}
+{course_teaching_guidance}
 {custom_instructions}
 {reading_policy_section}
 {source_section}
@@ -461,7 +542,7 @@ Required JSON shape:
   ]
 }}
 
-{_learner_facing_role_block()}
+{teaching_guidance_role}
 
 {self_check_block()}
 """
@@ -474,11 +555,6 @@ def quiz_generation_prompt(
 ) -> str:
     quiz_context = _quiz_context_block(plan, source_documents)
     reading_policy_section = _selected_reading_patterns_block(plan)
-    structure_policy = _structure_policy_block(plan)
-    ruby_policy = _ruby_policy_block(plan)
-    material_policy = _material_mode_block(plan)
-    japanese_learning_policy = _japanese_learning_difficulty_block(plan)
-    generation_guidance = _generation_guidance_block(plan)
     custom_instructions = _custom_instructions_block(plan)
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
@@ -496,16 +572,7 @@ def quiz_generation_prompt(
             f"- Choose either the pack language ({plan.language}) or learning language ({learning_language}) per question. "
             "All four choices within one question must use the same chosen language. Never mix languages inside one four-choice set."
         )
-    integration_rules = ""
-    if quiz_pack.purpose == "integrated_review":
-        integration_rules = """
-- This is the integrated quiz pack. Do not create simple knowledge-check questions that can be answered within a single document.
-- Limit questions to integrated, applied, or practical scenario questions that connect multiple documents or fields.
-- Avoid repeating the same topics, angles, or issues covered by the range-specific quiz packs.
-"""
-    return f"""Create one Sokqa quiz JSON from the provided quiz context.
-
-Rules:
+    generation_instruction = f"""
 - Return strict JSON only.
 - type must be "quiz".
 - schemaVersion must be 1.
@@ -525,46 +592,27 @@ Rules:
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
 - Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
 - Do not output tts in the first quiz generation step.
-- globalTags must use this exact maximum-3 list in the pack language: {global_tags}.
-- Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
-{ruby_policy}
-- Placeholder policy (strict):
-  - Do not leave unresolved placeholder tokens in learner-facing text, including stray 〜, ◯◯, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
-  - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
-  - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
-  - Do not use any square-bracket tag or code such as [en-US], [ja-JP], en-US, or ja-JP in learner-facing text.
-  - Language tagging belongs only to the later TTS optimization step, never to question, choices, or explanation.
-- Pack-language purity (strict):
-  - Learner-facing sentences must be written in the pack language ({plan.language}).
-  - Do not leave untranslated foreign words inside pack-language sentences (example of forbidden raw word in Japanese: nuanced).
-  - If a non-pack-language learning phrase is included, write it as plain learner-facing text without any language tag or language code.
-- {_finished_quality_block()[2:]}
-- Every question and explanation must be grounded in the quiz context.
-- Even if the quiz context contains unresolved placeholders, do not copy them as-is. Resolve them into finished content, or convert them to language-appropriate blanks only when the intended exercise format is fill-in-the-blank.
-- Ground content in the quiz context, but do not mention the source or documents in learner-facing text, including sourceText or material labels.
-- Write directly for learners. Hearsay/citation wording suppression for question, choices, and explanation (all learner-facing quiz fields) is defined by the learner-facing role block below; do not duplicate that policy here.
-- Write question as a natural finished question for learners.
-- For question only, suppress mechanical or redundant document-reference wording when the question works naturally without it. Avoid phrases such as "本文中で述べられている", "本文中で指摘されている", and "本文中で挙げられている".
-- Keep such wording only when explicitly pointing to the source basis is indispensable for the question to work, and keep it brief.
-- This suppression applies only to question. Do not change TTS fields or answer-checking logic.
-- Do not copy existing exam questions verbatim.
-{_json_output_rules_block()}
-{integration_rules}
+""".strip()
+    quality_rules = _quiz_quality_rules_block(plan, global_tags)
+    teaching_guidance_rules = _quiz_teaching_guidance_rules_block(plan, quiz_pack)
+    course_teaching_guidance = _course_teaching_guidance_block(plan)
+    teaching_guidance_role = _join_non_empty_blocks(
+        _quiz_teacher_role_block(),
+        _learner_facing_role_block(),
+    )
+    return f"""Create one Sokqa quiz JSON from the provided quiz context.
 
-# 出題者の役割（quiz 固有）
-あなたはこの教材の内容を教える講師・出題者である。
-- 解説(explanation)は、なぜその選択肢が正解なのかを講師が自分の言葉で説明するものである。quiz context を根拠としつつ、本文の要約や引用に留めず、事実は事実として断言すること。
-- 諸説ある論点や流派差のある曖昧な事柄は出題を避け、確実に断言できる内容から選んで出題すること。出題数を無理に減らす必要はなく、断言できる論点は十分にあるので、そこから選ぶこと。
+Rules:
+{generation_instruction}
+{quality_rules}
+{teaching_guidance_rules}
 
-{_learner_facing_role_block()}
+{teaching_guidance_role}
 
 Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
-{structure_policy}
-{material_policy}
-{japanese_learning_policy}
-{generation_guidance}
+{course_teaching_guidance}
 {custom_instructions}
 {reading_policy_section}
 

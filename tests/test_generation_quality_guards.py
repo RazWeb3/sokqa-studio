@@ -12,6 +12,8 @@ from app.services.prompts import (
     _compose_generation_purpose,
     _generation_guidance_block,
     _learner_facing_role_block,
+    _quiz_teacher_role_block,
+    _quiz_teaching_guidance_rules_block,
     document_generation_prompt,
     quiz_generation_prompt,
     self_check_block,
@@ -1186,6 +1188,23 @@ def test_learner_facing_role_block_suppresses_third_person_perspective() -> None
     assert "完成教材を録音・公開する話し手" in role_block
     assert "仮置きの記号" in role_block
     assert "伏せ字へ逃げず" in role_block
+
+
+def test_learner_facing_role_block_guides_quiz_question_as_teacher_question_only() -> None:
+    role_block = _learner_facing_role_block()
+
+    assert "quiz の question は、教師が学習者へ直接問いかける文にすること。" in role_block
+    assert "question では、教材・本文・資料そのものを説明してはいけない。" in role_block
+    assert "question では、教材内容を引用・要約・紹介する文を書いてはいけない。" in role_block
+    assert "「〜と説明されています」「〜とされています」「〜と述べられています」「本文では〜」「資料では〜」" in role_block
+
+    plan = _plan()
+    teacher_block = _quiz_teacher_role_block()
+    guidance_block = _quiz_teaching_guidance_rules_block(plan, plan.quizPacks[0])
+    assert "教師が学習者へ直接問いかける文にする" not in teacher_block
+    assert "教師が学習者へ直接問いかける文にする" not in guidance_block
+    assert "教材内容を引用・要約・紹介する文" not in teacher_block
+    assert "教材内容を引用・要約・紹介する文" not in guidance_block
 
 
 def test_learner_facing_role_block_is_single_source_of_truth_for_ab_policy() -> None:

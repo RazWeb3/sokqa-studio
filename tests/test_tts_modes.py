@@ -4,6 +4,7 @@ from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import (
+    MAX_TTS_FILE_CHARS,
     _guard_llm_text,
     _mode_or_default,
     _normalize_language_tag_markup,
@@ -210,6 +211,51 @@ def _ai_quiz_file() -> GeneratedFile:
                     "answerIndex": 0,
                     "explanation": "AI の出力は業務要件や責任分担と照らして確認します。",
                 }
+            ],
+        },
+    )
+
+
+def _sized_document_file(lengths: list[int]) -> GeneratedFile:
+    return GeneratedFile(
+        name="doc_sized.json",
+        kind="document",
+        content={
+            "id": "pack_doc_sized",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "長文文書",
+            "language": "ja",
+            "documents": [
+                {
+                    "id": f"doc-{index}",
+                    "text": "あ" * length,
+                }
+                for index, length in enumerate(lengths, start=1)
+            ],
+        },
+    )
+
+
+def _sized_quiz_file(lengths: list[int]) -> GeneratedFile:
+    return GeneratedFile(
+        name="quiz_sized.json",
+        kind="quiz",
+        content={
+            "id": "pack_quiz_sized",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "長文クイズ",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": f"q-{index}",
+                    "question": "あ" * length,
+                    "choices": ["選択肢A", "選択肢B", "選択肢C", "選択肢D"],
+                    "answerIndex": 0,
+                    "explanation": "解説です。",
+                }
+                for index, length in enumerate(lengths, start=1)
             ],
         },
     )
@@ -491,6 +537,60 @@ def test_llm_mode_omits_matching_document_tts_and_keeps_changed_document_tts(mon
 
     assert "tts" not in docs[0]
     assert docs[1]["tts"]["text"] == "エーアイ の出力を確認します。"
+
+
+def test_llm_document_processes_one_file_in_one_call_within_20000_chars(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = _sized_document_file([MAX_TTS_FILE_CHARS - 7000, 6000])
+    calls: list[str] = []
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        calls.append(prompt)
+        return {
+            "items": [
+                {"id": document["id"], "text": "ヨミ"}
+                for document in file.content["documents"]
+                if f'- id: {document["id"]}' in prompt
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [], mode="llm")
+    documents = files[0].content["documents"]
+
+    assert len(calls) == 1
+    assert [document["id"] for document in documents] == ["doc-1", "doc-2"]
+    assert {document["id"] for document in documents if "tts" in document} == {"doc-1", "doc-2"}
+    assert report.llmGeneratedIds == ["doc-1", "doc-2"]
+
+
+def test_llm_document_splits_only_above_20000_chars_and_preserves_ids(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = _sized_document_file([9000, 9000, 3000])
+    calls: list[str] = []
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        calls.append(prompt)
+        return {
+            "items": [
+                {"id": document["id"], "text": "ヨミ"}
+                for document in file.content["documents"]
+                if f'- id: {document["id"]}' in prompt
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [], mode="llm")
+    documents = files[0].content["documents"]
+
+    assert len(calls) == 2
+    assert [document["id"] for document in documents] == ["doc-1", "doc-2", "doc-3"]
+    assert {document["id"] for document in documents if "tts" in document} == {"doc-1", "doc-2", "doc-3"}
+    assert report.llmGeneratedIds == ["doc-1", "doc-2", "doc-3"]
 
 
 def test_llm_prompt_keeps_original_punctuation_instruction() -> None:
@@ -1023,6 +1123,62 @@ def test_llm_quiz_uses_chunk_count_instead_of_question_count(monkeypatch) -> Non
     assert all("番" not in "".join(question["tts"]["choiceTexts"]) for question in questions)
     assert all("answerText" not in question["tts"] for question in questions)
     assert report.llmGeneratedIds == sorted(f"q-{index}" for index in range(1, 13))
+
+
+def test_llm_quiz_uses_same_20000_char_file_split_rule_and_preserves_ids(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    within_limit_file = _sized_quiz_file([MAX_TTS_FILE_CHARS - 7000, 6000])
+    over_limit_file = _sized_quiz_file([9000, 9000, 3000])
+    within_calls: list[str] = []
+    over_calls: list[str] = []
+
+    def fake_generate_json_within(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        within_calls.append(prompt)
+        return {
+            "items": [
+                {
+                    "id": question["id"],
+                    "questionText": "ヨミ",
+                    "choices": [{"index": index, "text": f"ヨミ{index}"} for index, _ in enumerate(question["choices"])],
+                    "explanationText": "ヨミ",
+                }
+                for question in within_limit_file.content["questions"]
+                if f'- id: {question["id"]}' in prompt
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json_within)
+    within_files, within_report = optimize_generated_files_with_report([within_limit_file], [], mode="llm")
+
+    def fake_generate_json_over(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        over_calls.append(prompt)
+        return {
+            "items": [
+                {
+                    "id": question["id"],
+                    "questionText": "ヨミ",
+                    "choices": [{"index": index, "text": f"ヨミ{index}"} for index, _ in enumerate(question["choices"])],
+                    "explanationText": "ヨミ",
+                }
+                for question in over_limit_file.content["questions"]
+                if f'- id: {question["id"]}' in prompt
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json_over)
+    over_files, over_report = optimize_generated_files_with_report([over_limit_file], [], mode="llm")
+    within_questions = within_files[0].content["questions"]
+    over_questions = over_files[0].content["questions"]
+
+    assert len(within_calls) == 1
+    assert [question["id"] for question in within_questions] == ["q-1", "q-2"]
+    assert {question["id"] for question in within_questions if "tts" in question} == {"q-1", "q-2"}
+    assert within_report.llmGeneratedIds == ["q-1", "q-2"]
+    assert len(over_calls) == 2
+    assert [question["id"] for question in over_questions] == ["q-1", "q-2", "q-3"]
+    assert {question["id"] for question in over_questions if "tts" in question} == {"q-1", "q-2", "q-3"}
+    assert over_report.llmGeneratedIds == ["q-1", "q-2", "q-3"]
 
 
 def test_llm_single_question_path_falls_back_on_top_level_array(monkeypatch) -> None:

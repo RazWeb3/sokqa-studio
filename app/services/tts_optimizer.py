@@ -19,7 +19,7 @@ from app.services.tts_text import collapse_duplicate_katakana_parentheticals, no
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
 
-MAX_TTS_BATCH_CHARS = 12000
+MAX_TTS_FILE_CHARS = 20000
 logger = logging.getLogger("sokqa_course_pack_agent")
 
 _KATAKANA_TOKEN_RE = re.compile(r"[ァ-ヶー・]{2,}")
@@ -824,7 +824,7 @@ def _gemini_speech_text(value: str, rules: list[TtsRule], language: str | None =
     return _speech_text(text, rules, language)
 
 
-def _chunk_entries(entries: list[tuple[str, str]], max_chars: int = MAX_TTS_BATCH_CHARS) -> list[list[tuple[str, str]]]:
+def _chunk_entries(entries: list[tuple[str, str]], max_chars: int = MAX_TTS_FILE_CHARS) -> list[list[tuple[str, str]]]:
     chunks: list[list[tuple[str, str]]] = []
     current: list[tuple[str, str]] = []
     current_chars = 0
@@ -1118,8 +1118,7 @@ def _gemini_quiz_question_tts(
     learning_language: str | None = None,
     choice_language_mode: str | None = None,
 ) -> QuizTts | None:
-    total_chars = len(question.question) + len(question.explanation) + sum(len(choice) for choice in question.choices)
-    if total_chars > MAX_TTS_BATCH_CHARS:
+    if _quiz_question_char_count(question) > MAX_TTS_FILE_CHARS:
         question_text = _gemini_speech_text(question.question, rules, language, entry_id=question.id)
         explanation_text = _gemini_speech_text(question.explanation, rules, language, entry_id=question.id)
         choice_readings = [_gemini_speech_text(choice, rules, language, entry_id=question.id) for choice in question.choices]
@@ -1285,7 +1284,7 @@ def _quiz_tts_from_item(
     )
 
 
-def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_BATCH_CHARS):
+def _chunk_quiz_questions(questions, max_chars: int = MAX_TTS_FILE_CHARS):
     entries = [(question.id, _quiz_question_source_text(question)) for question in questions]
     chunks = _chunk_entries(entries, max_chars)
     questions_by_id = {question.id: question for question in questions}
@@ -1305,7 +1304,7 @@ def _gemini_quiz_tts_map(
 ) -> dict[str, QuizTts | None]:
     readings: dict[str, QuizTts | None] = {}
     for chunk_index, chunk in enumerate(_chunk_quiz_questions(questions)):
-        if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_BATCH_CHARS:
+        if len(chunk) == 1 and _quiz_question_char_count(chunk[0]) > MAX_TTS_FILE_CHARS:
             question = chunk[0]
             readings[question.id] = _gemini_quiz_question_tts(
                 question,

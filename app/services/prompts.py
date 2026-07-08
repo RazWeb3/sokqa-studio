@@ -262,6 +262,19 @@ def _compose_generation_purpose(plan: CoursePlan, *, language: str = "ja") -> st
     if (plan.customInstructions or "").strip():
         purpose_lines.append("なお、上記に加えユーザー指定の追加条件も目的の一部として尊重すること。")
 
+    pack_language = (plan.language or "").strip()
+    learning_language = (plan.learningLanguage or "").strip()
+    # 専用の語学ポリシーがない多言語学習パックにだけ共通補完を足す。専用ポリシーを持つ教材タイプは各ポリシー側で定義済みとみなす。
+    if (
+        learning_language
+        and pack_language
+        and learning_language != pack_language
+        and structure_policy != "japanese_learning"
+    ):
+        purpose_lines.append(
+            "learningLanguage(学習対象言語)の語句・フレーズ・例文など、学習対象言語そのものを本文の主役として十分な分量で提示すること。パック言語は、その意味・使う場面・ニュアンスを補助的に説明する役割に用いること。学習対象言語に触れさせず、パック言語だけで学習法や概念を語る解説に終始してはならない。学習対象言語のフレーズは素のテキストとして書き、言語タグ([en-US] 等)は本文に含めないこと。タグ付けは後続の読み上げ最適化ステップの責務である。"
+        )
+
     return "\n".join(purpose_lines)
 
 

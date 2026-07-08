@@ -1,6 +1,8 @@
 import logging
 from collections import Counter
 
+import pytest
+
 from app.schemas.common import ReadingPattern
 from app.schemas.request import GeneratePackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
@@ -1037,6 +1039,51 @@ def test_compose_generation_purpose_appends_custom_instructions_reference_withou
     assert "なお、上記に加えユーザー指定の追加条件も目的の一部として尊重すること。" in purpose
     # ただし条件本文そのものは目的文に展開されない(= _custom_instructions_block との二重定義がない)
     assert "会話例を多めにし、ホテル受付の場面を中心にする。" not in purpose
+
+
+@pytest.mark.parametrize(
+    ("language", "learning_language", "structure_policy"),
+    [
+        ("ja", "en", "listening"),
+        ("en", "ja", "listening"),
+    ],
+)
+def test_compose_generation_purpose_adds_learning_target_language_guidance_for_foreign_language_packs(
+    language: str,
+    learning_language: str,
+    structure_policy: str,
+) -> None:
+    plan = _plan()
+    plan.language = language
+    plan.learningLanguage = learning_language
+    plan.structurePolicy = structure_policy
+
+    purpose = _compose_generation_purpose(plan)
+
+    assert "学習対象言語そのものを本文の主役" in purpose
+
+
+@pytest.mark.parametrize(
+    ("language", "learning_language", "structure_policy"),
+    [
+        ("ja", "ja", "listening"),
+        ("ja", None, "listening"),
+        ("en", "ja", "japanese_learning"),
+    ],
+)
+def test_compose_generation_purpose_skips_learning_target_language_guidance_when_conditions_do_not_match(
+    language: str,
+    learning_language: str | None,
+    structure_policy: str,
+) -> None:
+    plan = _plan()
+    plan.language = language
+    plan.learningLanguage = learning_language
+    plan.structurePolicy = structure_policy
+
+    purpose = _compose_generation_purpose(plan)
+
+    assert "学習対象言語そのものを本文の主役" not in purpose
 
 
 def test_generation_guidance_block_returns_empty_when_guidance_is_none() -> None:

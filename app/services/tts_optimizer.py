@@ -735,19 +735,53 @@ def _field_language_instruction(label: str, field_key: str, settings: TtsLanguag
         if selected_language and _base_language(selected_language) != _base_language(default_language):
             return (
                 f"- {label}: mixed-language field. Write explanatory text in the default pack language. "
-                f"When the learning target language or another non-default span appears, output that span in {selected_language} ({default_speech_language_code(selected_language)}) "
-                f"with an inline tag, especially {selected_language} ({default_speech_language_code(selected_language)}), then add the default-language tag only where the same field returns to the default language."
+                f"When {selected_language} ({default_speech_language_code(selected_language)}) or another non-default span appears, tag every span boundary explicitly. "
+                "Group consecutive text in the same language into one tagged span, tag every short phrase and repeated span without omission, "
+                "and add the default-language tag only where the same field returns to the default language."
             )
         return (
             f"- {label}: mixed-language field. Write explanatory text in the default pack language. "
-            "Use inline tags only for clear learning-target or other non-default spans, and add the default-language tag only when returning to the default language."
+            "Tag every non-default span boundary explicitly, group consecutive text in the same language into one tagged span, "
+            "and add the default-language tag only when returning to the default language within the same field."
         )
     return f"- {label}: auto-detect. Add inline tags only when the text clearly contains a non-default language."
 
 
 def _language_policy_block(settings: TtsLanguageSettings | None, fields: list[tuple[str, str]], default_language: str | None = None) -> str:
     lines = [_field_language_instruction(label, field_key, settings, default_language) for label, field_key in fields]
-    return "Field language policy:\n" + "\n".join(lines)
+    has_mixed = False
+    example_language: str | None = None
+    if settings:
+        for _, field_key in fields:
+            mode, selected_language = _field_language_mode(settings, field_key, default_language)
+            if mode != "mixed":
+                continue
+            has_mixed = True
+            if selected_language and _base_language(selected_language) != _base_language(default_language):
+                example_language = selected_language
+                break
+    if not has_mixed or not default_language:
+        return "Field language policy:\n" + "\n".join(lines)
+
+    default_tag = _language_tag(default_language)
+    example_block = """
+Inline tag boundary rules:
+- 同一言語が連続する区間は、まとめて1つのタグ区間として囲んでください。
+- デフォルト言語とは異なる言語のスパンが現れたら、その区間を必ずタグで囲んでください。
+- 短いフレーズ、文中に複数回出現する外国語スパン、疑問符・感嘆符などの記号で終わる短い表現も、1つ残らず全てタグ対象です。
+- 連続する外国語スパンで、間に区切りがない同一言語は1区間として結合して構いません。
+""".strip()
+    if example_language and _base_language(example_language) == "en":
+        example_tag = _language_tag(example_language)
+        example_block += f"""
+
+Good / Bad examples:
+- Good: "{example_tag}I couldn't agree more.{default_tag} という表現は、強い同意を丁寧に伝えます。"
+- Bad: "I couldn't agree more. という表現は、強い同意を丁寧に伝えます。"
+- Good: "相手を気遣うときは {example_tag}Are you okay?{default_tag} と尋ねます。"
+- Bad: "相手を気遣うときは Are you okay? と尋ねます。"
+""".rstrip()
+    return "Field language policy:\n" + "\n".join(lines) + "\n\n" + example_block
 
 
 def _llm_response_items(data) -> list:

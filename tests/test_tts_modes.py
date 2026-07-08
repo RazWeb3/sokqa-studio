@@ -1308,8 +1308,37 @@ def test_multilingual_prompt_includes_field_language_policy(monkeypatch) -> None
     assert "Field language policy:" in prompt
     assert "questionText: read this field in ko (ko-KR)" in prompt
     assert "choiceTexts: mixed-language field" in prompt
-    assert "especially ko (ko-KR)" in prompt
+    assert "tag every span boundary explicitly" in prompt
+    assert "同一言語が連続する区間は、まとめて1つのタグ区間として囲んでください。" in prompt
+    assert "疑問符・感嘆符などの記号で終わる短い表現も、1つ残らず全てタグ対象です。" in prompt
     assert "explanationText: read this field in ko (ko-KR)" in prompt
+
+
+def test_multilingual_prompt_includes_english_boundary_examples() -> None:
+    language_settings = TtsLanguageSettings(
+        questionLanguageMode="mixed",
+        questionLanguage="en",
+        choicesLanguageMode="mixed",
+        choicesLanguage="en",
+        explanationLanguageMode="mixed",
+        explanationLanguage="en",
+    )
+
+    prompt = _tts_quiz_question_prompt(
+        "q-en",
+        "次の英語表現として自然なものはどれですか。",
+        ["I couldn't agree more.", "Are you okay?"],
+        "相手を気遣うときの短い表現も確認します。",
+        [],
+        language="ja",
+        allow_language_tags=True,
+        language_settings=language_settings,
+    )
+
+    assert 'Good: "[en-US]I couldn\'t agree more.[ja-JP] という表現は、強い同意を丁寧に伝えます。"' in prompt
+    assert 'Bad: "I couldn\'t agree more. という表現は、強い同意を丁寧に伝えます。"' in prompt
+    assert 'Good: "相手を気遣うときは [en-US]Are you okay?[ja-JP] と尋ねます。"' in prompt
+    assert 'Bad: "相手を気遣うときは Are you okay? と尋ねます。"' in prompt
 
 
 def test_multilingual_select_non_default_choice_language_prefixes_each_choice_without_closing_default(monkeypatch) -> None:

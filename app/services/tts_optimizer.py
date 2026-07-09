@@ -217,7 +217,44 @@ def _apply_legacy_placeholder_fallbacks(value: str, language: str | None = None)
     return _apply_blank_placeholder_silence(result)
 
 
+def _apply_default_span_rules(value: str, rules: list[TtsRule], language: str | None) -> str:
+    """デフォルト言語スパンに対する rule 適用（タグ境界ガードの内部用）。
+
+    全体の strip は行わない。末尾スペースを落とすとタグ直前の区切りスペースが
+    失われるため、最終的な normalize_tts_text は呼び出し側（_speech_text）で行う。
+    """
+    result = _apply_rule_replacements(value, rules)
+    result = _apply_legacy_placeholder_fallbacks(result, language)
+    result = collapse_duplicate_katakana_parentheticals(result)
+    return result
+
+
+def _merge_language_tag_spans(value: str, rules: list[TtsRule], language: str | None) -> str:
+    """言語タグを保持したまま、デフォルト言語スパンにのみ rule 適用を及ぼす。
+
+    開始タグは常にそのまま出力し、タグ間のテキストのみを処理する。
+    タグがない入力は呼び出し側で事前に弾かれるためここには来ない。
+    """
+    result: list[str] = []
+    cursor = 0
+    default = True
+    for match in LANGUAGE_TAG_RE.finditer(value):
+        segment = value[cursor : match.start()]
+        if segment:
+            result.append(_apply_default_span_rules(segment, rules, language) if default else segment)
+        result.append(match.group(0))
+        default = _base_language(match.group(0)[1:-1]) == _base_language("ja")
+        cursor = match.end()
+    tail = value[cursor:]
+    if tail:
+        result.append(_apply_default_span_rules(tail, rules, language) if default else tail)
+    return "".join(result)
+
+
 def _speech_text(value: str, rules: list[TtsRule], language: str | None = "ja") -> str:
+    # 第2層: 言語タグ境界ガード。非デフォルト言語スパンには rule 適用を及ぼさない。
+    if LANGUAGE_TAG_RE.search(value):
+        return normalize_tts_text(_merge_language_tag_spans(value, rules, language))
     result = _apply_rule_replacements(value, rules)
     result = _apply_legacy_placeholder_fallbacks(result, language)
     result = collapse_duplicate_katakana_parentheticals(result)

@@ -6,6 +6,7 @@ from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import (
     MAX_TTS_FILE_CHARS,
     _guard_llm_text,
+    _speech_text,
     _mode_or_default,
     _normalize_language_tag_markup,
     _tts_batch_quiz_prompt,
@@ -2111,3 +2112,32 @@ def test_none_mode_skips_quiz_tts_generation(monkeypatch) -> None:
     assert report.issues == []
     assert report.llmGeneratedIds == []
 
+
+def test_speech_text_tag_boundary_switches_rule_processing() -> None:
+    """第2層: タグの有無で rule 置換・かな化の処理を切り替えることを仕様として固定する。
+
+    タグ内（非デフォルト言語スパン）は rule 適用を及ぼさず原文を保持し、
+    タグ外（デフォルト言語=日本語）は従来通り rule 置換する。
+    この切り替えは _rules_for_mode(multilingual)=[] の偶然の非適用とは独立した防御層である。
+    """
+    rules = [
+        TtsRule(source="API", reading="エーピーアイ"),
+        TtsRule(source="CPU", reading="シーピーユー"),
+        TtsRule(source="UN", reading="ユーエヌ"),
+    ]
+
+    cases = [
+        # タグ内（非デフォルト言語スパン）は保持
+        ("[en-US]API[ja-JP]", "[en-US]API[ja-JP]"),
+        ("[en-US]CPU[ja-JP]", "[en-US]CPU[ja-JP]"),
+        ("[en-US]UN[ja-JP]", "[en-US]UN[ja-JP]"),
+        ("[en-US]According to UN projections[ja-JP]", "[en-US]According to UN projections[ja-JP]"),
+        # タグ外（デフォルト言語=日本語）は従来通り変換
+        ("APIを使います", "エーピーアイを使います"),
+        ("CPUの性能", "シーピーユーの性能"),
+        # 混在: タグ内は保持・タグ外は変換
+        ("この[en-US]API[ja-JP]はCPUで動く", "この[en-US]API[ja-JP]はシーピーユーで動く"),
+    ]
+
+    for source, expected in cases:
+        assert _speech_text(source, rules) == expected

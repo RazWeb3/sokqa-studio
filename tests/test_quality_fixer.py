@@ -116,6 +116,23 @@ def _write_quiz_version(tmp_path: Path, monkeypatch) -> dict:
     return target
 
 
+def _write_multilingual_quiz_version(tmp_path: Path, monkeypatch) -> dict:
+    """多言語パック(language=ja, learningLanguage=en)と choiceTexts を書くヘルパー。"""
+    target = _write_quiz_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    quiz_path = tmp_path / "generated" / prefix / "objects" / "quiz" / "fv_20260612_130000_quiz_quiz_01.json"
+    quiz = json.loads(quiz_path.read_text(encoding="utf-8"))
+    quiz["learningLanguage"] = "en"
+    quiz["questions"][0]["choices"] = ["Good morning", "Please", "Good evening", "Goodbye"]
+    quiz["questions"][0]["tts"] = {
+        "choiceTexts": ["[en-US]Good morning[/en-US]", "Please", "Good evening", "Goodbye"],
+        "question": "SQLとは何ですか？",
+        "explanation": "SQLの説明です。",
+    }
+    quiz_path.write_text(json.dumps(quiz, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
 def _issues() -> list[dict]:
     return [
         {
@@ -1194,3 +1211,102 @@ def test_apply_approved_fixes_logs_before_and_after(caplog) -> None:
     assert "after=" in caplog.text
     assert "file=doc_18.json" in caplog.text
     assert "unit_id=doc-18" in caplog.text
+
+
+def test_tts_fix_multilingual_blocks_closing_tag_and_katakana_fixes(tmp_path, monkeypatch) -> None:
+    # 多言語パック(language=ja, learningLanguage=en)を書く。
+    target = _write_multilingual_quiz_version(tmp_path, monkeypatch)
+    issues = [
+        {
+            "category": "reading",
+            "severity": "medium",
+            "confidence": 0.8,
+            "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "tts.choiceTexts[0]"},
+            "excerpt": "Good morning",
+            "issue": "英語スパンに閉じタグを付与します。",
+            "suggestion": "[en-US]Good morning[/en-US]",
+        },
+        {
+            "category": "reading",
+            "severity": "medium",
+            "confidence": 0.8,
+            "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "tts.choiceTexts[1]"},
+            "excerpt": "Please",
+            "issue": "英文をカタカナ化します。",
+            "suggestion": "プリーズ",
+        },
+    ]
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": issues})
+
+    assert response.status_code == 200
+    data = response.json()
+    # 閉じタグ付与・英文カタカナ化はいずれも unapplied になる。
+    assert data["appliedFixes"] == []
+    assert len(data["unappliedFixes"]) == 2
+    reasons = [fix["reason"] for fix in data["unappliedFixes"]]
+    assert all("多言語パック" in reason for reason in reasons)
+
+
+def test_tts_fix_normal_pack_applies_closing_tag_and_katakana_fixes(tmp_path, monkeypatch) -> None:
+    # 単一言語パック(language=ja, learningLanguage なし)を書き、choiceTexts を設定。
+    target = _write_quiz_version(tmp_path, monkeypatch)
+    prefix = pack_root_prefix(target["creatorId"], target["contentId"])
+    quiz_path = tmp_path / "generated" / prefix / "objects" / "quiz" / "fv_20260612_130000_quiz_quiz_01.json"
+    quiz = json.loads(quiz_path.read_text(encoding="utf-8"))
+    quiz["questions"][0]["choices"] = ["Good morning", "Please", "Good evening", "Goodbye"]
+    quiz["questions"][0]["tts"] = {
+        "choiceTexts": ["Good morning", "Please", "Good evening", "Goodbye"],
+    }
+    quiz_path.write_text(json.dumps(quiz, ensure_ascii=False), encoding="utf-8")
+    issues = [
+        {
+            "category": "reading",
+            "severity": "medium",
+            "confidence": 0.8,
+            "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "tts.choiceTexts[0]"},
+            "excerpt": "Good morning",
+            "issue": "英語スパンに閉じタグを付与します。",
+            "suggestion": "[en-US]Good morning[/en-US]",
+        },
+        {
+            "category": "reading",
+            "severity": "medium",
+            "confidence": 0.8,
+            "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "tts.choiceTexts[1]"},
+            "excerpt": "Please",
+            "issue": "英文をカタカナ化します。",
+            "suggestion": "プリーズ",
+        },
+    ]
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": issues})
+
+    # 単一言語パックは従来通り(挙動維持)適用される。
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["appliedFixes"]) == 2
+    assert data["unappliedFixes"] == []
+
+
+def test_tts_fix_multilingual_allows_closing_tag_removal(tmp_path, monkeypatch) -> None:
+    # 既に混入した閉じタグを「削除」する修正は多言語でも許容(付与の禁止のみ)。
+    target = _write_multilingual_quiz_version(tmp_path, monkeypatch)
+    issues = [
+        {
+            "category": "reading",
+            "severity": "medium",
+            "confidence": 0.8,
+            "location": {"fileName": "quiz_01.json", "unitId": "q-1", "field": "tts.choiceTexts[0]"},
+            "excerpt": "[en-US]Good morning[/en-US]",
+            "issue": "閉じタグを削除します。",
+            "suggestion": "[en-US]Good morning",
+        },
+    ]
+
+    response = client.post("/quality/tts-fix", json={"target": target, "issues": issues})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["appliedFixes"]) == 1
+    assert data["unappliedFixes"] == []

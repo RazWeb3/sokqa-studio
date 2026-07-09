@@ -17,6 +17,7 @@ from app.services.quality_checker import (
     TTS_QUALITY_CATEGORIES,
     _build_text_replacement_suggestion,
     _generate_json_with_retry,
+    _is_multilingual_invalid_tts_suggestion,
     _quality_prompt,
     _quality_response_from_data,
     _is_unresolved_placeholder_excerpt,
@@ -286,6 +287,54 @@ def test_tts_quality_prompt_keeps_acronyms_and_bare_numbers_reviewable() -> None
     assert "examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー, M&A -> エムアンドエー, CRM -> シーアールエム" in prompt
     assert "Bare numbers without a unit are not excluded from review" in prompt
     assert "example: A1904" in prompt
+
+
+def test_tts_quality_prompt_multilingual_excludes_katakana_allowance_block() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_quiz.json",
+        {
+            "type": "quiz",
+            "language": "ja",
+            "learningLanguage": "en",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "Good morning はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "explanation": "朝の挨拶です。",
+                    "tts": {"choiceTexts": ["[en-US]Good morning"]},
+                }
+            ],
+        },
+        50,
+        mode="tts",
+        multilingual=True,
+    )
+
+    # 多言語: カタカナ化許容ブロック(GHQ/PKO/ODA 等の例示)を含めてはならない。
+    assert "examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー" not in prompt
+    assert "The pack is multilingual." in prompt
+    assert "Please -> プリーズ" in prompt
+    assert "TPO -> ティーピーオー" in prompt
+    # 閉じタグ禁止指示は multilingual でも残る。
+    assert "Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa." in prompt
+
+
+def test_tts_quality_prompt_normal_includes_katakana_allowance_block() -> None:
+    prompt, _ = _quality_prompt(
+        "sample_doc.json",
+        {
+            "type": "document",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "GHQ、PKO、ODA。", "tts": {"text": "GHQ、PKO、ODA。"}}],
+        },
+        50,
+        mode="tts",
+        multilingual=False,
+    )
+
+    # 単一言語: 既存のカタカナ化許容ブロックを維持する。
+    assert "examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー" in prompt
 
 
 def test_quality_prompt_requires_suggestion_to_be_finished_text_only() -> None:
@@ -2309,3 +2358,140 @@ def test_build_text_replacement_suggestion_logs_broken_replace_to_for_q30_breaka
     # 壊れた replaceTo が適用されて suggestion が原始と異なること(破損経路成立の確認)
     assert result.suggestion != original
     assert "重要だ重要な" in result.suggestion
+
+
+def test_multilingual_filter_removes_closing_tag_suggestion() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz.json", "unitId": "q-1", "field": "text"},
+                    "excerpt": "Good morning",
+                    "issue": "英語スパンに閉じタグを付与します。",
+                    "suggestion": "[en-US]Good morning[/en-US]",
+                }
+            ]
+        },
+        file_name="quiz.json",
+        model="test",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        allow_language_tags=True,
+    )
+
+    assert response.issues == []
+
+
+def test_multilingual_filter_keeps_closing_tag_suggestion_for_normal_pack() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz.json", "unitId": "q-1", "field": "text"},
+                    "excerpt": "Good morning",
+                    "issue": "英語スパンに閉じタグを付与します。",
+                    "suggestion": "[en-US]Good morning[/en-US]",
+                }
+            ]
+        },
+        file_name="quiz.json",
+        model="test",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        allow_language_tags=False,
+    )
+
+    assert len(response.issues) == 1
+
+
+def test_multilingual_filter_removes_latin_span_katakana_rewrite() -> None:
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "quiz.json", "unitId": "q-1", "field": "text"},
+                    "excerpt": "Please read the text",
+                    "issue": "英文をカタカナ化します。",
+                    "suggestion": "プリーズ・リード・ザ・テキスト",
+                }
+            ]
+        },
+        file_name="quiz.json",
+        model="test",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        allow_language_tags=True,
+    )
+
+    assert response.issues == []
+
+
+def test_multilingual_filter_keeps_mixed_japanese_katakana_reading() -> None:
+    # 日本語文の一部(カタカナ語)の読み補正は誤爆しないこと(単一言語と同様に残る)。
+    # excerpt に日本語文字を含むため、純ラテンスパンのカタカナ化とは判定されない。
+    response = _quality_response_from_data(
+        {
+            "issues": [
+                {
+                    "category": "reading",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "location": {"fileName": "doc.json", "unitId": "doc-1", "field": "text"},
+                    "excerpt": "データベースはDBです",
+                    "issue": "略語の読みです。",
+                    "suggestion": "データベースはディービーです",
+                }
+            ]
+        },
+        file_name="doc.json",
+        model="test",
+        max_issues=50,
+        allowed_categories=TTS_QUALITY_CATEGORIES,
+        allow_language_tags=True,
+    )
+
+    assert len(response.issues) == 1
+
+
+def test_is_multilingual_invalid_tts_suggestion_detects_closing_tag_and_katakana() -> None:
+    closing_tag_issue = QualityIssue(
+        category="reading",
+        severity="medium",
+        confidence=0.8,
+        location=QualityLocation(fileName="quiz.json", unitId="q-1", field="text"),
+        excerpt="Good morning",
+        issue="閉じタグ付与",
+        suggestion="[en-US]Good morning[/en-US]",
+    )
+    katakana_issue = QualityIssue(
+        category="reading",
+        severity="medium",
+        confidence=0.8,
+        location=QualityLocation(fileName="quiz.json", unitId="q-1", field="text"),
+        excerpt="TPO",
+        issue="カタカナ化",
+        suggestion="ティーピーオー",
+    )
+    valid_issue = QualityIssue(
+        category="reading",
+        severity="medium",
+        confidence=0.8,
+        location=QualityLocation(fileName="doc.json", unitId="doc-1", field="text"),
+        excerpt="SQLとJSON",
+        issue="略語の読み",
+        suggestion="エスキューエルとジェイソン",
+    )
+
+    assert _is_multilingual_invalid_tts_suggestion(closing_tag_issue, None) is True
+    assert _is_multilingual_invalid_tts_suggestion(katakana_issue, None) is True
+    assert _is_multilingual_invalid_tts_suggestion(valid_issue, None) is False
+

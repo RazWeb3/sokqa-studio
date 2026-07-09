@@ -31,7 +31,9 @@ from app.schemas.pack_v2 import (
 from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentPack, SokqaQuizPack
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
+from app.services.language_detection import leading_script
 from app.services.llm_json import LlmJsonParseContext
+from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.pack_paths import pack_root_prefix
 from app.services.quality_checker import _generate_json_with_retry
 from app.services.revision_store import persist_revision_commit
@@ -54,6 +56,8 @@ PENDING_CATEGORIES = {"factual", "style", "leak"}
 MAX_FIX_INPUT_CHARS = 30000
 logger = logging.getLogger(__name__)
 _TTS_TAG_RE = re.compile(r"\[(?:[a-z]{2,3}(?:-[A-Za-z0-9]+)*)\]|<[^>]+>")
+# 多言語パックで許可されない閉じタグ [/xx-YY] の検出用。Sokqa に [/...] 閉じタグは存在しない。
+_CLOSING_LANGUAGE_TAG_RE = re.compile(r"\[/[a-z]{2,3}(?:-[A-Za-z0-9]+)*\]")
 _SEMANTIC_REWRITE_LOANWORDS = {
     "アプリ",
     "ケーブル",
@@ -87,7 +91,11 @@ def generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue],
 
 
 def generate_tts_fix(target: TtsRecordingTarget, issues: list[QualityIssue], max_fixes: int = 50) -> QualityFixResponse:
-    return _generate_tts_fix_without_llm(target, [issue for issue in issues if issue.category in AUTO_CATEGORIES], max_fixes)
+    loaded = load_target_pack(target)
+    allow_language_tags = _allow_multilingual_tts_tags(loaded.file.content)
+    return _generate_tts_fix_without_llm(
+        target, [issue for issue in issues if issue.category in AUTO_CATEGORIES], max_fixes, allow_language_tags=allow_language_tags
+    )
 
 
 def generate_tts_fix_with_llm(target: TtsRecordingTarget, issues: list[QualityIssue], max_fixes: int = 50) -> QualityFixResponse:
@@ -103,6 +111,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
     if mode == "tts":
         _validate_tts_fix_input(loaded.file.content)
         issues = [_normalize_tts_issue_location(issue) for issue in issues]
+    allow_language_tags = _allow_multilingual_tts_tags(loaded.file.content) if mode == "tts" else False
     settings = get_settings()
     model = settings.fix_model
     limited_issues = issues[:max_fixes]
@@ -148,6 +157,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
             model=model,
             max_fixes=max_fixes,
             input_truncated=input_truncated or len(issues) > max_fixes,
+            allow_language_tags=allow_language_tags,
         )
         _validate_pack_json(loaded.file.name, response.updatedJson)
         return response
@@ -159,6 +169,8 @@ def _generate_tts_fix_without_llm(
     target: TtsRecordingTarget,
     issues: list[QualityIssue],
     max_fixes: int,
+    *,
+    allow_language_tags: bool = False,
 ) -> QualityFixResponse:
     started = time.perf_counter()
     loaded = load_target_pack(target)
@@ -274,6 +286,16 @@ def _generate_tts_fix_without_llm(
                     updated_json,
                     index,
                     reason="読み補正ではなく語彙変更の可能性があるため未適用にしました。",
+                )
+            )
+            continue
+        if allow_language_tags and _is_invalid_multilingual_tts_fix(issue.excerpt, replacement):
+            unapplied.append(
+                _unapplied_fix(
+                    issue,
+                    updated_json,
+                    index,
+                    reason="多言語パックで、閉じタグ付与や学習言語スパンのカタカナ化は許可されないため未適用にしました。",
                 )
             )
             continue
@@ -607,6 +629,7 @@ def _fix_response_from_data(
     model: str,
     max_fixes: int,
     input_truncated: bool,
+    allow_language_tags: bool = False,
 ) -> QualityFixResponse:
     data = data if isinstance(data, dict) else {}
     raw_applied = data.get("appliedFixes", [])
@@ -617,7 +640,7 @@ def _fix_response_from_data(
     updated_json = copy.deepcopy(original_json)
     applied = [
         fix
-        for fix in (_normalize_applied_fix(item, original_json, updated_json, file_name, index) for index, item in enumerate(raw_applied, start=1))
+        for fix in (_normalize_applied_fix(item, original_json, updated_json, file_name, index, allow_language_tags=allow_language_tags) for index, item in enumerate(raw_applied, start=1))
         if fix is not None
     ]
     pending = [
@@ -651,6 +674,8 @@ def _normalize_applied_fix(
     updated_json: dict[str, Any],
     file_name: str,
     index: int,
+    *,
+    allow_language_tags: bool = False,
 ) -> AppliedFix | None:
     if not isinstance(raw, dict):
         logger.info("quality fix skipped applied fix: item is not an object")
@@ -666,6 +691,9 @@ def _normalize_applied_fix(
     after = _fix_after_text(raw.get("after"), location)
     if after is None:
         logger.info("quality fix skipped applied fix: missing after for %s", raw.get("id"))
+        return None
+    if allow_language_tags and _is_invalid_multilingual_tts_fix(_fix_after_text(raw.get("before"), location), after):
+        logger.info("quality fix skipped applied fix: invalid multilingual tts fix (closing tag or latin-span katakana) for %s", raw.get("id"))
         return None
     before = _get_tts_field(original_json, location) or _get_raw_field(original_json, location)
     _set_tts_field(updated_json, location, after)
@@ -886,6 +914,67 @@ def _is_clear_vocabulary_rewrite(excerpt: str | None, replacement: str | None) -
     if _adds_new_ideographs(excerpt_text, replacement_text):
         return True
     return _adds_semantic_loanword_to_mixed_term(excerpt_text, replacement_text)
+
+
+def _allow_multilingual_tts_tags(content: dict[str, Any]) -> bool:
+    """content が多言語パックなら True を返す。既存の multilingual 検出を利用。
+    単一言語パックでは False(従来の挙動維持)。"""
+    if not isinstance(content, dict):
+        return False
+    return detect_multilingual(content) == MultilingualStatus.MULTILINGUAL
+
+
+def _is_invalid_multilingual_tts_fix(excerpt: str | None, replacement: str | None) -> bool:
+    """多言語パックで許可しない TTS 修正を検出する。
+    (a) 閉じタグ [/xx-YY] を含む置換(閉じタグの付与)。
+    (b) 英字主体の excerpt をカタカナ主体へ変える置換(学習言語スパンのカタカナ化)。
+    除去(単一言語)対象外の既存閉じタグの「削除」はこの関数では検出しない(許容)。"""
+    excerpt_text = _non_empty_text(excerpt)
+    replacement_text = _non_empty_text(replacement)
+    if replacement_text is None:
+        return False
+    if _CLOSING_LANGUAGE_TAG_RE.search(replacement_text):
+        return True
+    if excerpt_text is not None and _is_latin_span_katakana_rewrite(excerpt_text, replacement_text):
+        return True
+    return False
+
+
+def _is_latin_span_katakana_rewrite(excerpt: str, replacement: str) -> bool:
+    """excerpt が学習対象言語(純ラテン文字列)で、replacement が主にカタカナの場合、学習言語
+    スパンのカタカナ化とみなす。日本語文中の語(「SQLとJSON」等)を誤爆しないよう、excerpt に
+    日本語文字(ひらがな/カタカナ/漢字)を含む場合は検出しない。"""
+    if leading_script(excerpt) != "latin":
+        return False
+    if _contains_japanese_chars(excerpt):
+        return False
+    latin_ratio = _latin_char_ratio(excerpt)
+    if latin_ratio < 0.6:
+        return False
+    katakana_ratio = _katakana_char_ratio(replacement)
+    if katakana_ratio < 0.4:
+        return False
+    return True
+
+
+def _contains_japanese_chars(value: str) -> bool:
+    return any(0x3040 <= ord(char) <= 0x30FF or 0x4E00 <= ord(char) <= 0x9FFF for char in value)
+
+
+def _latin_char_ratio(value: str) -> float:
+    chars = [char for char in value if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】〈〉《》"]
+    if not chars:
+        return 0.0
+    latin = sum(1 for char in chars if char.isascii() and char.isalpha())
+    return latin / len(chars)
+
+
+def _katakana_char_ratio(value: str) -> float:
+    chars = [char for char in value if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】〈〉《》"]
+    if not chars:
+        return 0.0
+    katakana = sum(1 for char in chars if 0x30A0 <= ord(char) <= 0x30FF or 0x31F0 <= ord(char) <= 0x31FF)
+    return katakana / len(chars)
 
 
 def _adds_new_ideographs(excerpt: str, replacement: str) -> bool:

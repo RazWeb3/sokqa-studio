@@ -77,6 +77,9 @@ _PLACEHOLDER_KEYWORD_PATTERNS = (
 # U+3007(〇 漢数字ゼロ) は NFKC で ◯/○ に正規化されないため個別に含める。
 _PLACEHOLDER_SHAPE_CHARS = "◯○〇△▲▽▼□■×✕✖＊*〓"
 _FRAGMENT_TRAILING_CONNECTIVES = ("ので", "ため", "て", "で")
+# 多言語パックで LLM が誤って提案する閉じタグ [/xx-YY] の検出用。
+# 既存の switch タグ [en-US] は開きのみ存在し、Sokqa に [/...] 閉じタグは存在しない。
+_CLOSING_LANGUAGE_TAG_RE = re.compile(r"\[/[a-z]{2,3}(?:-[A-Za-z0-9]+)*\]")
 
 
 class QualityCheckError(RuntimeError):
@@ -144,6 +147,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
             suppress_tts_null_issues=mode == "tts",
             input_truncated=input_truncated,
             source_content=loaded.file.content,
+            allow_language_tags=allow_language_tags,
         )
         if mode == "tts":
             llm_issues = response.issues
@@ -187,6 +191,7 @@ def _quality_response_from_data(
     suppress_tts_null_issues: bool = False,
     input_truncated: bool = False,
     source_content: dict[str, Any] | None = None,
+    allow_language_tags: bool = False,
 ) -> QualityCheckResponse:
     raw_issues, response_truncated, response_file_name = _quality_response_parts(data, file_name)
     if not isinstance(raw_issues, list):
@@ -241,6 +246,16 @@ def _quality_response_from_data(
             filtered_count = before_count - len(issues)
             if filtered_count:
                 _logger.info("quality_check.filtered_already_corrected_reading_issues count=%s file=%s", filtered_count, file_name)
+    if allow_language_tags:
+        before_count = len(issues)
+        issues = [
+            issue
+            for issue in issues
+            if not _is_multilingual_invalid_tts_suggestion(issue, source_content)
+        ]
+        filtered_count = before_count - len(issues)
+        if filtered_count:
+            _logger.info("quality_check.filtered_multilingual_invalid_tts_suggestions count=%s file=%s", filtered_count, file_name)
     issues = _filter_fragment_suggestions(issues, file_name=file_name)
     issues = _filter_trailing_japanese_period_only_suggestions(
         issues,
@@ -483,6 +498,63 @@ def _is_already_corrected_reading_issue(issue: QualityIssue, content: dict[str, 
     normalized_tts = _normalize_reading_match_text(tts_text)
     normalized_suggestion = _normalize_reading_match_text(issue.suggestion)
     return bool(normalized_suggestion and normalized_suggestion in normalized_tts)
+
+
+def _is_multilingual_invalid_tts_suggestion(issue: QualityIssue, content: dict[str, Any] | None) -> bool:
+    """多言語(allow_language_tags)パックで、LLM が誤って提案する TTS 修正を弾く。
+    (a) suggestion に閉じタグ [/xx-YY] を含む。
+    (b) 学習対象言語(主にラテン文字)スパンを丸ごとカタカナへ置換する(英文カタカナ化)。
+    該当しない場合は False を返す(= 残す)。"""
+    if issue.category not in TTS_QUALITY_CATEGORIES:
+        return False
+    suggestion = issue.suggestion.strip()
+    if not suggestion:
+        return False
+    if _CLOSING_LANGUAGE_TAG_RE.search(suggestion):
+        return True
+    if _is_latin_span_katakana_rewrite(issue.excerpt, suggestion):
+        return True
+    return False
+
+
+def _is_latin_span_katakana_rewrite(excerpt: str, suggestion: str) -> bool:
+    """excerpt が学習対象言語(純ラテン文字列)で、suggestion が主にカタカナの場合、英文の
+    カタカナ化とみなす。日本語文中の語(「SQLとJSON」等)を誤爆しないよう、excerpt に
+    日本語文字(ひらがな/カタカナ/漢字)を含む場合は検出しない。"""
+    excerpt_text = (excerpt or "").strip()
+    if not excerpt_text:
+        return False
+    if leading_script(excerpt_text) != "latin":
+        return False
+    if _contains_japanese_chars(excerpt_text):
+        return False
+    latin_ratio = _latin_char_ratio(excerpt_text)
+    if latin_ratio < 0.6:
+        return False
+    katakana_ratio = _katakana_char_ratio(suggestion)
+    if katakana_ratio < 0.4:
+        return False
+    return True
+
+
+def _contains_japanese_chars(value: str) -> bool:
+    return any(0x3040 <= ord(char) <= 0x30FF or 0x4E00 <= ord(char) <= 0x9FFF for char in value)
+
+
+def _latin_char_ratio(value: str) -> float:
+    chars = [char for char in value if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】〈〉《》"]
+    if not chars:
+        return 0.0
+    latin = sum(1 for char in chars if char.isascii() and char.isalpha())
+    return latin / len(chars)
+
+
+def _katakana_char_ratio(value: str) -> float:
+    chars = [char for char in value if not char.isspace() and char not in "、。，．,.「」『』（）()[]【】〈〉《》"]
+    if not chars:
+        return 0.0
+    katakana = sum(1 for char in chars if 0x30A0 <= ord(char) <= 0x30FF or 0x31F0 <= ord(char) <= 0x31FF)
+    return katakana / len(chars)
 
 
 def _is_obvious_meta_suggestion(issue: QualityIssue) -> bool:
@@ -904,6 +976,16 @@ def _quality_prompt(
 - Do not output any [xx-XX] style language tag in suggestion.
 """.strip()
         )
+        katakana_rule = (
+            """
+- For acronyms, abbreviations, symbols, or code-like terms that are likely to be misread, you may suggest a katakana reading (examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー, M&A -> エムアンドエー, CRM -> シーアールエム, ROI -> アールオーアイ, ROE -> アールオーイー, SEO -> エスイーオー, SEM -> エスイーエム, SLA -> エスエルエー, WBS -> ダブリュー・ビー・エス, PMBOK -> ピーエムボック).
+- Do not force katakana readings for common full-spelled English words or general phrases unless pronunciation would be seriously wrong (examples: Cloud Computing, Machine Learning, Database, Marketing).
+""".strip()
+            if not multilingual
+            else """
+- The pack is multilingual. Learning-language words, acronyms, and proper nouns (e.g., English text) must keep their original spelling and must not be converted to katakana. Wrap a learning-language span only with the canonical switch tags such as [en-US]Please[ja-JP]; do not katakana-ize it (do not suggest Please -> プリーズ or TPO -> ティーピーオー).
+""".strip()
+        )
         category_block = """
 Categories:
 - reading: TTS misreading risks such as acronyms, code terms, symbols, or mixed-language spans.
@@ -926,8 +1008,7 @@ TTS fix suggestion rules:
 - Closing tags such as [/en-US] or [/ja-JP] do not exist in Sokqa. Never suggest converting a switch tag into any [/...] closing tag.
 - If the input already contains a [/...] closing tag, treat it as an invalid tag markup. Prefer the canonical switch-tag format or simple removal, and do not over-report minor tag cleanup.
 - Treat the presence or absence of a trailing default-language return tag at the very end of a text item as a non-issue.
-- For acronyms, abbreviations, symbols, or code-like terms that are likely to be misread, you may suggest a katakana reading (examples: GHQ -> ジーエイチキュー, PKO -> ピーケーオー, ODA -> オーディーエー, M&A -> エムアンドエー, CRM -> シーアールエム, ROI -> アールオーアイ, ROE -> アールオーイー, SEO -> エスイーオー, SEM -> エスイーエム, SLA -> エスエルエー, WBS -> ダブリュー・ビー・エス, PMBOK -> ピーエムボック).
-- Do not force katakana readings for common full-spelled English words or general phrases unless pronunciation would be seriously wrong (examples: Cloud Computing, Machine Learning, Database, Marketing).
+""" + katakana_rule + """
 - Do not report reading or notation issues for Arabic numerals followed by common Japanese counters or units when standard cloud TTS can already read them correctly (examples: 1904年, 1945年, 1946年, 6月, 12日, 3時, 15分, 20秒, 500円, 80%, 10パーセント, 3人, 4回, 5個, 6件, 7番, 38度, 18歳).
 - Treat Gregorian years and Japanese era years as non-issues when written in their normal numeric notation (examples: 1904年, 1945年, 1946年, 令和6年, 昭和20年). Keep the original notation and do not create reading or notation issues for them.
 - Bare numbers without a unit are not excluded from review, because they may be model numbers, identifiers, or codes (example: A1904).

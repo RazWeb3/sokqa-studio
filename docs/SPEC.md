@@ -344,6 +344,39 @@ Language:
 - pt -> pt-PT
 - id -> id-ID
 
+## choicesLanguage
+
+`choicesLanguage` は `tts` フィールドの一つで、選択肢全体の読み上げ言語を表す。
+
+### 付与ルール
+
+- `choices` の言語が **パック言語と異なる場合** は `choicesLanguage` を付与する。
+- `choices` の言語が **パック言語と同じ場合** は `choicesLanguage` を付与しない。
+
+判定基準は「**選択肢の言語 ≠ パック言語**」であり、`learning` モードや `pack` モードかどうかではない。
+
+### ロケールコード
+
+`choicesLanguage` には既存の Default Speech Language のロケールコードを使用する。
+
+例:
+
+```json
+"choicesLanguage": "en-US"
+```
+
+```json
+"choicesLanguage": "ja-JP"
+```
+
+### choiceTexts との関係
+
+`choicesLanguage` は、`choiceTexts` による読み上げ・`choices` へのフォールバックのいずれにも適用される。
+
+フォールバックは `choiceTexts` の省略だけでなく、各要素が `null`、空文字、空白のみの場合にも適用される。
+
+つまり、`choicesLanguage` は `choiceTexts` の有無とは独立した **選択肢全体の読み上げ言語** を表すフィールドである。
+
 ## パック言語
 
 パック言語はパック全体の基準言語であり、CoursePlan、document pack、quiz pack、manifest の `language` に保存される。
@@ -513,25 +546,26 @@ display text は元のまま:
 
 ## choiceTexts の保持ルール
 
-表示テキストと TTS テキストが同一文字列に見えても、パック言語以外の発音が必要な場合は `choiceTexts` を省略してはならない。
+`choiceTexts` は各選択肢ごとに判定する。
 
-タグ付き TTS は保持する。
+- 読み補正（かな等）が必要な選択肢は `choiceTexts` に保持する。
+- 読み補正が不要な選択肢は `null` または省略相当（空文字等）としてよい。
+- 発音言語のみ異なる場合は `choicesLanguage` により指定する。
 
-理由:
-
-表示テキストと TTS テキストが同じ文字列でも、発音言語が異なる場合があるため。
+表示テキストと TTS テキストが同じ文字列でも、発音言語は `choicesLanguage` により決定される。
 
 例:
 
 ```json
 {
-  "choices": ["ありがとう", "こんにちは", "さようなら", "すみません"],
+  "choices": ["教室", "学校", "先生", "学生"],
   "tts": {
+    "choicesLanguage": "ja-JP",
     "choiceTexts": [
-      "[ja-JP]ありがとう",
-      "[ja-JP]こんにちは",
-      "[ja-JP]さようなら",
-      "[ja-JP]すみません"
+      "きょうしつ",
+      null,
+      null,
+      null
     ]
   }
 }

@@ -1670,3 +1670,96 @@ def test_repairer_never_rewrites_natural_language_fields() -> None:
     assert broken_question["explanation"] == "資料には有効だと記載されています。"
     assert broken_question["choices"] == ["A", "B", "C", "補足選択肢4"]
     assert broken_question["answerIndex"] == 0
+
+
+def _quiz_pack_with_mode(mode: str) -> PlanQuizPack:
+    return PlanQuizPack(
+        id="quiz_mode",
+        title="モード確認クイズ",
+        purpose="key_concepts",
+        questionCount=1,
+        sourceDocumentIds=["doc_01"],
+        choiceLanguageMode=mode,
+    )
+
+
+def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples() -> None:
+    """choiceLanguageMode=pack で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-1）。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+
+    # 既存の選択肢言語指示が維持されていること
+    assert "Write all four choices in each question in the pack language (ja)" in prompt
+    # 問題構造の出し分け指示
+    assert "Question structure (pack mode)" in prompt
+    assert "question には学習言語（en）の表現・フレーズを提示" in prompt
+    assert "四つの選択肢はすべてパック言語（ja）で書き" in prompt
+    assert "explanation もパック言語（ja）で書くこと" in prompt
+    # Good/Bad 例（ja/en ペア時の具体例）
+    assert "Good/Bad examples (pack mode)" in prompt
+    assert "It's a pleasure to finally meet you." in prompt
+    assert "選択肢が学習言語になっている点が誤り" in prompt
+
+
+def test_quiz_prompt_learning_mode_includes_question_structure_and_good_bad_examples() -> None:
+    """choiceLanguageMode=learning で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-2）。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()])
+
+    # 既存の選択肢言語指示が維持されていること
+    assert "Write all four choices in each question in the learning language (en)" in prompt
+    # 問題構造の出し分け指示
+    assert "Question structure (learning mode)" in prompt
+    assert "question にはパック言語（ja）で場面・意図・ニュアンスを提示" in prompt
+    assert "四つの選択肢はすべて学習言語（en）の表現で書く" in prompt
+    assert "explanation はパック言語（ja）で書くこと" in prompt
+    # Good/Bad 例（ja/en ペア時の具体例）
+    assert "Good/Bad examples (learning mode)" in prompt
+    assert "初対面の相手に丁寧に会えた喜びを伝えたいとき" in prompt
+    assert "How do you do?" in prompt
+    assert "choices を日本語にする" in prompt
+
+
+def test_quiz_prompt_choice_language_instruction_preserved_across_modes() -> None:
+    """既存の選択肢言語指示が各モードに含まれること（削除されていない確認：要件3-3）。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+
+    pack_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+    assert "Write all four choices in each question in the pack language (ja)" in pack_prompt
+
+    learning_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()])
+    assert "Write all four choices in each question in the learning language (en)" in learning_prompt
+
+
+def test_quiz_prompt_auto_mode_text_unchanged_and_no_structure_template() -> None:
+    """auto モードは既存文言が維持され、構造テンプレート・Good/Bad 例が追加されていないこと（要件3-4）。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("auto"), [_source_pack()])
+
+    # 既存 auto 文言が維持されていること
+    assert ("Choose either the pack language (ja) or learning language (en) per question. "
+            "All four choices within one question must use the same chosen language. "
+            "Never mix languages inside one four-choice set.") in prompt
+    # 構造テンプレート・Good/Bad 例が追加されていないこと
+    assert "Question structure (pack mode)" not in prompt
+    assert "Question structure (learning mode)" not in prompt
+    assert "Good/Bad examples (pack mode)" not in prompt
+    assert "Good/Bad examples (learning mode)" not in prompt
+
+
+def test_quiz_prompt_non_ja_en_pack_uses_generic_good_bad_examples_without_hardcoded_language() -> None:
+    """ja/en 以外のペアでも、言語ハードコードせず言語ラベルベースの汎用例が出ること（要件: 非ハードコード）。"""
+    plan = _plan()
+    plan.language = "ko"
+    plan.learningLanguage = "fr"
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+
+    assert "question には学習言語（fr）の表現・フレーズを提示" in prompt
+    assert "四つの選択肢はすべてパック言語（ko）で書き" in prompt
+    # 固定ハードコードされた ja/en 具体例が出ないこと
+    assert "It's a pleasure to finally meet you." not in prompt
+    assert "How do you do?" not in prompt

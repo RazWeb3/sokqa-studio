@@ -596,13 +596,62 @@ def quiz_generation_prompt(
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
     learning_language = plan.learningLanguage or "not specified"
+    pack_lang = plan.language
+    # 具体例は ja/en ペア時のみ仕様の例を出し、それ以外は言語ラベルベースの汎用例にする（pack=ja/learning=en の固定ハードコード回避）。
+    is_ja_en = pack_lang == "ja" and learning_language == "en"
+
+    def _pack_examples() -> str:
+        if is_ja_en:
+            return (
+                "  Good:\n"
+                '    question: "It\'s a pleasure to finally meet you." はどんな場面で使う表現ですか？\n'
+                "    choices (all in 日本語): 初対面の相手に丁寧に会えた喜びを伝える表現 / "
+                "別れ際に感謝を伝える表現 / 食事に誘うときの表現 / 謝罪するときの表現\n"
+                "  Bad:\n"
+                '    choices が英語のまま（例: "Happy to meet you." / "Pleased to meet you."）。'
+                "pack モードなのに選択肢が学習言語になっている点が誤り。"
+            )
+        return (
+            f"  Good: question に学習言語（{learning_language}）の表現を提示し、"
+            f"choices はすべてパック言語（{pack_lang}）の説明にする。\n"
+            f"  Bad: choices が学習言語（{learning_language}）のままになっている点が誤り。"
+        )
+
+    def _learning_examples() -> str:
+        if is_ja_en:
+            return (
+                "  Good:\n"
+                "    question: 初対面の相手に丁寧に会えた喜びを伝えたいとき、最も適切な英語表現はどれですか？\n"
+                '    choices (all in English): "It\'s a pleasure to finally meet you." / '
+                '"Happy to meet you." / "Pleased to meet you." / "How do you do?"\n'
+                "  Bad:\n"
+                "    choices を日本語にする、または問題文まで英語にして何を問うか噛み合わなくなっている点が誤り。"
+            )
+        return (
+            f"  Good: question にパック言語（{pack_lang}）で場面を提示し、"
+            f"choices はすべて学習言語（{learning_language}）の表現にする。\n"
+            f"  Bad: choices をパック言語（{pack_lang}）にする、または問題文と選択肢の言語関係が噛み合わなくなっている点が誤り。"
+        )
+
     if quiz_pack.choiceLanguageMode == "pack":
         choice_language_rule = (
-            f"- Write all four choices in each question in the pack language ({plan.language})."
+            f"- Write all four choices in each question in the pack language ({plan.language}).\n"
+            "- Question structure (pack mode):\n"
+            f"  - question には学習言語（{learning_language}）の表現・フレーズを提示し、その意味・使い分け・適切な場面などを問うこと。\n"
+            f"  - 四つの選択肢はすべてパック言語（{plan.language}）で書き、問われている学習言語表現の意味・説明・場面をパック言語で記述すること。\n"
+            f"  - explanation もパック言語（{plan.language}）で書くこと。\n"
+            "- Good/Bad examples (pack mode):\n"
+            f"{_pack_examples()}"
         )
     elif quiz_pack.choiceLanguageMode == "learning":
         choice_language_rule = (
-            f"- Write all four choices in each question in the learning language ({learning_language})."
+            f"- Write all four choices in each question in the learning language ({learning_language}).\n"
+            "- Question structure (learning mode):\n"
+            f"  - question にはパック言語（{plan.language}）で場面・意図・ニュアンスを提示すること。\n"
+            f"  - 四つの選択肢はすべて学習言語（{learning_language}）の表現で書くこと。\n"
+            f"  - explanation はパック言語（{plan.language}）で書くこと。\n"
+            "- Good/Bad examples (learning mode):\n"
+            f"{_learning_examples()}"
         )
     else:
         choice_language_rule = (

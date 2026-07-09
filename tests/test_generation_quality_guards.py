@@ -1308,6 +1308,58 @@ def test_learner_facing_role_block_is_injected_into_both_prompts() -> None:
     assert document_prompt.count(role_block) == 1
 
 
+def test_learner_facing_role_block_includes_good_bad_rewrite_examples() -> None:
+    """_learner_facing_role_block に Good/Bad 言い換え例(本文・question・explanation 各カテゴリ)が含まれること。"""
+    role_block = _learner_facing_role_block()
+
+    # 各カテゴリのマーカー
+    assert "[本文（document 本文・explanation）]" in role_block
+    assert "[quiz の question]" in role_block
+    assert "[quiz の explanation / 選択肢]" in role_block
+
+    # Bad 例(伝聞・引用調の代表語彙を含む)が示されていること
+    assert "この表現はカジュアルな場面で使われると説明されています。" in role_block
+    assert "資料によると、丁寧に伝えることが推奨されています。" in role_block
+    assert "本文では、語順が重要だと述べられています。" in role_block
+    assert "この表現はどんな場面で使われると説明されていますか？" in role_block
+    assert "本文では何が重要だとされていますか？" in role_block
+    assert "正解は、丁寧な言い方だと記載されているためです。" in role_block
+
+    # Good 例(話者が直接断言する形)が示されていること
+    assert "この表現はカジュアルな場面で使います。" in role_block
+    assert "丁寧に伝えましょう。" in role_block
+    assert "語順が重要です。" in role_block
+    assert "この表現はどんな場面で使いますか？" in role_block
+    assert "何が重要ですか？" in role_block
+    assert "正解は、これが丁寧な言い方だからです。" in role_block
+
+    # 禁止語彙の抜け穴を塞ぐ趣旨の1文が添えられていること
+    assert "列挙語彙の抜け穴" in role_block
+    assert "話者が直接断言する形" in role_block
+
+
+def test_learner_facing_role_block_keeps_original_banned_vocabulary() -> None:
+    """既存の禁止語彙列挙が削除・改変されていないこと(本文・設問・解説のいずれにも出現させない、の行)。"""
+    role_block = _learner_facing_role_block()
+
+    assert "伝聞・引用調の代表語彙（「〜とされています」「〜と説明されています」「資料によると」「記載されています」「述べられています」「書かれています」「推奨されています」「ドキュメントでは」「ドキュメントによると」等）は使わない。本文・設問・解説のいずれにも出現させないこと。" in role_block
+
+
+def test_good_bad_rewrite_examples_propagate_to_both_prompts() -> None:
+    """追加した Good/Bad 言い換え例が document / quiz 両プロンプトに伝播していること。"""
+    plan = _plan()
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+
+    marker = "この表現はカジュアルな場面で使われると説明されています。"
+    assert marker in quiz_prompt
+    assert marker in document_prompt
+
+    good_marker = "正解は、これが丁寧な言い方だからです。"
+    assert good_marker in quiz_prompt
+    assert good_marker in document_prompt
+
+
 # --- プレースホルダー・未完成表現の根本対策(目的文 + セルフチェック + 品質チェック修正指示) ---
 
 

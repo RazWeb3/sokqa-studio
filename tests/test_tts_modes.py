@@ -2141,3 +2141,276 @@ def test_speech_text_tag_boundary_switches_rule_processing() -> None:
 
     for source, expected in cases:
         assert _speech_text(source, rules) == expected
+
+
+def _english_choices_quiz_file() -> GeneratedFile:
+    """pack 言語が ja で、選択肢が英語のクイズ（choices はパック言語と異なる）。"""
+    return GeneratedFile(
+        name="quiz_en_choices.json",
+        kind="quiz",
+        content={
+            "id": "pack_quiz_en_choices",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "English choices quiz",
+            "language": "ja",
+            "questions": [
+                {
+                    "id": "q-en-choices",
+                    "question": "Which greeting is most polite?",
+                    "choices": [
+                        "It's a pleasure to finally meet you.",
+                        "Happy to meet you.",
+                        "Pleased to meet you.",
+                        "How do you do?",
+                    ],
+                    "answerIndex": 0,
+                    "explanation": "The first option is the most polite greeting.",
+                }
+            ],
+        },
+    )
+
+
+def test_choices_language_not_set_when_choices_match_pack_language(monkeypatch) -> None:
+    """要件1: 選択肢がパック言語(ja)の場合、choicesLanguage は付与されない。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-plain",
+                    "questionText": "つぎの説明として正しいものはどれですか?",
+                    "choices": [
+                        {"index": 0, "text": "保存します"},
+                        {"index": 1, "text": "確認します"},
+                        {"index": 2, "text": "終了します"},
+                        {"index": 3, "text": "開始します"},
+                    ],
+                    "explanationText": "保存する操作を選びます.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="multilingual")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert "choicesLanguage" not in tts
+
+
+def test_choices_language_set_when_choices_differ_from_pack_language(monkeypatch) -> None:
+    """要件2: 選択肢がパック言語(ja)と異なる場合、choicesLanguage が付与される。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-en-choices",
+                    "questionText": "Which greeting is most polite?",
+                    "choices": [
+                        {"index": 0, "text": "It's a pleasure to finally meet you."},
+                        {"index": 1, "text": "Happy to meet you."},
+                        {"index": 2, "text": "Pleased to meet you."},
+                        {"index": 3, "text": "How do you do?"},
+                    ],
+                    "explanationText": "The first option is the most polite greeting.",
+                    "choicesLanguage": "en-US",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_english_choices_quiz_file()], [], mode="multilingual")
+    tts = files[0].content["questions"][0]["tts"]
+
+    assert tts.get("choicesLanguage") == "en-US"
+
+
+def test_omitted_choice_texts_fallback_to_choices(monkeypatch) -> None:
+    """要件3: choiceTexts を省略（原文と同一）した場合、choices にフォールバックし、
+    choicesLanguage で指定された言語のタグとして読み上げ用テキストが生成される。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-en-choices",
+                    "questionText": "Which greeting is most polite?",
+                    "choices": [
+                        {"index": 0, "text": "It's a pleasure to finally meet you."},
+                        {"index": 1, "text": "Happy to meet you."},
+                        {"index": 2, "text": "Pleased to meet you."},
+                        {"index": 3, "text": "How do you do?"},
+                    ],
+                    "explanationText": "The first option is the most polite greeting.",
+                    "choicesLanguage": "en-US",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_english_choices_quiz_file()], [], mode="multilingual")
+    tts = files[0].content["questions"][0]["tts"]
+
+    # フォールバック先 choices を en-US として読み上げるため、各 choice に [en-US] タグが付与される
+    assert tts["choiceTexts"] == [
+        "[en-US]It's a pleasure to finally meet you.",
+        "[en-US]Happy to meet you.",
+        "[en-US]Pleased to meet you.",
+        "[en-US]How do you do?",
+    ]
+    # choicesLanguage は保持される
+    assert tts.get("choicesLanguage") == "en-US"
+
+
+def test_null_empty_whitespace_choice_texts_fallback_to_choices(monkeypatch) -> None:
+    """要件4: null / "" / 空白のみは既存どおり choices[i] にフォールバックする（回帰防止）。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-en-choices",
+                    "questionText": "Which greeting is most polite?",
+                    "choices": [
+                        {"index": 0, "text": None},
+                        {"index": 1, "text": ""},
+                        {"index": 2, "text": "   "},
+                        {"index": 3, "text": "How do you do?"},
+                    ],
+                    "explanationText": "The first option is the most polite greeting.",
+                    "choicesLanguage": "en-US",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_english_choices_quiz_file()], [], mode="multilingual")
+    tts = files[0].content["questions"][0]["tts"]
+
+    # null/""/空白は choices[i] にフォールバックし、choicesLanguage(en-US) の [en-US] タグとして保持される。
+    # 要素3 のみ実テキスト入力だが原文と同一のため同様にタグ付きで保持される。
+    choice_texts = tts.get("choiceTexts")
+    assert choice_texts is not None
+    assert choice_texts[0] == "[en-US]It's a pleasure to finally meet you."
+    assert choice_texts[1] == "[en-US]Happy to meet you."
+    assert choice_texts[2] == "[en-US]Pleased to meet you."
+    assert choice_texts[3] == "[en-US]How do you do?"
+    assert tts.get("choicesLanguage") == "en-US"
+
+
+def test_choices_language_applied_to_fallback_choices(monkeypatch) -> None:
+    """要件5: choicesLanguage が指定されている場合、フォールバック先の choices がその言語として読み上げられる。
+
+    choiceTexts を省略して choices にフォールバックしたとき、QuizTts.choicesLanguage が
+    そのまま保持され、再生時に choices を choicesLanguage の言語で読み上げる。ここでは
+    choicesLanguage が欠落なく保持されることと、実テキスト優先の choiceTexts[3] が
+    [en-US] タグとして言語指定されていることを確認する。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-en-choices",
+                    "questionText": "Which greeting is most polite?",
+                    "choices": [
+                        {"index": 0, "text": "It's a pleasure to finally meet you."},
+                        {"index": 1, "text": "Happy to meet you."},
+                        {"index": 2, "text": "Pleased to meet you."},
+                        {"index": 3, "text": "[en-US]How do you do?"},
+                    ],
+                    "explanationText": "The first option is the most polite greeting.",
+                    "choicesLanguage": "en-US",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_english_choices_quiz_file()], [], mode="multilingual")
+    tts = files[0].content["questions"][0]["tts"]
+
+    # フォールバック先 choices を en-US で読み上げるための choicesLanguage が保持される
+    assert tts.get("choicesLanguage") == "en-US"
+    choice_texts = tts.get("choiceTexts")
+    # 要素0-2 は原文と同一のため [en-US] タグ付きで保持（フォールバック）。
+    # 要素3 は実テキスト（[en-US]How do you do?）が優先されて保持される。
+    assert choice_texts is not None
+    assert choice_texts[0] == "[en-US]It's a pleasure to finally meet you."
+    assert choice_texts[1] == "[en-US]Happy to meet you."
+    assert choice_texts[2] == "[en-US]Pleased to meet you."
+    assert choice_texts[3] == "[en-US]How do you do?"
+
+
+def test_choice_texts_real_text_takes_priority_over_fallback(monkeypatch) -> None:
+    """要件6: choiceTexts に実テキストがある場合、従来どおり choiceTexts が優先される。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-plain",
+                    "questionText": "つぎの説明として正しいものはどれですか?",
+                    "choices": [
+                        {"index": 0, "text": "りぽじとりをしょきかする"},
+                        {"index": 1, "text": ".gitignore を削除する"},
+                        {"index": 2, "text": "設定値を表示する"},
+                        {"index": 3, "text": "DBを作成する"},
+                    ],
+                    "explanationText": "git init は現在のディレクトリをGitリポジトリとして初期化します。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, _ = optimize_generated_files_with_report([_plain_quiz_file()], [], mode="multilingual")
+    tts = files[0].content["questions"][0]["tts"]
+
+    # 要素0 のみ読み補正あり → 実テキスト優先（choiceTexts[0] が保持される）。
+    # 要素1-3 は空のため既存フォールバックで choices[i] に補填される（既存挙動維持）。
+    choice_texts = tts.get("choiceTexts")
+    assert choice_texts is not None
+    assert choice_texts[0] == "りぽじとりをしょきかする"
+    assert choice_texts[1] == ".gitignore を削除する"
+    assert choice_texts[2] == "設定値を表示する"
+    assert choice_texts[3] == "DBを作成する"
+
+
+def test_choices_language_single_language_path_no_regression(monkeypatch) -> None:
+    """要件7: 単一言語パス（rule モード）で choicesLanguage が混入せず既存挙動を維持する。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    rules = [TtsRule(source="AI", reading="エーアイ")]
+
+    files, _ = optimize_generated_files_with_report([_ai_quiz_file()], rules, mode="rule")
+    tts = files[0].content["questions"][0]["tts"]
+
+    # rule モードは LLM 出力なし → choicesLanguage は付与されない（既存維持）
+    assert "choicesLanguage" not in tts
+    # 既存フォールバック（実テキスト優先）は維持される
+    assert tts["choiceTexts"] == [
+        "エーアイの提案を業務要件と照合する",
+        "エーアイの出力を無条件に採用する",
+        "記録を残さずエーアイだけで判断する",
+        "",
+    ]

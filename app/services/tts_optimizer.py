@@ -2,7 +2,7 @@ import logging
 import re
 
 from app.config import get_settings
-from app.schemas.common import TtsLanguageSettings, TtsReadingMode, TtsRule, default_speech_language_code, normalize_tts_reading_mode
+from app.schemas.common import TtsLanguageSettings, TtsReadingMode, TtsRule, default_speech_language_code, normalize_tts_reading_mode, validate_language_code
 from app.schemas.sokqa import (
     DocumentTts,
     GeneratedFile,
@@ -506,6 +506,7 @@ def _guard_llm_quiz_tts(
         choiceTexts=choice_texts,
         answerText=None,
         explanationText=explanation_text,
+        choicesLanguage=tts.choicesLanguage,
     )
 
 
@@ -732,10 +733,14 @@ def _apply_choice_language_tags(
     default_language: str,
     allow_language_tags: bool,
     language_settings: TtsLanguageSettings | None,
+    override_choices_language: str | None = None,
 ) -> list[str]:
     if not allow_language_tags:
         return choice_readings
     mode, selected_language = _choice_language_mode(language_settings, default_language)
+    if override_choices_language:
+        selected_language = override_choices_language
+        mode = "select"
     default_base = _base_language(default_language)
     selected_base = _base_language(selected_language) if selected_language else None
     selected_tag = _language_tag(selected_language) if selected_language else ""
@@ -984,6 +989,8 @@ Explanation text:
 {explanation}
 
 Return the same question id exactly. Return each choice by its original index.
+choiceTexts is optional: only output a choiceTexts entry when a choice needs a TTS reading different from its original text (e.g. kana/reading correction, or split phrasing). If a choice reads exactly as written, omit it for that index by using null, "", or whitespace-only.
+choicesLanguage is optional: if the choices are written in a language different from the scenario default language ("{language}", speech code "{default_speech_language_code(language)}"), set choicesLanguage to that language's locale code (e.g. "en-US"). If the choices are in the default language, omit choicesLanguage.
 Return this shape:
 {{
   "id": "{question_id}",
@@ -991,7 +998,8 @@ Return this shape:
   "choices": [
     {{"index": 0, "text": "tts reading text"}}
   ],
-  "explanationText": "tts reading text"
+  "explanationText": "tts reading text",
+  "choicesLanguage": "en-US"
 }}
 """.strip()
 
@@ -1053,6 +1061,7 @@ def _quiz_tts_from_readings(
     language_settings: TtsLanguageSettings | None = None,
     learning_language: str | None = None,
     choice_language_mode: str | None = None,
+    choices_language: str | None = None,
 ) -> QuizTts | None:
     question_text = _apply_field_language_tags(
         question.question,
@@ -1077,6 +1086,7 @@ def _quiz_tts_from_readings(
         default_language=language,
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
+        override_choices_language=choices_language,
     )
     if (
         allow_language_tags
@@ -1119,6 +1129,7 @@ def _quiz_tts_from_readings(
         choiceTexts=choice_texts_output,
         answerText=None,
         explanationText=explanation_text_output,
+        choicesLanguage=choices_language,
     )
 
 
@@ -1154,6 +1165,7 @@ def _gemini_quiz_question_tts(
     language_settings: TtsLanguageSettings | None = None,
     learning_language: str | None = None,
     choice_language_mode: str | None = None,
+    choices_language: str | None = None,
 ) -> QuizTts | None:
     if _quiz_question_char_count(question) > MAX_TTS_FILE_CHARS:
         question_text = _gemini_speech_text(question.question, rules, language, entry_id=question.id)
@@ -1170,6 +1182,7 @@ def _gemini_quiz_question_tts(
             language_settings=language_settings,
             learning_language=learning_language,
             choice_language_mode=choice_language_mode,
+            choices_language=choices_language,
         )
 
     data = GeminiClient().generate_json(
@@ -1204,6 +1217,11 @@ def _gemini_quiz_question_tts(
     if not isinstance(explanation_text, str) or not explanation_text.strip():
         explanation_text = question.explanation
 
+    raw_choices_language = data.get("choicesLanguage")
+    if choices_language is None and isinstance(raw_choices_language, str) and raw_choices_language.strip():
+        resolved = raw_choices_language.strip()
+        choices_language = "pack" if resolved == "pack" else validate_language_code(resolved)
+
     return _quiz_tts_from_readings(
         question,
         question_text,
@@ -1215,6 +1233,7 @@ def _gemini_quiz_question_tts(
         language_settings=language_settings,
         learning_language=learning_language,
         choice_language_mode=choice_language_mode,
+        choices_language=choices_language,
     )
 
 
@@ -1258,6 +1277,8 @@ Questions:
 
 Return the same question ids exactly. Do not add, remove, reorder, or rename ids.
 Return each choice by its original index.
+choiceTexts is optional: only output a choiceTexts entry when a choice needs a TTS reading different from its original text (e.g. kana/reading correction, or split phrasing). If a choice reads exactly as written, omit it for that index by using null, "", or whitespace-only.
+choicesLanguage is optional: if the choices are written in a language different from the scenario default language ("{language}", speech code "{default_speech_language_code(language)}"), set choicesLanguage to that language's locale code (e.g. "en-US"). If the choices are in the default language, omit choicesLanguage.
 Return this shape:
 {{
   "items": [
@@ -1267,7 +1288,8 @@ Return this shape:
       "choices": [
         {{"index": 0, "text": "tts reading text"}}
       ],
-      "explanationText": "tts reading text"
+      "explanationText": "tts reading text",
+      "choicesLanguage": "en-US"
     }}
   ]
 }}
@@ -1284,6 +1306,7 @@ def _quiz_tts_from_item(
     language_settings: TtsLanguageSettings | None = None,
     learning_language: str | None = None,
     choice_language_mode: str | None = None,
+    choices_language: str | None = None,
 ) -> QuizTts | None:
     question_text = item.get("questionText", "")
     explanation_text = item.get("explanationText", "")
@@ -1307,6 +1330,11 @@ def _quiz_tts_from_item(
     if not isinstance(explanation_text, str) or not explanation_text.strip():
         explanation_text = question.explanation
 
+    raw_choices_language = item.get("choicesLanguage")
+    if choices_language is None and isinstance(raw_choices_language, str) and raw_choices_language.strip():
+        resolved = raw_choices_language.strip()
+        choices_language = "pack" if resolved == "pack" else validate_language_code(resolved)
+
     return _quiz_tts_from_readings(
         question,
         question_text,
@@ -1318,6 +1346,7 @@ def _quiz_tts_from_item(
         language_settings=language_settings,
         learning_language=learning_language,
         choice_language_mode=choice_language_mode,
+        choices_language=choices_language,
     )
 
 

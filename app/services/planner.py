@@ -368,22 +368,37 @@ def infer_learning_language(theme: str, target_user: str = "") -> str | None:
 
 
 def _is_language_learning_mode(request: PlanPackRequest) -> bool:
-    """言語学習モードかどうかの判定。
+    """言語学習モードかどうかの判定（PlanPackRequest ベース・両系統統合）。
 
-    _compose_generation_purpose() の既存判定と同一条件
-    (learningLanguage が存在し、かつ packLanguage != learningLanguage)。
-    新規ロジックは追加せず、request.learningLanguage or infer_learning_language(...)
-    による解決と _compose_generation_purpose の比較条件をそのまま使う。
+    Planner 段階では request.plan が未確定な場合があるため、request のフィールドのみで判定する。
+    系統A: learningLanguage あり かつ learningLanguage != packLanguage（外国語学習）
+    系統B: structurePolicy == "japanese_learning" かつ packLanguage != "ja"（日本語学習）
+
+    システム統合判定（is_language_learning_request/plan）と同一条件。
     """
-    pack_language = (request.language or "").strip()
-    learning_language = (
-        request.learningLanguage or infer_learning_language(request.theme, request.targetUser) or ""
-    ).strip()
-    return bool(
-        learning_language
-        and pack_language
-        and learning_language != pack_language
+    from app.services.generation.language_learning.planner import _base_language
+
+    pack_language = _base_language(request.language)
+    learning_language = _base_language(
+        request.learningLanguage or infer_learning_language(request.theme, request.targetUser)
     )
+
+    # 系統A
+    if learning_language and pack_language and learning_language != pack_language:
+        return True
+
+    # 系統B
+    if request.structurePolicy == "japanese_learning" and pack_language and pack_language != "ja":
+        return True
+
+    return False
+
+
+def infer_learning_language(theme: str, target_user: str = "") -> str | None:
+    """学習言語の推論。Phase 3 以降は generation.language_learning.planner へ集約。"""
+    from app.services.generation.language_learning.planner import infer_learning_language as _ll_infer
+
+    return _ll_infer(theme, target_user)
 
 
 def _normal_planner_objective(request: PlanPackRequest) -> str:
@@ -399,25 +414,10 @@ def _normal_planner_objective(request: PlanPackRequest) -> str:
 
 
 def _language_learning_planner_objective(request: PlanPackRequest) -> str:
-    """言語学習教材の目的関数ブロック（学習場面ベース）。
+    """言語学習教材の目的関数ブロック（学習場面ベース）。Phase 3: 実体は language_learning.planner へ移設。"""
+    from app.services.generation.language_learning.planner import planner_objective
 
-    言語のハードコードは禁止。packLanguage / learningLanguage は変数として使い、
-    ja/en 等の固定ペアに依存しない。
-    """
-    learning_language = (
-        request.learningLanguage or infer_learning_language(request.theme, request.targetUser) or "not specified"
-    )
-    pack_language = request.language
-    return f"""
-# この教材の目的関数（言語学習: 学習場面ベース）
-この学習パックは「{request.theme}」を題材にして、学習言語 {learning_language} を学ぶための教材である（パック言語 {pack_language} は意味・使う場面・ニュアンスの補助説明に用いる）。
-- テーマを説明する章を作るのではなく、テーマを題材にして {learning_language} を学ぶための章構成を作る。
-- 章タイトルは「学習フレーズの利用場面」を表すこと。
-  Bad: 「海外旅行とは」「飛行機について」「ホテルについて」（説明対象が主語）
-  Good: 「空港で使う基本表現」「チェックインで使う表現」「機内で使う表現」「ホテルで使う表現」（学習場面が主語）
-- document.goal は「その場面で {learning_language} の表現を使えるようになる」形にする。
-- document.keyPoints は、その場面で扱う代表的なフレーズ／表現のまとまり（利用場面のビート）にすること。テーマの知識項目の列挙にしない。
-""".strip()
+    return planner_objective(request)
 
 
 def _planner_objective(request: PlanPackRequest) -> str:

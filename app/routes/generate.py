@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.request import GeneratePackRequest
 from app.schemas.sokqa import GeneratePackResponse
-from app.services.pack_agent import generate_pack
+from app.services.generation.strategy import resolve_generation_strategy
 
 
 router = APIRouter(tags=["generation"])
@@ -11,7 +11,9 @@ router = APIRouter(tags=["generation"])
 @router.post("/generate-pack", response_model=GeneratePackResponse)
 def generate(request: GeneratePackRequest) -> GeneratePackResponse:
     try:
-        return generate_pack(request)
+        # Phase 1: 入口のみ Strategy 経由へ切り替え。内部ロジックは既存 generate_pack を維持。
+        strategy = resolve_generation_strategy(request)
+        return strategy.generate(request)
     except RuntimeError as exc:
         raise HTTPException(
             status_code=502,

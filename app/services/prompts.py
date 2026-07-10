@@ -65,11 +65,9 @@ Structure policy: reading
 - Prefer unambiguous phrasing over overly conversational shortcuts.
 """.rstrip()
     if structure_policy == "japanese_learning":
-        return """
-Structure policy: japanese_learning
-- Write content suitable for Japanese study, keeping explanations clear and learner-friendly.
-- Prefer common vocabulary and straightforward sentence structures.
-""".rstrip()
+        from app.services.generation.language_learning.prompt import structure_policy_block
+
+        return structure_policy_block(plan)
     return """
 Structure policy: summary
 - Prioritize clarity and brevity.
@@ -106,14 +104,9 @@ def _ruby_policy_block(plan: CoursePlan) -> str:
 """.strip()
 
     if structure_policy == "japanese_learning":
-        return f"""
-- Ruby policy: japanese_learning
-- Add furigana to every kanji word by default.
-- Use reading parentheticals only for kana readings of kanji, using either Kanji(かな) or 漢字（かな）.
-- Do not use reading parentheticals for meaning explanations; meaning explanations must remain as normal parentheses explanations (example: SQL（データベース操作言語）).
-- When adding furigana, never repeat the same reading twice (avoid outputs that would be read as "よみ よみ").
-{common}
-""".strip()
+        from app.services.generation.language_learning.prompt import ruby_policy_block
+
+        return ruby_policy_block()
 
     return f"""
 - Ruby policy: none
@@ -144,43 +137,17 @@ Material mode: reference
 
 
 def _is_japanese_learning_plan(plan: CoursePlan) -> bool:
-    parts = [
-        plan.title,
-        plan.description,
-        plan.shortTitle or "",
-        plan.targetUser,
-        *[document.title for document in plan.documents],
-        *[document.goal for document in plan.documents],
-        *[point for document in plan.documents for point in document.keyPoints],
-    ]
-    text = " ".join(str(part) for part in parts if part).lower()
-    markers = ["日本語", "にほんご", "japanese", "jlpt", "n5", "n4", "ひらがな", "カタカナ"]
-    return plan.language != "ja" and any(marker in text for marker in markers)
+    """Phase 3: 実体は generation.language_learning.prompt へ移設（互換委譲）。"""
+    from app.services.generation.language_learning.prompt import is_japanese_learning_plan
+
+    return is_japanese_learning_plan(plan)
 
 
 def _japanese_learning_difficulty_block(plan: CoursePlan) -> str:
-    if not _is_japanese_learning_plan(plan):
-        return ""
-    if plan.difficulty == "beginner":
-        guidance = """
-- For learner-facing Japanese examples and target-language spans, avoid kanji in principle.
-- Prefer hiragana and katakana, and use only JLPT N5-level vocabulary.
-- Examples: use じこしょうかい instead of 自己紹介, あいさつ instead of 挨拶, and はじめて あう instead of 初対面.
-""".rstrip()
-    elif plan.difficulty == "advanced":
-        guidance = """
-- Learner-facing Japanese examples may use natural Japanese without kanji restrictions.
-- Keep the surrounding explanation in the pack language unless a Japanese span is intentionally shown as learning content.
-""".rstrip()
-    else:
-        guidance = """
-- Learner-facing Japanese examples may use kanji up to roughly JLPT N4 level.
-- Add readings or simpler phrasing when needed for accessibility.
-""".rstrip()
-    return f"""
-Japanese-learning difficulty guidance:
-{guidance}
-""".rstrip()
+    """Phase 3: 実体は generation.language_learning.prompt へ移設（互換委譲）。"""
+    from app.services.generation.language_learning.prompt import japanese_learning_difficulty_block
+
+    return japanese_learning_difficulty_block(plan)
 
 
 def _custom_instructions_block(plan: CoursePlan) -> str:
@@ -262,18 +229,13 @@ def _compose_generation_purpose(plan: CoursePlan, *, language: str = "ja") -> st
     if (plan.customInstructions or "").strip():
         purpose_lines.append("なお、上記に加えユーザー指定の追加条件も目的の一部として尊重すること。")
 
-    pack_language = (plan.language or "").strip()
-    learning_language = (plan.learningLanguage or "").strip()
     # 専用の語学ポリシーがない多言語学習パックにだけ共通補完を足す。専用ポリシーを持つ教材タイプは各ポリシー側で定義済みとみなす。
-    if (
-        learning_language
-        and pack_language
-        and learning_language != pack_language
-        and structure_policy != "japanese_learning"
-    ):
-        purpose_lines.append(
-            "learningLanguage(学習対象言語)の語句・フレーズ・例文など、学習対象言語そのものを本文の主役として十分な分量で提示すること。パック言語は、その意味・使う場面・ニュアンスを補助的に説明する役割に用いること。学習対象言語に触れさせず、パック言語だけで学習法や概念を語る解説に終始してはならない。学習対象言語のフレーズは素のテキストとして書き、言語タグ([en-US] 等)は本文に含めないこと。タグ付けは後続の読み上げ最適化ステップの責務である。"
-        )
+    # 語学教材専用の生成方針は language_learning/prompt.build_language_learning_purpose_lines へ委譲（Phase 5 候補1）。
+    from app.services.generation.language_learning.prompt import (
+        build_language_learning_purpose_lines,
+    )
+
+    purpose_lines.extend(build_language_learning_purpose_lines(plan))
 
     return "\n".join(purpose_lines)
 

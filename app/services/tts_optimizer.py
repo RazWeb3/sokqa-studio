@@ -530,27 +530,10 @@ def _effective_quiz_language_settings(
     pack: SokqaQuizPack,
     legacy_settings: TtsLanguageSettings | None,
 ) -> TtsLanguageSettings | None:
-    if not pack.learningLanguage:
-        return legacy_settings
-    if pack.choiceLanguageMode == "learning":
-        choices_mode = "select"
-        choices_language = pack.learningLanguage
-    elif pack.choiceLanguageMode == "pack":
-        choices_mode = "select"
-        choices_language = "pack"
-    else:
-        choices_mode = "auto"
-        choices_language = pack.learningLanguage
-    return TtsLanguageSettings(
-        documentTextLanguageMode="mixed",
-        documentTextLanguage=pack.learningLanguage,
-        questionLanguageMode="mixed",
-        questionLanguage=pack.learningLanguage,
-        choicesLanguageMode=choices_mode,
-        choicesLanguage=choices_language,
-        explanationLanguageMode="mixed",
-        explanationLanguage=pack.learningLanguage,
-    )
+    """Phase 7: 実体は generation.language_learning.tts へ移設（互換委譲）。"""
+    from app.services.generation.language_learning.tts import effective_quiz_language_settings
+
+    return effective_quiz_language_settings(pack, legacy_settings)
 
 
 def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
@@ -1679,11 +1662,13 @@ def optimize_document_pack(
     language_settings: TtsLanguageSettings | None = None,
 ) -> SokqaDocumentPack:
     active_mode = _mode_or_default(mode)
-    if pack.learningLanguage:
-        language_settings = TtsLanguageSettings(
-            documentTextLanguageMode="mixed",
-            documentTextLanguage=pack.learningLanguage,
-        )
+    # 語学教材用ドキュメント TTS 言語設定は language_learning/tts.build_document_language_settings へ委譲（Phase 5 候補3）。
+    # 戻り値が None（learningLanguage なし）なら渡された共通 language_settings をそのまま使う。
+    from app.services.generation.language_learning.tts import (
+        build_document_language_settings,
+    )
+
+    language_settings = build_document_language_settings(pack) or language_settings
     rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []

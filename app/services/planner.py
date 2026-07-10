@@ -367,6 +367,65 @@ def infer_learning_language(theme: str, target_user: str = "") -> str | None:
     return None
 
 
+def _is_language_learning_mode(request: PlanPackRequest) -> bool:
+    """言語学習モードかどうかの判定。
+
+    _compose_generation_purpose() の既存判定と同一条件
+    (learningLanguage が存在し、かつ packLanguage != learningLanguage)。
+    新規ロジックは追加せず、request.learningLanguage or infer_learning_language(...)
+    による解決と _compose_generation_purpose の比較条件をそのまま使う。
+    """
+    pack_language = (request.language or "").strip()
+    learning_language = (
+        request.learningLanguage or infer_learning_language(request.theme, request.targetUser) or ""
+    ).strip()
+    return bool(
+        learning_language
+        and pack_language
+        and learning_language != pack_language
+    )
+
+
+def _normal_planner_objective(request: PlanPackRequest) -> str:
+    """通常教材（テーマ解説）の目的関数ブロック。"""
+    return f"""
+# この教材の目的関数（通常教材: テーマ解説）
+この学習パックは「{request.theme}」というテーマを解説する教材である。
+- 各章は「テーマの内容を段階的に理解させる」ことを目的とし、テーマの知識項目を主役にする。
+- 章タイトルは扱うテーマ内容（説明対象）を表すこと。例: 「海外旅行とは」「旅行計画」「現地での移動手段」。
+- document.goal は「その章でテーマのどの内容を理解できるか」の形にする。
+- document.keyPoints はその章で扱うテーマの知識項目を列挙すること。
+""".strip()
+
+
+def _language_learning_planner_objective(request: PlanPackRequest) -> str:
+    """言語学習教材の目的関数ブロック（学習場面ベース）。
+
+    言語のハードコードは禁止。packLanguage / learningLanguage は変数として使い、
+    ja/en 等の固定ペアに依存しない。
+    """
+    learning_language = (
+        request.learningLanguage or infer_learning_language(request.theme, request.targetUser) or "not specified"
+    )
+    pack_language = request.language
+    return f"""
+# この教材の目的関数（言語学習: 学習場面ベース）
+この学習パックは「{request.theme}」を題材にして、学習言語 {learning_language} を学ぶための教材である（パック言語 {pack_language} は意味・使う場面・ニュアンスの補助説明に用いる）。
+- テーマを説明する章を作るのではなく、テーマを題材にして {learning_language} を学ぶための章構成を作る。
+- 章タイトルは「学習フレーズの利用場面」を表すこと。
+  Bad: 「海外旅行とは」「飛行機について」「ホテルについて」（説明対象が主語）
+  Good: 「空港で使う基本表現」「チェックインで使う表現」「機内で使う表現」「ホテルで使う表現」（学習場面が主語）
+- document.goal は「その場面で {learning_language} の表現を使えるようになる」形にする。
+- document.keyPoints は、その場面で扱う代表的なフレーズ／表現のまとまり（利用場面のビート）にすること。テーマの知識項目の列挙にしない。
+""".strip()
+
+
+def _planner_objective(request: PlanPackRequest) -> str:
+    if _is_language_learning_mode(request):
+        return _language_learning_planner_objective(request)
+    return _normal_planner_objective(request)
+
+
 def _planner_prompt(request: PlanPackRequest) -> str:
     source_block = source_prompt_block(request.sourceText, request.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
@@ -419,6 +478,8 @@ Input:
 - materialMode: {request.materialMode}
 - requested documentCount: {_requested_document_count(request)}
 - requested sectionsPerDocument: {_requested_section_count(request)}
+
+{_planner_objective(request)}
 
 # 生成ルール
 以下は必ず守る制約です。出力本文には含めないでください。

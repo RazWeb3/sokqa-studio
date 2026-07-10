@@ -671,3 +671,132 @@ def test_planner_generation_guidance_refers_to_custom_instructions_without_inlin
     assert "ホテル受付の場面を中心にする。" not in plan.generationGuidance
     # customInstructions は従来通り plan.customInstructions に保持されること
     assert plan.customInstructions == "ホテル受付の場面を中心にする。"
+
+
+def test_planner_prompt_normal_mode_uses_topic_explanation_objective() -> None:
+    prompt = planner._planner_prompt(
+        PlanPackRequest(
+            theme="海外旅行",
+            targetUser="社会人",
+            scale="quick",
+            language="ja",
+        )
+    )
+
+    # 通常モード: 説明対象型の目的関数が選ばれていること
+    assert "この教材の目的関数（通常教材: テーマ解説）" in prompt
+    # 説明対象型の章立てを促す指示が含まれること
+    assert "「海外旅行とは」「旅行計画」" in prompt
+    # 言語学習目的関数は含まれないこと
+    assert "この教材の目的関数（言語学習: 学習場面ベース）" not in prompt
+    assert "学習フレーズの利用場面" not in prompt
+    # 共有部は維持されていること
+    assert "Return strict JSON only." in prompt
+    assert '"targetSectionCount": 38' in prompt
+    assert "targetSectionCount must be an integer from 35 to 50" in prompt
+
+
+def test_planner_prompt_language_learning_mode_uses_scene_based_objective() -> None:
+    prompt = planner._planner_prompt(
+        PlanPackRequest(
+            theme="海外旅行",
+            targetUser="社会人",
+            scale="quick",
+            language="ja",
+            learningLanguage="en",
+        )
+    )
+
+    # 言語学習モード: 学習場面型の目的関数が選ばれていること
+    assert "この教材の目的関数（言語学習: 学習場面ベース）" in prompt
+    assert "学習フレーズの利用場面" in prompt
+    # 場面主語の Good 例が含まれること
+    assert "空港で使う基本表現" in prompt
+    assert "ホテルで使う表現" in prompt
+    # 説明対象型の目的関数は含まれないこと
+    assert "この教材の目的関数（通常教材: テーマ解説）" not in prompt
+    assert "「海外旅行とは」「旅行計画」" not in prompt
+    # 共有部は維持されていること
+    assert "Return strict JSON only." in prompt
+    assert '"targetSectionCount": 38' in prompt
+    assert "targetSectionCount must be an integer from 35 to 50" in prompt
+
+
+def test_planner_prompt_language_learning_mode_selects_other_languages() -> None:
+    ko_prompt = planner._planner_prompt(
+        PlanPackRequest(
+            theme="海外旅行",
+            targetUser="社会人",
+            scale="quick",
+            language="ja",
+            learningLanguage="ko",
+        )
+    )
+    zh_prompt = planner._planner_prompt(
+        PlanPackRequest(
+            theme="海外旅行",
+            targetUser="社会人",
+            scale="quick",
+            language="ko",
+            learningLanguage="en",
+        )
+    )
+
+    # 他言語ペアでも言語学習用プロンプトが選択されること
+    assert "この教材の目的関数（言語学習: 学習場面ベース）" in ko_prompt
+    assert "この教材の目的関数（言語学習: 学習場面ベース）" in zh_prompt
+    # ハードコードされた言語ペア（pack=ja / learning=en 前提）がないこと
+    assert "学習言語 en" not in ko_prompt
+    assert "学習言語 ja" not in ko_prompt
+    assert "学習言語 ko" in ko_prompt
+    assert "学習言語 en" in zh_prompt
+
+
+def test_planner_prompt_no_hardcoded_language_pair() -> None:
+    # 言語ハードコードがないことの確認: 通常モードにも言語学習モードにも
+    # 固定の "pack=ja / learning=en" 前提の記述が混ざらない。
+    normal_prompt = planner._planner_prompt(
+        PlanPackRequest(theme="Git基礎", targetUser="社会人", scale="quick", language="ja")
+    )
+    en_prompt = planner._planner_prompt(
+        PlanPackRequest(theme="海外旅行", targetUser="社会人", scale="quick", language="ja", learningLanguage="en")
+    )
+
+    # 変数として埋め込まれるため、リテラルな "pack=ja / learning=en" 前提の文は無い
+    for prompt in (normal_prompt, en_prompt):
+        assert "pack=ja" not in prompt
+        assert "learning=en" not in prompt
+        # 言語コードは必ず変数展開形（{...} でなくても、固定ペア前提の記述が無い）で現れる
+        assert "学習言語 en" in en_prompt
+        assert "学習言語 en" not in normal_prompt
+
+
+def test_planner_learning_mode_branch_condition_matches_existing() -> None:
+    # 分岐条件が (learningLanguage あり かつ pack != learning) と一致していること
+    # 1) learningLanguage なし -> 通常モード
+    assert planner._is_language_learning_mode(
+        PlanPackRequest(theme="海外旅行", targetUser="社会人", scale="quick", language="ja")
+    ) is False
+
+    # 2) learningLanguage == packLanguage -> 通常モード（同一言語）
+    assert planner._is_language_learning_mode(
+        PlanPackRequest(theme="海外旅行", targetUser="社会人", scale="quick", language="ja", learningLanguage="ja")
+    ) is False
+
+    # 3) learningLanguage あり かつ pack != learning -> 言語学習モード
+    assert planner._is_language_learning_mode(
+        PlanPackRequest(theme="海外旅行", targetUser="社会人", scale="quick", language="ja", learningLanguage="en")
+    ) is True
+    assert planner._is_language_learning_mode(
+        PlanPackRequest(theme="海外旅行", targetUser="社会人", scale="quick", language="ja", learningLanguage="ko")
+    ) is True
+
+    # 4) learningLanguage なしでもテーマから推論される言語が pack と異なれば言語学習モード
+    # theme="英会話 初級" は en を推論。pack=ja と異なるため True。
+    assert planner._is_language_learning_mode(
+        PlanPackRequest(theme="英会話 初級", targetUser="日本語話者", scale="quick", language="ja")
+    ) is True
+    # 推論された言語が pack と同じなら False（英語パックで英語を推論）
+    assert planner._is_language_learning_mode(
+        PlanPackRequest(theme="English conversation", targetUser="English speaker", scale="quick", language="en")
+    ) is False

@@ -1785,6 +1785,19 @@ def test_quiz_prompt_non_ja_en_pack_uses_generic_good_bad_examples_without_hardc
     assert "How do you do?" not in prompt
 
 
+def test_quiz_prompt_enforces_exact_question_count() -> None:
+    """問題①: quiz_generation_prompt が questionCount と全く同じ件数の出力を強制する文言を含むこと。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+    quiz_pack = _quiz_pack_with_mode("pack").model_copy(update={"questionCount": 30})
+    prompt = quiz_generation_prompt(plan, quiz_pack, [_source_pack()])
+
+    assert "- question count: 30" in prompt
+    assert "You MUST output exactly 30 questions in the questions[] array" in prompt
+    assert "Do not output fewer or more than this count" in prompt
+    assert "until you reach exactly 30" in prompt
+
+
 # --- Phase 9 Task 2: 角括弧プレースホルダー禁止（document + quiz 両本文） ---
 
 

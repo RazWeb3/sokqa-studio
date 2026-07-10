@@ -640,6 +640,7 @@ def quiz_generation_prompt(
 {choice_language_rule}
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
+- You MUST output exactly {quiz_pack.questionCount} questions in the questions[] array. Do not output fewer or more than this count. If you run out of distinct, meaningful questions, keep generating distinct scenario-based questions grounded in the quiz context until you reach exactly {quiz_pack.questionCount}.
 - Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
 - Do not output tts in the first quiz generation step.
 """.strip()
@@ -699,4 +700,57 @@ Required JSON shape:
 }}
 
 {self_check_block()}
+"""
+
+
+def quiz_pack_violation_repair_prompt(
+    plan: CoursePlan,
+    quiz_pack: PlanQuizPack,
+    violations: list[dict],
+) -> str:
+    """packモード違反の問題のみを、厳格な pack言語指示で再生成するためのプロンプト。
+
+    choiceLanguageMode="pack" なのに一部の問題で選択肢が学習言語になった場合、
+    violate した問題だけを対象に、全選択肢を pack言語で書き直すよう要求する。
+    既存の quiz_generation_prompt の Good/Bad 例を強めたもの。
+    """
+    learning_language = plan.learningLanguage or "not specified"
+    pack_lang = plan.language
+    violation_lines = "\n".join(
+        f"- {violation['id']}: {violation['question']}" for violation in violations
+    )
+    return f"""Re-generate ONLY the listed quiz questions with corrected choice language.
+
+Rules:
+- type must be "quiz".
+- Return strict JSON only. Do not output markdown fences.
+- language must be "{plan.language}".
+- choiceLanguageMode is "pack". Every single choice in EVERY question MUST be written in the pack language ({plan.language}).
+- This is a strict correction task: rewrite the choices of the listed questions so that ALL four choices are in the pack language ({plan.language}).
+- Do NOT output any choice in the learning language ({learning_language}).
+- Keep the question id, question text meaning, correct answer, and explanation of each listed question. Only the choice language is being corrected to the pack language.
+- Each choices array must contain exactly 4 meaningful strings, all in the pack language ({plan.language}).
+- answerIndex must be an integer from 0 to 3 and must still point to the correct choice after correction.
+
+Quiz pack:
+- id: {quiz_pack.id}
+- title: {quiz_pack.title}
+- purpose: {quiz_pack.purpose}
+- choiceLanguageMode: {quiz_pack.choiceLanguageMode}
+
+Questions to correct (rewrite their choices in the pack language {plan.language}):
+{violation_lines}
+
+Required JSON shape:
+{{
+  "questions": [
+    {{
+      "id": "q-1",
+      "question": "Meaningful question based on source documents.",
+      "choices": ["choice 1 (pack language)", "choice 2 (pack language)", "choice 3 (pack language)", "choice 4 (pack language)"],
+      "answerIndex": 0,
+      "explanation": "Specific explanation grounded in source documents."
+    }}
+  ]
+}}
 """

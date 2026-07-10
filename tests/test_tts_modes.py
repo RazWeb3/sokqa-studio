@@ -1432,6 +1432,64 @@ def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch)
     ]
 
 
+def test_learning_mode_omits_choice_texts_when_choices_language_present(monkeypatch) -> None:
+    """問題③: learningモードで choicesLanguage が指定されている場合、選択肢は学習言語で
+    そのまま読めるため choiceTexts は冗長。省略して choices へフォールバックさせ、
+    choicesLanguage は保持される。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="english_choices_learning.json",
+        kind="quiz",
+        content={
+            "id": "english_choices_learning",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "朝の挨拶はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "朝は Good morning を使います。",
+                }
+            ],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-1",
+                    "questionText": "朝の挨拶はどれですか。",
+                    "choices": [
+                        {"index": 0, "text": "[en-US]Good morning"},
+                        {"index": 1, "text": "[en-US]Hello"},
+                        {"index": 2, "text": "[en-US]Good evening"},
+                        {"index": 3, "text": "[en-US]Goodbye"},
+                    ],
+                    "explanationText": "朝は [en-US]Good morning[ja-JP] を使います。",
+                    "choicesLanguage": "en-US",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
+
+    tts = files[0].content["questions"][0]["tts"]
+    # 冗長な choiceTexts は省略される
+    assert "choiceTexts" not in tts
+    # choicesLanguage は欠落なく保持される（エンジンが choices を en-US で読む）
+    assert tts.get("choicesLanguage") == "en-US"
+
+
 def test_learning_language_auto_keeps_only_non_pack_choice_texts(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

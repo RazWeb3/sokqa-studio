@@ -1222,11 +1222,18 @@ def _quiz_tts_from_readings(
             deterministic_choices.append(text)
         choice_readings = deterministic_choices
     choice_mode, selected_language = _choice_language_mode(language_settings, language)
-    keep_all_choices = allow_language_tags and (
-        choice_mode == "mixed"
-        or (choice_mode == "select" and selected_language and _base_language(selected_language) != _base_language(language))
-    )
-    choice_texts_output = _sparse_choice_texts(question, choice_readings, keep_all=keep_all_choices)
+    # choicesLanguage が指定され、かつ choiceLanguageMode が learning のときは
+    # 選択肢が学習言語でそのまま読めるため choiceTexts は冗長。完全に省略し、エンジンが
+    # choices を choicesLanguage で読むよう choicesLanguage のみを保持する。
+    choices_language_redundant = bool(choices_language) and choice_language_mode == "learning"
+    if choices_language_redundant:
+        choice_texts_output = None
+    else:
+        keep_all_choices = allow_language_tags and (
+            choice_mode == "mixed"
+            or (choice_mode == "select" and selected_language and _base_language(selected_language) != _base_language(language))
+        )
+        choice_texts_output = _sparse_choice_texts(question, choice_readings, keep_all=keep_all_choices)
     explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules, language)
     if not question_text_output and not choice_texts_output and not explanation_text_output:
         return None

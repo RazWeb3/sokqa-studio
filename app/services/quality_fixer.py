@@ -35,6 +35,7 @@ from app.services.language_detection import leading_script
 from app.services.llm_json import LlmJsonParseContext
 from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.pack_paths import pack_root_prefix
+from app.services.generation.language_learning.quality import deterministic_tts_issues
 from app.services.quality_checker import _generate_json_with_retry
 from app.services.revision_store import persist_revision_commit
 from app.services.storage_client import StorageClient
@@ -360,6 +361,76 @@ def _generate_tts_fix_without_llm(
         ],
         truncated=len(issues) > max_fixes,
     )
+
+
+def apply_auto_quality_fixes(content: dict[str, Any], file_name: str) -> tuple[dict[str, Any], list[AppliedFix]]:
+    """生成パイプライン用: content を直接受け取り、AUTOカテゴリ（reading/double_utterance/
+    notation/tts_text_mismatch）の決定論的問題を自動適用する。
+
+    ストレージ未永続化の content でも動作するよう、load_target_pack を経由せず
+    内部ロジックを直接呼び出す。PENDINGカテゴリ（factual/style/leak）は対象外。
+    """
+    updated_json = copy.deepcopy(content)
+    issues = deterministic_tts_issues(file_name, updated_json)
+    auto_issues = [issue for issue in issues if issue.category in AUTO_CATEGORIES]
+    if not auto_issues:
+        return updated_json, []
+    applied = _apply_auto_issues_without_llm(updated_json, auto_issues, file_name)
+    return updated_json, applied
+
+
+def _apply_auto_issues_without_llm(
+    updated_json: dict[str, Any],
+    issues: list[QualityIssue],
+    file_name: str,
+) -> list[AppliedFix]:
+    """_generate_tts_fix_without_llm の content 直接版（ストレージアクセスなし）。"""
+    applied: list[AppliedFix] = []
+    for index, issue in enumerate(issues, start=1):
+        issue = _normalize_tts_issue_location(issue)
+        location = issue.location
+        if location.fileName != file_name:
+            continue
+        if not _find_unit(updated_json, location.unitId):
+            continue
+        location = _resolve_tts_location_for_issue(updated_json, location, issue.excerpt)
+        before = _get_tts_field(updated_json, location) or _get_raw_field(updated_json, location)
+        if issue.category == "double_utterance":
+            excerpt_text = _non_empty_text(issue.excerpt)
+            if excerpt_text is None:
+                continue
+            collapsed_excerpt = collapse_duplicate_katakana_utterances(excerpt_text)
+            if collapsed_excerpt == excerpt_text:
+                continue
+            after = _apply_partial_tts_replacement(before, excerpt_text, collapsed_excerpt)
+            if after is None:
+                continue
+        else:
+            replacement = _fix_after_text(issue.suggestion, location)
+            if replacement is None or not _is_applicable_tts_suggestion(issue.suggestion, replacement):
+                continue
+            after = _apply_partial_tts_replacement(before, issue.excerpt, replacement)
+            if after is None:
+                continue
+            if _is_clear_vocabulary_rewrite(issue.excerpt, replacement):
+                continue
+            allow_language_tags = _allow_multilingual_tts_tags(updated_json)
+            if allow_language_tags and _is_invalid_multilingual_tts_fix(issue.excerpt, replacement):
+                continue
+        if not _set_tts_field(updated_json, location, after):
+            continue
+        applied.append(
+            AppliedFix(
+                id=f"auto-{index}",
+                category=issue.category,
+                location=location,
+                field=_tts_field_name(updated_json, location),
+                before=before,
+                after=after,
+                sourceIssue=issue.issue,
+            )
+        )
+    return applied
 
 
 def apply_approved_fixes(

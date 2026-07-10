@@ -249,7 +249,16 @@ Phase 8 で分類した「再現する」指摘（① document 構成・③ quiz
   → `optimize_document_pack` が multilingual モード（`allow_language_tags=True`）で実行 → Gemini が正常にタグ付与。
 - 判定: tts フィールドのタグは multilingual 読み上げの**正常な出力**。本文への混入は**未発生**。
   Phase 8 の「本文に混入」は tts フィールドと本文の混同の疑い。
-- **結論: ⑤ は「再現せず（誤認）」へ再分類。Phase 9 の修正対象外。**
+- **結論（実装前時点）: ⑤ は「再現せず（誤認）」へ再分類。Phase 9 の修正対象外。**
+
+#### 調査①の訂正（実装後データ cnt_17bde2e928 で判明）
+- 実装後の生成データ `cnt_17bde2e928` を確認した結果、**document 本文(text)へのタグ混入が 249 件 / 6 ファイル全てで発生**（doc_02/doc_04/doc_06 等）。
+- `optimize_document_pack`（`tts_optimizer.py:1700-1727`）は `item.text` を変更せず `item.tts` のみ書き換える。→ 本文(text)の混入は **document_generator の生成段階** で発生。TTS 最適化は無関係。
+- 旧データ cnt_258a6fc05f（実装前）は本文無混入だった。両者の唯一の差分は **Phase 9 Task 1 の追記（purpose_lines 行2）**。
+- 行1は元から「言語タグ([en-US]等)は本文に含めない」と禁止。行2が「学習言語のフレーズを**主役として提示**」と強調した結果、モデルが「主役＝言語タグ付きで強調」と解釈し、禁止指示に反して混入したと推測。
+- 不安定さ（doc_01/03/05 は無混入、doc_02/04/06 は混入）はモデルの非決定性と競合指示の相互作用。
+- `language_settings`（mixed モード）は tts_optimizer のみに渡り document_generator には渡らないため、mixed 設定の漏れではない。
+- **結論（訂正）: ⑤ 本文混入は Phase 9 Task 1 の追記が誘発した副作用。タスク分割へ追加。**
 
 #### 調査②：① document 構成の原因（プロンプト不足か）
 - planner `_language_learning_planner_objective`（`language_learning/planner.py`）は正常。
@@ -272,7 +281,7 @@ Phase 8 で分類した「再現する」指摘（① document 構成・③ quiz
 | ② planner goal | × | 再現せず（正常）。Phase 8 通り対象外。 |
 | ③ 角括弧プレースホルダー | 〇（document + quiz 両本文） | doc_03 本文 `[国名][都市名][数量][品物]`、quiz 本文 `[国名][氏名][飲み物][番号]` が残存。 |
 | ④ Wi-Fi 欠落 | × | 再現せず。Phase 8 通り対象外。 |
-| ⑤ TTS タグ混入 | × | 本文への混入は未発生。tts フィールドのタグは multilingual 正常出力。調査①で対象外確定。 |
+| ⑤ TTS タグ混入 | 〇（本文混入のみ） | 実装後の cnt_17bde2e928 で document 本文(text)に 249 件混入。tts フィールドのタグは正常出力だが、本文への混入は Task 1 追記が誘発した副作用（調査①訂正）。 |
 | ⑥ choiceLanguageMode | × | 再現せず。Phase 8 通り対象外。 |
 | ⑦ choiceTexts | × | 再現せず。Phase 8 通り対象外。 |
 
@@ -283,10 +292,16 @@ Phase 8 で分類した「再現する」指摘（① document 構成・③ quiz
   「角括弧で囲んだ汎用ラベル（[国名][都市名][数量][品物][氏名][飲み物][番号] 等）も禁止」を明記し、具体名必須化。
   （既存ルールの「square-bracket placeholders / generic name labels」を LL 教材向けに補強。新規関数は作らない。）
 - **Task 3（⑤ TTS タグ）**: 実装なし。対象外判定を本欄に記録するのみ。
+- **Task 4（⑤ 本文混入・Task 1 誘発副作用）**: `build_language_learning_purpose_lines` 行2の「主役として提示」を
+  「**タグ無しの素のテキストで**、かつ言語タグ([en-US]等)を付けずに学習言語フレーズを提示」と再明記し、
+  行1の「タグを本文に含めない」をより強調する。構成強制（短い導入→即フレーズ→短い解説）は維持。
+  新規関数は作らない（既存 2 行の書き直しのみ）。
 
 ### 完了条件
 - `build_language_learning_purpose_lines` が「短い導入→即フレーズ→短い解説」の構成を含むこと（単体テストで確認）。
 - document/quiz の両 quality ブロックが角括弧プレースホルダー禁止を含むこと（単体テストで確認）。
+- `build_language_learning_purpose_lines` が「言語タグ([en-US]等)を**本文に含めない**」を重複なく明記し、かつ
+  「タグ無しの素のテキスト」で学習言語フレーズを提示する指示を含むこと（単体テストで確認）。
 - 既存テスト全件合格。通常教材（語学含まない）は挙動変化なし。
 
 ---

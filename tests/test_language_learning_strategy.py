@@ -181,6 +181,10 @@ def test_build_language_learning_purpose_lines_for_foreign_language():
     assert "短い導入" in lines[1]
     assert "第1フレーズ" in lines[1]
     assert "documents[]" in lines[1]
+    # Phase 9 Task 4: 本文への言語タグ混入禁止を明記（タグ無しの素のテキスト指示）
+    assert "言語タグなしの素のテキスト" in lines[0]
+    assert "本文(text)に [en-US]" in lines[0]
+    assert "言語タグで囲むことは禁止する" in lines[1]
 
 
 def test_build_language_learning_purpose_lines_excluded_for_japanese_learning():

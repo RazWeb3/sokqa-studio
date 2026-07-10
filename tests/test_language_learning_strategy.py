@@ -185,6 +185,9 @@ def test_build_language_learning_purpose_lines_for_foreign_language():
     assert "言語タグなしの素のテキスト" in lines[0]
     assert "本文(text)に [en-US]" in lines[0]
     assert "言語タグで囲むことは禁止する" in lines[1]
+    # Phase 9 Task 5: 英語フレーズの引用符（" や「」）囲み禁止
+    assert "引用符" in lines[1]
+    assert '囲まず' in lines[1]
 
 
 def test_build_language_learning_purpose_lines_excluded_for_japanese_learning():

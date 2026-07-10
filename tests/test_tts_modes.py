@@ -1,3 +1,6 @@
+import logging
+
+import pytest
 from app.config import Settings, get_settings
 from app.schemas.common import TtsLanguageSettings, TtsRule, default_speech_language_code
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
@@ -5,6 +8,7 @@ from app.schemas.sokqa import CoursePlan, GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
 from app.services.tts_optimizer import (
     MAX_TTS_FILE_CHARS,
+    _gemini_document_chunk_readings,
     _guard_llm_text,
     _speech_text,
     _mode_or_default,
@@ -2414,3 +2418,168 @@ def test_choices_language_single_language_path_no_regression(monkeypatch) -> Non
         "記録を残さずエーアイだけで判断する",
         "",
     ]
+
+
+def test_multilingual_document_assigns_tts_to_all_documents_without_fallback_log(monkeypatch, caplog) -> None:
+    """ケース1: 通常 multilingual パックは、読み補正が必要な全 document に TTS を付与し、
+    fallback ログを出さない。読み補正不要な(document-3)は差分なしで TTS 省略が既存仕様通り。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": document["id"],
+                    "text": "[en-US]AI[ja-JP]を確認します。" if document["id"] == "doc-1" else "保存します。",
+                }
+                for document in file.content["documents"]
+            ]
+        }
+
+    file = GeneratedFile(
+        name="doc_multi.json",
+        kind="document",
+        content={
+            "id": "pack_doc_multi",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "AI確認",
+            "language": "ja",
+            "documents": [
+                {"id": "doc-1", "text": "AI を確認します。"},
+                {"id": "doc-2", "text": "保存します。"},
+                {"id": "doc-3", "text": "確認します。"},
+            ],
+        },
+    )
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    with caplog.at_level(logging.WARNING, logger="sokqa_course_pack_agent"):
+        files, report = optimize_generated_files_with_report([file], [], mode="multilingual")
+
+    documents = files[0].content["documents"]
+    # 読み補正が必要な doc-1 は必ず TTS 付与（フォールバック欠落の回帰防止）
+    assert documents[0]["tts"]["text"] == "[en-US]AI[ja-JP]を確認します。"
+    assert [document["id"] for document in documents] == ["doc-1", "doc-2", "doc-3"]
+    assert report.llmGeneratedIds == ["doc-1", "doc-2", "doc-3"]
+    assert not any("llm_document_fallback" in record.message for record in caplog.records)
+
+
+def test_multilingual_document_retries_on_transient_failure_then_succeeds(monkeypatch) -> None:
+    """ケース2: Gemini 一時失敗はリトライで回復し、通常生成される。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    calls = {"count": 0}
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("transient upstream error")
+        return {"items": [{"id": "doc-1", "text": "エーアイ を確認します。"}]}
+
+    file = GeneratedFile(
+        name="doc_retry.json",
+        kind="document",
+        content={
+            "id": "pack_doc_retry",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "AI確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "AI を確認します。"}],
+        },
+    )
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    files, report = optimize_generated_files_with_report([file], [TtsRule(source="AI", reading="エーアイ")], mode="multilingual")
+
+    assert calls["count"] == 2
+    tts = files[0].content["documents"][0]["tts"]
+    assert tts["text"] == "エーアイ を確認します。"
+    assert "doc-1" in report.llmGeneratedIds
+
+
+def test_multilingual_document_persistent_failure_raises_runtime_error(monkeypatch) -> None:
+    """ケース3: Gemini 永続失敗は RuntimeError となり、不完全な教材は生成しない。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        raise RuntimeError("persistent upstream error")
+
+    file = GeneratedFile(
+        name="doc_fail.json",
+        kind="document",
+        content={
+            "id": "pack_doc_fail",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "AI確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "AI を確認します。"}],
+        },
+    )
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    with pytest.raises(RuntimeError):
+        optimize_generated_files_with_report([file], [], mode="multilingual")
+
+
+def test_multilingual_document_missing_ids_in_response_raises_runtime_error(monkeypatch) -> None:
+    """ケース3補足: レスポンスに id が欠落しても RuntimeError とし、不完全な教材を返さない。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {"items": []}
+
+    file = GeneratedFile(
+        name="doc_missing.json",
+        kind="document",
+        content={
+            "id": "pack_doc_missing",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "AI確認",
+            "language": "ja",
+            "documents": [{"id": "doc-1", "text": "AI を確認します。"}],
+        },
+    )
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    with pytest.raises(RuntimeError):
+        optimize_generated_files_with_report([file], [], mode="multilingual")
+
+
+def test_document_chunk_readings_retries_per_chunk_and_propagates_failure(monkeypatch) -> None:
+    """ケース2/3補足: チャンク単位で独立リトライし、永続失敗チャンクのみ RuntimeError を伝播する。
+
+    サイズオーバーで分割された複数チャンクを想定し、_gemini_document_chunk_readings 単体で
+    チャンクごとのリトライ独立性与否を検証する。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
+    attempts: list[str] = []
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        if "- id: doc-ok" in prompt:
+            attempts.append("ok")
+            return {"items": [{"id": "doc-ok", "text": "成功。"}]}
+        attempts.append("fail")
+        raise RuntimeError("persistent chunk failure")
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    ok_chunk = [("doc-ok", "保存します。")]
+    fail_chunk = [("doc-fail", "確認します。")]
+
+    # 成功チャンクは1回で完了
+    assert _gemini_document_chunk_readings(ok_chunk, 0, [], "ja", False, None) == {"doc-ok": "成功。"}
+    assert attempts.count("ok") == 1
+
+    # 失敗チャンクは最大3回リトライして RuntimeError
+    with pytest.raises(RuntimeError):
+        _gemini_document_chunk_readings(fail_chunk, 1, [], "ja", False, None)
+    assert attempts.count("fail") == 3

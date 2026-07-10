@@ -19,6 +19,7 @@ def test_generation_logs_include_source() -> None:
         "/generate-pack",
         json={
             "plan": plan_response.json(),
+            "ttsReadingMode": "none",
             "persist": False,
         },
     )

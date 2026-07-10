@@ -8,6 +8,7 @@ from app.schemas.request import GeneratePackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
 from app.services import pack_agent
 from app.services.document_generator import generate_mock_document_pack, normalize_document_content
+from app.services.gemini_client import GeminiClient
 from app.services.tagging import document_global_tags, quiz_global_tags
 from app.services.pack_agent import generate_pack
 from app.services.prompts import (
@@ -521,6 +522,14 @@ def test_generate_pack_filters_unknown_selected_reading_patterns_without_touchin
         captured["ttsRules"] = current_plan.ttsRules
         return _source_pack()
 
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        import re
+
+        ids = re.findall(r"- id: ([^\n]+)", prompt)
+        return {"items": [{"id": doc_id.strip(), "text": doc_id.strip()} for doc_id in ids]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
     clean_quiz = SokqaQuizPack(
         id="quality_pack_quiz_01",
         title="確認クイズ",
@@ -561,6 +570,14 @@ def test_generate_pack_clears_selected_reading_patterns_outside_llm_mode(monkeyp
     def fake_document_pack(current_plan, *_args, **_kwargs):
         captured["selectedReadingPatternIds"] = current_plan.selectedReadingPatternIds
         return _source_pack()
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        import re
+
+        ids = re.findall(r"- id: ([^\n]+)", prompt)
+        return {"items": [{"id": doc_id.strip(), "text": doc_id.strip()} for doc_id in ids]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
 
     clean_quiz = SokqaQuizPack(
         id="quality_pack_quiz_01",

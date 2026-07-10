@@ -73,6 +73,7 @@ def test_quick_plan_and_generate() -> None:
         "/generate-pack",
         json={
             "plan": plan,
+            "ttsReadingMode": "none",
             "persist": False,
         },
     )
@@ -347,6 +348,7 @@ def test_manifest_identity_and_storage_path_for_generated_pack(monkeypatch) -> N
             contentId="cnt_8f3a2c9d7e",
             slug="it-passport-basic",
             scale="quick",
+            ttsReadingMode="none",
         )
     )
     generated = generate_pack(GeneratePackRequest(plan=plan, persist=False))
@@ -409,6 +411,7 @@ def test_same_content_id_generates_distinct_version_paths(monkeypatch) -> None:
             contentId="cnt_cache_check",
             slug="cache-check",
             scale="quick",
+            ttsReadingMode="none",
         )
     )
 
@@ -538,6 +541,7 @@ def test_auto_scale_is_recorded_in_plan_and_manifest_without_quality() -> None:
         "/generate-pack",
         json={
             "plan": plan,
+            "ttsReadingMode": "none",
             "persist": False,
         },
     )
@@ -634,7 +638,7 @@ def test_jobs_prompts_download_returns_zip_with_prompt_records() -> None:
     job_id = "job-debug-zip-01"
     # モック生成結果を直接構築する代わりに、既存 generate_pack の job を流用する
     request = GeneratePackRequest(
-        plan=plan_pack(PlanPackRequest(theme="Debug Download", targetUser="Learner", scale="quick")),
+        plan=plan_pack(PlanPackRequest(theme="Debug Download", targetUser="Learner", scale="quick", ttsReadingMode="none")),
         persist=False,
     )
     generated = generate_pack(request)
@@ -660,7 +664,7 @@ def test_jobs_prompts_download_404_when_no_prompts() -> None:
     from app.services.job_store import save_job
 
     request = GeneratePackRequest(
-        plan=plan_pack(PlanPackRequest(theme="Empty Prompts", targetUser="Learner", scale="quick")),
+        plan=plan_pack(PlanPackRequest(theme="Empty Prompts", targetUser="Learner", scale="quick", ttsReadingMode="none")),
         persist=False,
     )
     generated = generate_pack(request)

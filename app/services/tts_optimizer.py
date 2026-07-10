@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 from app.config import get_settings
 from app.schemas.common import TtsLanguageSettings, TtsReadingMode, TtsRule, default_speech_language_code, normalize_tts_reading_mode, validate_language_code
@@ -20,6 +21,11 @@ from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, m
 
 
 MAX_TTS_FILE_CHARS = 20000
+# Document TTS の Gemini 呼び出しリトライ設定。既存 Generator（document/quiz）と統一:
+# 最大3回、指数バックオフ。multilingual / llm モードではリトライ後もチャンクが
+# 取得できない場合は RuntimeError を送出し、不完全な教材を正常生成として返さない。
+_DOCUMENT_TTS_ATTEMPTS = 3
+_DOCUMENT_TTS_RETRY_DELAYS = (0.5, 1.0, 2.0)
 logger = logging.getLogger("sokqa_course_pack_agent")
 
 _KATAKANA_TOKEN_RE = re.compile(r"[ァ-ヶー・]{2,}")
@@ -915,6 +921,94 @@ Return this shape:
 """.strip()
 
 
+def _gemini_document_chunk_readings(
+    chunk: list[tuple[str, str]],
+    chunk_index: int,
+    rules: list[TtsRule],
+    language: str,
+    allow_language_tags: bool,
+    language_settings: TtsLanguageSettings | None,
+    *,
+    file_name: str | None = None,
+) -> dict[str, str]:
+    """1チャンク分の Gemini 呼び出しをリトライ付きで実行し、reading マップを返す。
+
+    一時的な API エラー・タイムアウト・レート制限・JSON 崩れ・一過性のレスポンス
+    失敗に対して、既存 Generator と同様に最大3回の指数バックオフでリトライする。
+    リトライ後もチャンクが取得できない場合は RuntimeError を送出し、不完全な教材を
+    正常生成として返さない。
+    """
+    first_entry_id = chunk[0][0] if chunk else "unknown"
+    last_error: Exception | None = None
+    for attempt in range(1, _DOCUMENT_TTS_ATTEMPTS + 1):
+        try:
+            return _gemini_document_chunk_readings_once(
+                chunk,
+                chunk_index,
+                rules,
+                language,
+                allow_language_tags,
+                language_settings,
+                file_name=file_name,
+            )
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "tts_optimizer.document_chunk_retry file=%s chunk=%s attempt=%s error=%s",
+                file_name,
+                chunk_index,
+                attempt,
+                repr(exc),
+            )
+            if attempt < _DOCUMENT_TTS_ATTEMPTS:
+                time.sleep(_DOCUMENT_TTS_RETRY_DELAYS[min(attempt - 1, len(_DOCUMENT_TTS_RETRY_DELAYS) - 1)])
+    raise RuntimeError(
+        f"document TTS generation failed after {_DOCUMENT_TTS_ATTEMPTS} attempts: "
+        f"file={file_name} chunk={chunk_index} first_entry={first_entry_id}"
+    ) from last_error
+
+
+def _gemini_document_chunk_readings_once(
+    chunk: list[tuple[str, str]],
+    chunk_index: int,
+    rules: list[TtsRule],
+    language: str,
+    allow_language_tags: bool,
+    language_settings: TtsLanguageSettings | None,
+    *,
+    file_name: str | None = None,
+) -> dict[str, str]:
+    first_entry_id = chunk[0][0] if chunk else "unknown"
+    data = GeminiClient().generate_json(
+        _tts_batch_document_prompt(chunk, rules, language, allow_language_tags, language_settings),
+        parse_context=LlmJsonParseContext(
+            generation_unit="tts_batch_doc",
+            doc_id=first_entry_id,
+            phase="tts_optimizer",
+            run_index=chunk_index,
+            file_name=file_name,
+        ),
+    )
+    items = _llm_response_items(data)
+    if not items:
+        raise RuntimeError(f"Gemini returned no document TTS items: file={file_name} chunk={chunk_index}")
+    readings: dict[str, str] = {}
+    source_by_id = {entry_id: text for entry_id, text in chunk}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        entry_id = str(item.get("id", ""))
+        text = item.get("text", "")
+        if entry_id in source_by_id and isinstance(text, str) and text.strip():
+            readings[entry_id] = _speech_text(text, rules, language)
+    missing = [entry_id for entry_id, _ in chunk if entry_id not in readings]
+    if missing:
+        raise RuntimeError(
+            f"Gemini document TTS response missing ids: file={file_name} chunk={chunk_index} missing={missing}"
+        )
+    return readings
+
+
 def _gemini_document_speech_map(
     entries: list[tuple[str, str]],
     rules: list[TtsRule],
@@ -925,29 +1019,18 @@ def _gemini_document_speech_map(
     file_name: str | None = None,
 ) -> dict[str, str]:
     readings: dict[str, str] = {}
-    source_by_id = {entry_id: text for entry_id, text in entries}
     for chunk_index, chunk in enumerate(_chunk_entries(entries)):
-        first_entry_id = chunk[0][0] if chunk else "unknown"
-        data = GeminiClient().generate_json(
-            _tts_batch_document_prompt(chunk, rules, language, allow_language_tags, language_settings),
-            parse_context=LlmJsonParseContext(
-                generation_unit="tts_batch_doc",
-                doc_id=first_entry_id,
-                phase="tts_optimizer",
-                run_index=chunk_index,
+        readings.update(
+            _gemini_document_chunk_readings(
+                chunk,
+                chunk_index,
+                rules,
+                language,
+                allow_language_tags,
+                language_settings,
                 file_name=file_name,
-            ),
+            )
         )
-        items = _llm_response_items(data)
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            entry_id = str(item.get("id", ""))
-            text = item.get("text", "")
-            if entry_id in source_by_id and isinstance(text, str) and text.strip():
-                readings[entry_id] = _speech_text(text, rules, language)
-        for entry_id, source_text in chunk:
-            readings.setdefault(entry_id, _speech_text(source_text, rules, language))
     return readings
 
 
@@ -1624,11 +1707,11 @@ def optimize_document_pack(
     llm_readings: dict[str, str] = {}
     if active_mode in {"llm", "multilingual"}:
         selected_entries = [(item.id, item.text) for item in pack.documents if item.id in selected_ids]
-        try:
-            llm_readings = _gemini_document_speech_map(selected_entries, rules, pack.language, active_mode == "multilingual", language_settings, file_name=file_name)
-            llm_ids.extend(entry_id for entry_id, _ in selected_entries)
-        except Exception as exc:
-            logger.warning("tts_optimizer.llm_document_fallback file=%s error=%s", file_name, exc)
+        # 一時的な LLM エラーは _gemini_document_speech_map 内でリトライされる。
+        # リトライ後もチャンクが取得できない場合は RuntimeError を送出し、
+        # 不完全な教材（フォールバック）を正常生成として返さない。
+        llm_readings = _gemini_document_speech_map(selected_entries, rules, pack.language, active_mode == "multilingual", language_settings, file_name=file_name)
+        llm_ids.extend(entry_id for entry_id, _ in selected_entries)
     for item in pack.documents:
         item.tags = None
         if item.id in selected_ids:

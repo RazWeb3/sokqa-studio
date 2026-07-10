@@ -170,6 +170,69 @@ app/services/generation/
 
 ---
 
+## Phase 8：Language Learning 実動作検証（検証フェーズ・未着手）
+
+責務分離（Phase 0〜7）は完了済みだが、その時点では「実際に `learningLanguage` を含む入力で LL 経路が動くか」「第一報の各指摘が再現するか」は未検証。
+本フェーズは**実装修正フェーズではなく検証フェーズ**として位置づけ、まず事実を確定する。
+
+### 目的
+- `learningLanguage` を持つ実入力で、Language Learning の設計どおりに Planner・Prompt・Document が動作することを確認する。
+- 実生成物を用いて品質課題（第一報の指摘）を再現・切り分ける。
+
+### 調査順序（再現先行）
+1. **LanguageLearningStrategy の選択確認**
+   - `resolve_generation_strategy()` が LL リクエストで本当に `LanguageLearningStrategy` を返すか（`strategy.py:69` 経路）。
+   - 補足：`LanguageLearningStrategy` は Phase 2 設計どおり `generate_pack()` に委譲する「受け皿」であり、空であること自体は不具合ではない。
+2. **Planner → Prompt の接続確認**
+   - `_planner_objective`（`planner.py:423`）が LL 判定時 `_language_learning_planner_objective` を返すか。
+   - `_compose_generation_purpose`（`prompts.py:238`）が `build_language_learning_purpose_lines` を `.extend` するか。
+   - これらは共通経路（`create_course_plan` → `_planner_prompt` → ドキュメント生成）に乗っている。Strategy が委譲だけでも、入力に `learningLanguage` があれば LL ロジックは実行され得る。
+3. **実際の Language Learning パック**
+   - `learningLanguage` を持つ生成物で確認する。
+   - `generated/it` 等の通常教材（`it` = Information Technology タグ、`language: ja`）は LL 判定対象外のため、根拠として使用しない。
+   - `generated/` 全域では確認時点で `learningLanguage` フィールドを持つパックは存在しない（テストデータ・別ブランチ等の可能性あり）。「LL パックが存在しない」ことと「LL 機能が動かない」ことは同義ではない。
+4. **その後に生成品質を見る**
+   - 旅行英語パック等、実際に LL として生成された成果物で第一報内容を再検証する。
+   - Step 4 の具体的確認項目（「何をもって語学教材と判断するか」の基準）:
+     - document が「語学教材」として生成されているか（テーマ解説ではなく、学習言語フレーズが主役）。
+     - 学習言語のフレーズが主役になっているか（pack 言語は補助説明のみか）。
+     - planner の目的（場面ベースの表現習得）と整合しているか。
+     - 第一報の各指摘（document 構成、placeholder、quiz 関連など）が再現するか。
+
+### 完了条件
+- `learningLanguage` を含む生成リクエストで Language Learning 経路を確認済み。
+- Planner の目的関数と Prompt の Language Learning 指示が最終プロンプトに反映されていることを確認済み。
+- 実生成物を用いて、第一報の各指摘（document 構成、placeholder、quiz 関連など）について「再現する」「再現しない」「未確認」のいずれかに分類済み。
+
+### 検証記録（LLM 呼び出しなし・単体確認）
+条件: `language=ja, learningLanguage=en, theme="海外旅行で使う英語", structurePolicy=listening` の最小リクエストで確認。
+- [1] `resolve_generation_strategy()` は LL リクエストで `LanguageLearningStrategy` を返し、通常リクエストで `StandardStrategy` を返した。**OK**。
+- [2] `_planner_objective()` は `_is_language_learning_mode=True` 時に `_language_learning_planner_objective` を選択（`_normal_planner_objective` とは不一致）。**OK**。
+- [3] `_compose_generation_purpose()` は LL パックで `build_language_learning_purpose_lines` の出力（1行: 「学習対象言語そのものを本文の主役として…」）を最終プロンプトに `.extend` 反映。通常パックでは空配列で混入せず。**OK**。
+- [4] 実生成品質を旅行英語 LL パック（`cnt_258a6fc05f` / `language=ja, learningLanguage=en, structurePolicy=listening`）で分類。**document・quiz 双方のスキーマに `learningLanguage:en` が正しく出力済み**。第一報各指摘の再現分類は以下：
+
+  | 第一報指摘 | 分類 | 証拠 |
+  |---|---|---|
+  | ① document 導入が英語学習になっていない | **再現する** | doc_01/doc-1「皆さん、海外旅行へようこそ」が日本語メタ説明開始。第1フレーズ（doc-3）まで3段落消費。「短い導入→即フレーズ」に反する。 |
+  | ② planner の goal が語学目的になっていない | **再現せず（逆に正常）** | `documents[].goal` は「〜英語表現を〜できるようになります」と場面ベース語学目的で正しく生成。目的関数は期待通り動作。 |
+  | ③ 角括弧プレースホルダー禁止 | **再現する（quiz 本文）** | document 本文は具体名補完済みで角括弧無し。但し quiz の question/choices/explanation に `[国名]` `[氏名]` `[飲み物]` `[番号]` が残存（q-18〜q-22, q-29, range_02 q-1〜q-3）。 |
+  | ④ 単語欠落（Wi-Fi 等） | **再現せず** | 本パック（空港・機内・入国・ホテル・レストラン・緊急）に Wi-Fi 文脈が存在せず欠落確認されず。継続課題自体は未否定。 |
+  | ⑤ TTS タグ二重化・不整合 | **再現する（但し設計上の課題）** | document `tts.text` に `[en-US]...[ja-JP]` 混入（doc-3 等）。`_document_quality_rules_block` の「タグは本文に含めない」に違反。quiz tts にも混入。 |
+  | ⑥ quiz choiceLanguageMode 不整合（再発） | **再現せず** | range_01(pack): question 日本語/choices 英語＝正常。range_02(learning): question 日本語/choices 英語＝正常。分離後も正しく動作。 |
+  | ⑦ choiceTexts 省略未達（再発） | **再現せず** | multilingual タグ付きで読み上書きが必要なため choiceTexts 保持は正しい挙動。第一報の「省略できるのに省略していない」は別フィールド混同。 |
+
+### 検証で判明した設計上の留意点（Phase 9 以降の入力）
+- LL 経路は **Strategy が `generate_pack()` に委譲していても、共通経路内の planner/prompt 分岐経由で正常に動作する**。空の Strategy シェルは不具合ではない（Phase 2 設計どおり）。
+- `build_language_learning_purpose_lines` は「学習言語を主役に」とだけ指示し、「短い導入→即・学習言語フレーズ→短い解説」の構成を**強制していない**。実生成で ① が再現したため、これは document 課題の**有力な原因候補**（確定ではない）。
+- ⑤ の TTS タグ混入は、**本文生成プロンプトが「タグは後続TTS最適化の責務」と指示しているのに生成モデルが本文へ書き込む**という、purpose_lines 指示と実挙の乖離。quality ルール（`_document_quality_rules_block` / `_quiz_quality_rules_block`）の「タグを本文に含めない」も効いていない。Phase 9 で prompt 強化の候補。
+
+### 分類時の注意（断定の禁止）
+- LLM の生成品質はプロンプト全体（purpose_lines / planner_objective / 日本語学習ブロック / difficulty / structurePolicy / CoursePlan）で決まる。
+- 従って単一関数（例: `build_language_learning_purpose_lines` が「学習言語を主役に」としか指示していない点）をもって、第一報の document 課題の「原因そのもの」と断定してはならない。あくまで**原因候補の一つ**として扱う。
+- 課題の修正（Phase 9 以降）は、上記分類で「再現する」と確定したもの（① document 構成・③ quiz 角括弧プレースホルダー・⑤ TTS タグ混入）のみを対象とし、再現せず・未確認のものは修正しない。
+
+---
+
 ## 完了条件
 
 - 通常教材: 既存テスト全件合格（語学含まないケースは完全一致）。

@@ -5,6 +5,7 @@ from app.services.gemini_client import GeminiClient
 from app.services.quiz_generator import (
     _pack_language_violations,
     _repair_pack_language_violations,
+    _supplement_quiz_questions,
 )
 
 
@@ -206,3 +207,86 @@ def test_repair_pack_language_violations_returns_original_on_failure(monkeypatch
 
     # 元の英語 choices が保持される（部分修正されていない）
     assert repaired["questions"][0]["choices"][0] == "I am visiting my friend, Kaito Tanaka."
+
+
+def test_supplement_quiz_questions_appends_missing_count_without_duplicates(monkeypatch) -> None:
+    """問題①案A: 不足分のみを補完生成し、既存問題を保持しつつ件数を満たす。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = _plan(choice_language_mode="pack", learning_language="en")
+    content = {
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "意味はどれですか。",
+                "choices": ["〜を尋ねる", "〜を議論する", "〜を調査する", "〜を求める"],
+                "answerIndex": 0,
+                "explanation": "正解です。",
+            },
+            {
+                "id": "q-2",
+                "question": "使い方はどれですか。",
+                "choices": ["丁寧に伝える", "乱暴に伝える", "無視する", "叫ぶ"],
+                "answerIndex": 0,
+                "explanation": "正解です。",
+            },
+        ]
+    }
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        # 既存問題がプロンプトに列挙され、重複禁止が指示されていること
+        assert "Do NOT duplicate the topic" in prompt
+        assert 'q-1": 意味はどれですか' in prompt or "q-1" in prompt
+        return {
+            "questions": [
+                {
+                    "id": "q-3",
+                    "question": "新しい論点ですか。",
+                    "choices": ["適切な選択肢A", "不適切B", "不適切C", "不適切D"],
+                    "answerIndex": 0,
+                    "explanation": "正解です。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    supplemented = _supplement_quiz_questions(content, plan, _quiz_pack(plan), 1, model="gemini-2.5-flash")
+
+    questions = supplemented["questions"]
+    assert len(questions) == 3
+    # 既存 q-1, q-2 が保持され、新規 q-3 が追加される（normalize で id は再採番される）
+    ids = [q["id"] for q in questions]
+    assert "q-3" in ids
+    assert any("意味はどれですか" in q["question"] for q in questions)
+
+
+def test_supplement_quiz_questions_returns_original_on_failure(monkeypatch) -> None:
+    """問題①案A: 補完失敗時は元の content をそのまま返す。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    plan = _plan(choice_language_mode="pack", learning_language="en")
+    content = {
+        "questions": [
+            {
+                "id": "q-1",
+                "question": "意味はどれですか。",
+                "choices": ["〜を尋ねる", "〜を議論する", "〜を調査する", "〜を求める"],
+                "answerIndex": 0,
+                "explanation": "正解です。",
+            }
+        ]
+    }
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        raise RuntimeError("llm failure")
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    supplemented = _supplement_quiz_questions(content, plan, _quiz_pack(plan), 2, model="gemini-2.5-flash")
+
+    # 元の件数が保持される（崩れない）
+    assert len(supplemented["questions"]) == 1
+    assert supplemented["questions"][0]["id"] == "q-1"

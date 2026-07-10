@@ -754,3 +754,64 @@ Required JSON shape:
   ]
 }}
 """
+
+
+def quiz_shortage_repair_prompt(
+    plan: CoursePlan,
+    quiz_pack: PlanQuizPack,
+    existing_questions: list[dict],
+    missing_count: int,
+) -> str:
+    """questionCount に満たない場合、不足分のみを補完生成するためのプロンプト（問題①の案A）。
+
+    既存の全問題を列挙し、「これらと同一論点・同一表現の問題を作らない」ことを厳命する。
+    新規問題には既存 id と重複しない連番（既存最大+1 から）を付与させる。
+    """
+    learning_language = plan.learningLanguage or "not specified"
+    existing_lines = "\n".join(
+        f"- {question.get('id')}: {question.get('question', '')} / choices: {' | '.join(str(c) for c in question.get('choices', []))}"
+        for question in existing_questions
+        if isinstance(question, dict)
+    )
+    existing_ids = [
+        str(question.get("id", ""))
+        for question in existing_questions
+        if isinstance(question, dict)
+    ]
+    start_index = 1
+    for token in existing_ids:
+        prefix = token.rsplit("-", 1)[-1] if "-" in token else token
+        if prefix.isdigit():
+            start_index = max(start_index, int(prefix) + 1)
+    return f"""Generate ONLY {missing_count} additional quiz questions to supplement an existing quiz.
+
+Rules:
+- Return strict JSON only. Do not output markdown fences.
+- type must be "quiz".
+- language must be "{plan.language}".
+- learningLanguage is "{learning_language}".
+- choiceLanguageMode is "{quiz_pack.choiceLanguageMode}". Follow the same choice-language rule as the existing questions.
+- Output exactly {missing_count} new questions. Do not output more or fewer.
+- Each new question MUST be a distinct, meaningful question grounded in the same quiz context as the existing questions.
+- Do NOT duplicate the topic, phrasing, choices, or answer of any existing question listed below.
+- Assign new question ids starting from "q-{start_index}" (so q-{start_index}, q-{start_index + 1}, ...), never colliding with existing ids.
+- Each new question must have exactly 4 choices, a valid answerIndex (0-3) pointing to the correct choice, and a specific explanation.
+
+Existing questions (do NOT repeat their topics or wording):
+{existing_lines}
+
+Quiz context source: generated documents / course theme.
+
+Required JSON shape:
+{{
+  "questions": [
+    {{
+      "id": "q-{start_index}",
+      "question": "Meaningful new question based on the quiz context.",
+      "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
+      "answerIndex": 0,
+      "explanation": "Specific explanation grounded in the source context."
+    }}
+  ]
+}}
+"""

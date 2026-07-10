@@ -413,6 +413,60 @@ def test_guard_llm_preserves_value_when_fallback_none_or_empty() -> None:
         assert warnings == []
 
 
+def test_guard_llm_falls_back_when_katakana_inside_foreign_span() -> None:
+    """multilingual モードで [en-US] スパン内にカタカナが混入した場合、原文フォールバックを返す。"""
+    warnings: list = []
+    result = _guard_llm_text(
+        "フライト状況を尋ねます。[en-US]Excuse me, flight ジェイエルひゃくにじゅうさん to ロンドン.[ja-JP] これは丁寧な表現です。",
+        "フライト状況を尋ねます。[en-US]Excuse me, flight JL123 to London.[ja-JP] これは丁寧な表現です。",
+        source_text="フライト状況を尋ねます。Excuse me, flight JL123 to London. これは丁寧な表現です。",
+        file_name="doc_01.json",
+        item_id="doc-1",
+        field="text",
+        warnings=warnings,
+        allow_language_tags=True,
+    )
+    assert result == "フライト状況を尋ねます。[en-US]Excuse me, flight JL123 to London.[ja-JP] これは丁寧な表現です。"
+    assert len(warnings) == 1
+    assert warnings[0].issueType == "foreign_span_katakana"
+
+
+def test_guard_llm_keeps_foreign_span_when_english_is_intact() -> None:
+    """[en-US] スパン内が正しい英語のままなら、フォールバックせず保持する。"""
+    warnings: list = []
+    value = "フライト状況を尋ねます。[en-US]Excuse me, flight JL123 to London.[ja-JP] これは丁寧な表現です。"
+    result = _guard_llm_text(
+        value,
+        value,
+        source_text="フライト状況を尋ねます。Excuse me, flight JL123 to London. これは丁寧な表現です。",
+        file_name="doc_01.json",
+        item_id="doc-1",
+        field="text",
+        warnings=warnings,
+        allow_language_tags=True,
+    )
+    assert result == value
+    assert warnings == []
+
+
+def test_guard_llm_keeps_katakana_in_default_span() -> None:
+    """デフォルト言語(ja)スパン内のカタカナは対象外（フォールバックしない）。"""
+    warnings: list = []
+    value = "[ja-JP]サムソナイトのスーツケースについて尋ねます。[en-US]Where is my Samsonite?[ja-JP] と伝えてください。"
+    result = _guard_llm_text(
+        value,
+        value,
+        source_text="サムソナイトのスーツケースについて尋ねます。Where is my Samsonite? と伝えてください。",
+        file_name="doc_01.json",
+        item_id="doc-13",
+        field="text",
+        warnings=warnings,
+        allow_language_tags=True,
+    )
+    assert result == value
+    assert warnings == []
+
+
 def test_rule_mode_applies_document_rules_without_extra_punctuation_conversion(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "mock")

@@ -395,6 +395,41 @@ def _unexpected_script_snippet(value: str, allowed_scripts: set[str] | None = No
     return None
 
 
+def _foreign_span_katakana_issue(
+    value: str,
+    file_name: str,
+    item_id: str,
+    field: str,
+) -> TtsReportItem | None:
+    """言語タグ付き foreign スパン内にカタカナが混入している場合、原文フォールバックを勧める。
+
+    multilingual モードでは `[en-US]...[ja-JP]` のように非デフォルト言語スパンをタグで囲う。
+    このスパン内は本来その言語の原文（例: 英語）のままであるべきだが、LLM が読み上げ最適化の
+    一環でカタカナ化してしまう事例（実データ: 空港名が「ジェイエルひゃくにじゅうさん」等）がある。
+    カタカナ化は learning 言語としての英語学習価値を毀損するため、検知時にフォールバックする。
+    """
+    for match in LANGUAGE_TAG_RE.finditer(value):
+        is_default_tag = _base_language(match.group(0)[1:-1]) == _base_language("ja")
+        if is_default_tag:
+            continue
+        segment_end = value.find("[", match.end())
+        segment = value[match.end() : segment_end] if segment_end >= 0 else value[match.end() :]
+        if not segment:
+            continue
+        katakana_match = _KATAKANA_TOKEN_RE.search(segment)
+        if katakana_match:
+            return TtsReportItem(
+                file=file_name,
+                itemId=item_id,
+                field=field,
+                issueType="foreign_span_katakana",
+                snippet=segment[max(0, katakana_match.start() - 8) : katakana_match.end() + 8],
+                recommendation="非デフォルト言語スパン内にカタカナが混入しています。このスパンは本来その言語の原文（例: 英語）のままであるべきです。辞書ベースの読みへフォールバックしました。",
+                suggestedRuleSource=None,
+            )
+    return None
+
+
 def _guard_llm_text(
     value: str | None,
     fallback: str | None,
@@ -414,6 +449,11 @@ def _guard_llm_text(
         value = re.sub(r"\[[a-z]{2,3}(?:-[A-Z]{2})?\]", "", value)
     if fallback and value != fallback and _remove_spaces(value) == _remove_spaces(fallback) and value.count(" ") > fallback.count(" "):
         value = _remove_surplus_spaces(value, fallback)
+    if allow_language_tags:
+        foreign_issue = _foreign_span_katakana_issue(value, file_name, item_id, field)
+        if foreign_issue:
+            warnings.append(foreign_issue)
+            return fallback
     snippet = _unexpected_script_snippet(value, allowed_scripts)
     if snippet:
         logger.warning(

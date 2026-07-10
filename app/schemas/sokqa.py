@@ -291,6 +291,7 @@ class TtsReportItem(BaseModel):
         "unexpected_script",
         "source_kanji_loss",
         "particle_sequence_edit",
+        "foreign_span_katakana",
     ]
     snippet: str
     recommendation: str

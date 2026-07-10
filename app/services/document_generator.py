@@ -3,6 +3,7 @@ import re
 import time
 from math import ceil
 
+from app.schemas.common import SUPPORTED_PACK_LANGUAGES
 from app.schemas.sokqa import CoursePlan, PlanDocument, SokqaDocumentItem, SokqaDocumentPack
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
@@ -17,7 +18,16 @@ from app.services.tts_text import normalize_tts_text
 STRICT_MAX_DOCUMENT_FILES = 50
 STRICT_MAX_SECTIONS_PER_FILE = 50
 LANGUAGE_TAG_RE = re.compile(r"\[(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+)\]")
-LANGUAGE_CODE_RE = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+)(?![A-Za-z0-9])")
+# BCP-47 風の言語タグ（例: en-US, ja-JP, id-ID）のみを対象とする。
+# 任意の「ハイフン付き英単語」（Wi-Fi, X-ray, T-shirt, e-mail, step-by-step 等）を
+# 言語コードと誤認して削除しないよう、アプリが扱う言語のベースコードのみをホワイトリスト化する。
+_LANGUAGE_BASE_CODES = "|".join(sorted(SUPPORTED_PACK_LANGUAGES.keys()))
+LANGUAGE_CODE_RE = re.compile(
+    rf"(?<![A-Za-z0-9])"
+    rf"(?:{_LANGUAGE_BASE_CODES})"
+    rf"-[A-Za-z0-9]{{2,8}}"
+    rf"(?![A-Za-z0-9])"
+)
 logger = logging.getLogger(__name__)
 
 

@@ -233,6 +233,64 @@ app/services/generation/
 
 ---
 
+## Phase 9：実生成物に基づく教材品質改善（再現確定分のみ・過剰実装禁止）
+
+Phase 8 で分類した「再現する」指摘（① document 構成・③ quiz 角括弧プレースホルダー・⑤ TTS タグ混入）を
+実生成物 `cnt_258a6fc05f`（`language=ja, learningLanguage=en, structurePolicy=listening`）で再確認し、
+修正対象を絞り込んだ。
+
+### 開始前調査（修正前に実施）
+
+#### 調査①：⑤ TTS タグ混入の原因段階
+- 実生成物で `[en-US]...[ja-JP]` を grep。全文書・quiz 合計 478 件。
+- 全件が `documents[].tts.text` / `question.tts.*`（`questionText` / `choiceTexts` / `explanationText`）のみに存在。
+- document/quiz の**学習者向け本文**（text / question / choices / explanation）には 1 件も混入していない。
+- 原因: `language_learning/tts.build_document_language_settings` が `documentTextLanguageMode="mixed"` を返す
+  → `optimize_document_pack` が multilingual モード（`allow_language_tags=True`）で実行 → Gemini が正常にタグ付与。
+- 判定: tts フィールドのタグは multilingual 読み上げの**正常な出力**。本文への混入は**未発生**。
+  Phase 8 の「本文に混入」は tts フィールドと本文の混同の疑い。
+- **結論: ⑤ は「再現せず（誤認）」へ再分類。Phase 9 の修正対象外。**
+
+#### 調査②：① document 構成の原因（プロンプト不足か）
+- planner `_language_learning_planner_objective`（`language_learning/planner.py`）は正常。
+  「学習場面ベースの表現習得」「章タイトルは利用場面」「goal は表現を使える形」を指示。② 再現せずの根拠と一致。
+- `build_language_learning_purpose_lines`（`language_learning/prompt.py`）は「学習言語を主役に」とだけ指示し、
+  各 `documents[]` セクションの**構成（短い導入→即フレーズ→短い解説）を強制していない**。
+- 実生成物: 各 doc が日本語メタ説明から始まり、第1フレーズまで2〜3段落消費（例: `cnt_258a6fc05f_doc_01` doc-1〜doc-3）。
+- **結論: ① は planner の問題ではなく、purpose_lines の「構成強制不足」が原因。planner 微修正は不要。**
+
+#### 調査③：③ placeholder の実態（Phase 8 記録との乖離）
+- Phase 8 は「document 本文は角括弧無し」と記録していたが、実態は `cnt_258a6fc05f_doc_03` 本文に
+  `[国名]` `[都市名]` `[数量]` `[品物]` が残存（doc-3「[国名]」、doc-9「[都市名]」、doc-24/25「[数量]/[品物]」）。
+- quiz 本文にも `[国名]` `[氏名]` `[飲み物]` `[番号]` が残存（range_01/range_02）。
+- **結論: 同種課題のため ③ の修正対象を「quiz 本文のみ」から「document 本文 + quiz 本文 の両方」へ拡張。**
+
+### Phase 9 対象（確定）
+| 項目 | 対象 | 根拠 |
+|---|---|---|
+| ① document 構成 | 〇 | 各 doc が日本語メタ説明から始まり、第1フレーズまで2〜3段落。構成強制不足。 |
+| ② planner goal | × | 再現せず（正常）。Phase 8 通り対象外。 |
+| ③ 角括弧プレースホルダー | 〇（document + quiz 両本文） | doc_03 本文 `[国名][都市名][数量][品物]`、quiz 本文 `[国名][氏名][飲み物][番号]` が残存。 |
+| ④ Wi-Fi 欠落 | × | 再現せず。Phase 8 通り対象外。 |
+| ⑤ TTS タグ混入 | × | 本文への混入は未発生。tts フィールドのタグは multilingual 正常出力。調査①で対象外確定。 |
+| ⑥ choiceLanguageMode | × | 再現せず。Phase 8 通り対象外。 |
+| ⑦ choiceTexts | × | 再現せず。Phase 8 通り対象外。 |
+
+### タスク分割
+- **Task 1（① document 構成）**: `build_language_learning_purpose_lines` へ「各 documents[] セクションは
+  （短い導入 → 即・学習言語フレーズを主役として提示 → 短い解説）の構成を強制」を追記。planner 側は変更しない。
+- **Task 2（③ placeholder）**: `_document_quality_rules_block` と `_quiz_quality_rules_block` のプレースホルダー禁止に
+  「角括弧で囲んだ汎用ラベル（[国名][都市名][数量][品物][氏名][飲み物][番号] 等）も禁止」を明記し、具体名必須化。
+  （既存ルールの「square-bracket placeholders / generic name labels」を LL 教材向けに補強。新規関数は作らない。）
+- **Task 3（⑤ TTS タグ）**: 実装なし。対象外判定を本欄に記録するのみ。
+
+### 完了条件
+- `build_language_learning_purpose_lines` が「短い導入→即フレーズ→短い解説」の構成を含むこと（単体テストで確認）。
+- document/quiz の両 quality ブロックが角括弧プレースホルダー禁止を含むこと（単体テストで確認）。
+- 既存テスト全件合格。通常教材（語学含まない）は挙動変化なし。
+
+---
+
 ## 完了条件
 
 - 通常教材: 既存テスト全件合格（語学含まないケースは完全一致）。

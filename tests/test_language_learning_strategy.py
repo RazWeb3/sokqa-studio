@@ -175,8 +175,12 @@ def test_build_language_learning_purpose_lines_for_foreign_language():
         difficulty="beginner",
     )
     lines = build_language_learning_purpose_lines(plan)
-    assert len(lines) == 1
+    assert len(lines) == 2
     assert "学習対象言語" in lines[0]
+    # Phase 9 Task 1: 各 documents[] セクションの「短い導入→即フレーズ→短い解説」構成強制
+    assert "短い導入" in lines[1]
+    assert "第1フレーズ" in lines[1]
+    assert "documents[]" in lines[1]
 
 
 def test_build_language_learning_purpose_lines_excluded_for_japanese_learning():

@@ -1,3 +1,4 @@
+import json
 import logging
 from collections import Counter
 
@@ -13,9 +14,11 @@ from app.services.tagging import document_global_tags, quiz_global_tags
 from app.services.pack_agent import generate_pack
 from app.services.prompts import (
     _compose_generation_purpose,
+    _document_quality_rules_block,
     _generation_guidance_block,
     _learner_facing_role_block,
     _quiz_teacher_role_block,
+    _quiz_quality_rules_block,
     _quiz_teaching_guidance_rules_block,
     document_generation_prompt,
     quiz_generation_prompt,
@@ -1780,3 +1783,51 @@ def test_quiz_prompt_non_ja_en_pack_uses_generic_good_bad_examples_without_hardc
     # 固定ハードコードされた ja/en 具体例が出ないこと
     assert "It's a pleasure to finally meet you." not in prompt
     assert "How do you do?" not in prompt
+
+
+# --- Phase 9 Task 2: 角括弧プレースホルダー禁止（document + quiz 両本文） ---
+
+
+def test_document_quality_rules_block_forbids_bracketed_generic_labels() -> None:
+    """_document_quality_rules_block は角括弧で囲んだ汎用ラベル([国名]等)の禁止を含むこと（Phase 9 Task 2）。"""
+    plan = _plan()
+    block = _document_quality_rules_block(plan, json.dumps(document_global_tags(plan, plan.documents[0])))
+
+    assert "Square-bracketed generic labels such as [国名]" in block
+    for label in ["[都市名]", "[数量]", "[品物]", "[氏名]", "[飲み物]", "[番号]"]:
+        assert label in block
+    # 既存の square-bracket placeholder 禁止も維持
+    assert "square-bracket placeholders" in block
+    # タグ([en-US]等)の本文混入禁止も維持
+    assert "Do not use any square-bracket tag or code such as [en-US], [ja-JP]" in block
+
+
+def test_quiz_quality_rules_block_forbids_bracketed_generic_labels() -> None:
+    """_quiz_quality_rules_block は角括弧で囲んだ汎用ラベル([国名]等)の禁止を含むこと（Phase 9 Task 2）。"""
+    plan = _plan()
+    block = _quiz_quality_rules_block(plan, json.dumps(quiz_global_tags(plan, plan.quizPacks[0])))
+
+    assert "Square-bracketed generic labels such as [国名]" in block
+    for label in ["[都市名]", "[数量]", "[品物]", "[氏名]", "[飲み物]", "[番号]"]:
+        assert label in block
+    assert "square-bracket placeholders" in block
+    assert "Do not use any square-bracket tag or code such as [en-US], [ja-JP]" in block
+
+
+def test_document_and_quiz_prompts_forbid_bracketed_generic_labels() -> None:
+    """document/quiz の生成プロンプト双方に角括弧汎用ラベル禁止が含まれること（Phase 9 Task 2: doc_03 再現）。"""
+    plan = _plan()
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "Square-bracketed generic labels such as [国名]" in prompt
+        # doc_03 実生成で残存したラベルが禁止指示に含まれる
+        assert "[都市名]" in prompt
+        assert "[数量]" in prompt
+        assert "[品物]" in prompt
+        # quiz 実生成で残存したラベルが禁止指示に含まれる
+        assert "[氏名]" in prompt
+        assert "[飲み物]" in prompt
+        assert "[番号]" in prompt
+

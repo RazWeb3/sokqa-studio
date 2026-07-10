@@ -399,6 +399,7 @@ def _document_quality_rules_block(plan: CoursePlan, global_tags: str) -> str:
 - Preserve canonical written notation in body text, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in text.
 - Placeholder policy (strict):
   - Do not leave masked-name notation or unresolved placeholder symbols in learner-facing text, including 〇〇, ◯◯, △△, ××, □□, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - Square-bracketed generic labels such as [国名], [都市名], [数量], [品物], [氏名], [飲み物], [番号], [国], [名前], [例] are also placeholders; never output them in learner-facing text.
   - When a company, person, department, date, or other concrete detail is needed, resolve it into a natural context-appropriate concrete detail instead of placeholder notation.
   - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
   - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.
@@ -419,6 +420,7 @@ def _quiz_quality_rules_block(plan: CoursePlan, global_tags: str) -> str:
 - Preserve canonical written notation in question, choices, and explanation, such as IT, ROE, .git, .env, GitHub, and similar terms. Do not convert them to kana readings in body text.
 - Placeholder policy (strict):
   - Do not leave masked-name notation or unresolved placeholder symbols in learner-facing text, including 〇〇, ◯◯, △△, ××, □□, ASCII placeholder tokens, square-bracket placeholders, or generic name labels.
+  - Square-bracketed generic labels such as [国名], [都市名], [数量], [品物], [氏名], [飲み物], [番号], [国], [名前], [例] are also placeholders; never output them in learner-facing text.
   - When a company, person, department, date, or other concrete detail is needed, resolve it into a natural context-appropriate concrete detail instead of placeholder notation.
   - This rule applies only to placeholder notation; keep correct spellings of normal words that naturally contain "oo" (good, book, school, too, food, etc.).
   - If a fill-in-the-blank exercise is intentionally required, use language-appropriate blanks such as Japanese ＿＿＿ and English _____. Do not use full-width spaces as blanks.

@@ -1781,6 +1781,12 @@ def optimize_document_pack(
             )
         else:
             item.tts = None
+    # Language Learning owns its stateful tag convention. Keep common TTS
+    # behavior untouched for all other material types.
+    if active_mode == "multilingual" and pack.learningLanguage:
+        from app.services.generation.language_learning.tts import normalize_language_learning_tts_tags
+
+        normalize_language_learning_tts_tags(pack)
     return pack
 
 
@@ -1870,6 +1876,12 @@ def optimize_quiz_pack(
                 )
         else:
             question.tts = None
+    # See document path above: only Language Learning removes a terminal
+    # default-language reset tag; an in-text reset remains meaningful.
+    if active_mode == "multilingual" and pack.learningLanguage:
+        from app.services.generation.language_learning.tts import normalize_language_learning_tts_tags
+
+        normalize_language_learning_tts_tags(pack)
     return pack
 
 

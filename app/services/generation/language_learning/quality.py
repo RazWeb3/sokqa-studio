@@ -11,12 +11,104 @@ import re
 
 from app.schemas.common import default_speech_language_code
 from app.schemas.quality import QualityIssue
+from app.schemas.sokqa import CoursePlan, PlanQuizPack, ValidationErrorItem
+from app.services.gemini_client import GeminiClient
+from app.services.llm_json import LlmJsonParseContext
 from app.services.language_detection import (
     choice_set_language_state,
     language_script,
     leading_script,
     scripts_in_text,
 )
+
+
+def quiz_answer_explanation_consistency_prompt(questions: list[dict]) -> str:
+    """Return a single, conservative semantic-review request for a whole quiz.
+
+    This deliberately reports only contradictions that are explicit in the
+    explanation. Ambiguous, applied, and paraphrase questions must pass.
+    """
+    entries = "\n\n".join(
+        "\n".join(
+            [
+                f"- id: {question.get('id', '')}",
+                f"  question: {question.get('question', '')}",
+                f"  answerIndex: {question.get('answerIndex', '')}",
+                *[f"  choice {index}: {choice}" for index, choice in enumerate(question.get("choices") or [])],
+                f"  explanation: {question.get('explanation', '')}",
+            ]
+        )
+        for question in questions
+    )
+    return f"""Return strict JSON only. Review all quiz questions below in one batch.
+
+Find ONLY clear contradictions where an explanation explicitly supports a choice other than choices[answerIndex], or explicitly says the answerIndex choice is wrong. Do not infer a contradiction from nuance, a paraphrase, an application question, or an explanation that is merely concise or indirect. If there is any reasonable ambiguity, do not report it.
+
+Questions:
+{entries}
+
+Return this exact shape:
+{{
+  "issues": [
+    {{"id": "question-id", "reason": "The explanation explicitly supports choice 2, while answerIndex points to choice 0."}}
+  ]
+}}
+""".strip()
+
+
+def batch_quiz_answer_explanation_issues(
+    plan: CoursePlan,
+    quiz_pack: PlanQuizPack,
+    content: dict,
+    *,
+    model: str | None = None,
+) -> list[ValidationErrorItem]:
+    """Detect clear answer/explanation contradictions with one LLM call per quiz.
+
+    The output is intentionally a quality diagnostic: it is readable content
+    that can be regenerated, never a technical/schema failure.
+    """
+    if not plan.learningLanguage:
+        return []
+    questions = [question for question in content.get("questions") or [] if isinstance(question, dict)]
+    if not questions:
+        return []
+    data = GeminiClient().generate_json(
+        quiz_answer_explanation_consistency_prompt(questions),
+        model=model,
+        parse_context=LlmJsonParseContext(
+            generation_unit="quiz_consistency_review",
+            model=model,
+            theme=plan.title,
+            quiz_id=quiz_pack.id,
+            title=quiz_pack.title,
+            source_text=plan.sourceText,
+            additional_instructions=plan.customInstructions,
+            language=plan.language,
+            difficulty=plan.difficulty,
+            scale=plan.scale,
+        ),
+    )
+    by_id = {str(question.get("id") or ""): index for index, question in enumerate(questions)}
+    issues: list[ValidationErrorItem] = []
+    for item in data.get("issues") or []:
+        if not isinstance(item, dict):
+            continue
+        question_id = str(item.get("id") or "")
+        index = by_id.get(question_id)
+        reason = str(item.get("reason") or "").strip()
+        if index is None or not reason:
+            continue
+        issues.append(
+            ValidationErrorItem(
+                file=f"{content.get('id') or quiz_pack.id}.json",
+                path=f"questions.{index}.explanation",
+                message=f"answerIndex/explanation inconsistency: {reason}",
+                severity="warning",
+                classification="quality",
+            )
+        )
+    return issues
 
 
 def _token_scripts(token: str) -> set[str]:

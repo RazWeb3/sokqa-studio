@@ -31,7 +31,7 @@ def build_language_learning_purpose_lines(plan: CoursePlan) -> list[str]:
     ):
         return [
             "learningLanguage(学習対象言語)の語句・フレーズ・例文など、学習対象言語そのものを本文の主役として十分な分量で提示すること。パック言語は、その意味・使う場面・ニュアンスを補助的に説明する役割に用いること。学習対象言語に触れさせず、パック言語だけで学習法や概念を語る解説に終始してはならない。重要: 学習言語フレーズは必ず**言語タグなしの素のテキスト**で書くこと。本文(text)に [en-US] や [ja-JP] などの言語タグを絶対に含めてはならない。タグ付けは後続の読み上げ最適化ステップの責務であり、本文生成時は行ってはならない。",
-            "会話・実用表現型の各 documents[] セクションは、「短い導入」(学習場面を短く提示)から始め、(2)中心フレーズをすぐタグ無しで提示、(3)パック言語で意味と使用場面を説明、(4)相手の発話と学習者の返答、(5)自然な言い換え・類似表現、(6)聞き返し・確認・代替案・交渉などの発展例、(7)短い振り返り、の順で教えること。beginner は一場面一表現と短く明確な応答、intermediate は使い分け・聞き返し・会話継続、advanced は丁寧さ、自然な言い換え、曖昧な依頼の具体化、提案確認、交渉、誤用修正、文脈ニュアンスを扱う。長い日本語メタ説明から始めて第1フレーズまで2〜3段落を消費する構成は禁止する。導入は1文で済ませ、最初の学習言語フレーズを第1段落内に置くこと。フレーズを目立たせるために言語タグで囲むことは禁止する。引用符(\" や「」)で囲まず、そのまま本文に書くこと。",
+            "会話・実用表現型の各 documents[] セクションは、「短い導入」(学習場面を短く提示)から始め、(2)中心フレーズをすぐタグ無しで提示、(3)パック言語で意味と使用場面を説明、(4)相手の発話と学習者の返答、(5)自然な言い換え・類似表現、(6)聞き返し・確認・代替案・交渉などの発展例、(7)短い振り返り、の順で教えること。After a short introduction, present the learning-language phrase immediately. Avoid long explanations before introducing the first learning-language phrase. Keep explanations concise: prefer Phrase → Meaning → Usage instead of long paragraphs. beginner は一場面一表現と短く明確な応答、standard は類似表現の比較、場面に応じた表現選択、より自然な言い回し、適切な返答、advanced は丁寧さ、自然な言い換え、曖昧な依頼の具体化、提案確認、交渉、誤用修正、文脈ニュアンスを扱う。長い日本語メタ説明から始めて第1フレーズまで2〜3段落を消費する構成は禁止する。導入は1文で済ませ、最初の学習言語フレーズを第1段落内に置くこと。フレーズを目立たせるために言語タグで囲むことは禁止する。引用符(\" や「」)で囲まず、そのまま本文に書くこと。",
         ]
     return []
 
@@ -57,7 +57,7 @@ def quiz_difficulty_block(plan: CoursePlan) -> str:
     Phase 10: 共通層 quiz_generation_prompt は difficulty を「深さ」のみ定義する。
     本関数はその「深さ」を語学教材の設問設計へ具体化する（LL Strategy の責務）。
     - beginner: 意味理解・基本対応
-    - intermediate: 場面適切性・使い分け
+    - standard: 類似表現比較・場面適切性・使い分け
     - advanced: ニュアンス差・誤用修正・状況に応じた自然判断
 
     japanese_learning（系統B）は責務分離のため既存 japanese_learning_difficulty_block に委譲し、
@@ -77,18 +77,18 @@ def quiz_difficulty_block(plan: CoursePlan) -> str:
     elif difficulty == "advanced":
         guidance = """
 - Difficulty (advanced): design questions requiring nuanced judgment, not surface recognition.
-  - Ask about nuance differences between similar expressions, correction of unnatural wording, or selecting the most natural expression for a given situation.
+  - Ask about nuance differences, correction of clear misuse, formal versus casual register, naturalness judgment, or selecting the optimal expression for a given situation.
   - Every question must be grounded in a concrete learning-language phrase/expression; do not ask about chapter explanation or material meta-information only.
 """.rstrip()
-    elif difficulty == "intermediate":
+    elif difficulty == "standard":
         guidance = """
-- Difficulty (intermediate): design questions requiring situational appropriateness and choosing between similar expressions.
-  - Ask to select the appropriate expression for a context, or to distinguish between similar expressions.
+- Difficulty (standard): design questions requiring situational appropriateness and choosing between similar expressions.
+  - Ask to compare similar expressions, select an expression for the situation, choose a more natural wording, or select an appropriate reply.
   - Every question must be grounded in a concrete learning-language phrase/expression shown in the source.
 """.rstrip()
     else:
         guidance = """
-- Difficulty (standard): design questions at the level of basic comprehension and matching of learning-language phrases.
+- Difficulty (fallback): design questions at the level of basic comprehension and matching of learning-language phrases.
   - Every question must be grounded in a concrete learning-language phrase/expression shown in the source.
 """.rstrip()
     return f"""

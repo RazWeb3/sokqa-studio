@@ -62,7 +62,7 @@ Planner は pack language に基づいて title、description、document titles�
 
 共通層（quiz_generation_prompt）の定義:
 - beginner: 基礎理解
-- intermediate: 応用理解
+- standard: 応用理解
 - advanced: 深い判断
 
 共通層は「深さ」のみを定義し、各ドメインでの具体的中身は書かない。
@@ -70,7 +70,7 @@ Planner は pack language に基づいて title、description、document titles�
 各 Strategy は共通層の「深さ」を当該ドメインの設問設計へ具体化する。Language Learning Strategy は
 difficulty を具体化し、実装上は language_learning 側の difficulty block で提供する。
 - beginner: 意味理解・基本対応（基本フレーズの意味、場面と表現の対応）
-- intermediate: 場面適切性・使い分け（類似表現の選択、文脈に応じた表現選択）
+- standard: 場面適切性・使い分け（類似表現の選択、文脈に応じた表現選択）
 - advanced: ニュアンス差・誤用修正・状況に応じた自然判断
 
 `difficulty` から `choiceLanguageMode` への自動変換は行わない。`choiceLanguageMode` は計画側の設定のまま。

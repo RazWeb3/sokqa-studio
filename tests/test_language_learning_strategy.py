@@ -8,7 +8,8 @@ import pytest
 
 from app.schemas.common import TtsLanguageSettings
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
-from app.schemas.sokqa import CoursePlan, SokqaDocumentPack, SokqaQuizPack
+from app.schemas.sokqa import CoursePlan, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
+from app.services.gemini_client import GeminiClient
 from app.services import planner
 from app.services.generation.language_learning.planner import (
     _base_language,
@@ -19,13 +20,18 @@ from app.services.generation.language_learning.prompt import (
     build_language_learning_purpose_lines,
     is_japanese_learning_plan,
     japanese_learning_difficulty_block,
+    quiz_difficulty_block,
     ruby_policy_block,
     structure_policy_block,
 )
-from app.services.generation.language_learning.quality import deterministic_tts_issues
+from app.services.generation.language_learning.quality import (
+    batch_quiz_answer_explanation_issues,
+    deterministic_tts_issues,
+)
 from app.services.generation.language_learning.tts import (
     build_document_language_settings,
     effective_quiz_language_settings,
+    normalize_language_learning_tts_tags,
 )
 from app.services.generation.strategy import (
     is_language_learning_plan,
@@ -45,6 +51,74 @@ def _make_request(theme: str, **kw) -> GeneratePackRequest:
 
 def _make_quiz_pack(**kw) -> SokqaQuizPack:
     return SokqaQuizPack(id="quiz-pack-1", title="テストクイズ", questions=[], **kw)
+
+
+def _consistency_plan() -> CoursePlan:
+    return CoursePlan(
+        id="ll-consistency", title="旅行英会話", description="", targetUser="学習者",
+        difficulty="standard", language="ja", learningLanguage="en",
+        documents=[],
+        quizPacks=[PlanQuizPack(id="quiz-1", title="確認", purpose="key_concepts", questionCount=2)],
+    )
+
+
+def test_batch_consistency_marks_explicit_wrong_choice_as_quality(monkeypatch) -> None:
+    plan = _consistency_plan()
+    content = {"id": "quiz-1", "questions": [{"id": "q-1", "question": "朝の挨拶は？", "choices": ["Good morning", "Good night", "Thank you", "Sorry"], "answerIndex": 0, "explanation": "Good night は夜に使う挨拶です。"}]}
+    monkeypatch.setattr(GeminiClient, "generate_json", lambda *_args, **_kwargs: {"issues": [{"id": "q-1", "reason": "Explanation explicitly supports choice 1."}]})
+
+    issues = batch_quiz_answer_explanation_issues(plan, plan.quizPacks[0], content)
+
+    assert len(issues) == 1
+    assert issues[0].classification == "quality"
+    assert issues[0].path == "questions.0.explanation"
+
+
+def test_batch_consistency_allows_applied_or_paraphrase_question(monkeypatch) -> None:
+    plan = _consistency_plan()
+    content = {"id": "quiz-1", "questions": [{"id": "q-1", "question": "丁寧に同意するには？", "choices": ["I couldn't agree more.", "No way.", "Never mind.", "See you."], "answerIndex": 0, "explanation": "強い同意を丁寧に示す自然な言い回しです。"}]}
+    monkeypatch.setattr(GeminiClient, "generate_json", lambda *_args, **_kwargs: {"issues": []})
+
+    assert batch_quiz_answer_explanation_issues(plan, plan.quizPacks[0], content) == []
+
+
+def test_batch_consistency_reviews_all_questions_with_one_llm_call(monkeypatch) -> None:
+    plan = _consistency_plan()
+    content = {"id": "quiz-1", "questions": [
+        {"id": "q-1", "question": "Q1", "choices": ["A", "B", "C", "D"], "answerIndex": 0, "explanation": "A"},
+        {"id": "q-2", "question": "Q2", "choices": ["A", "B", "C", "D"], "answerIndex": 1, "explanation": "B"},
+    ]}
+    calls = []
+    def fake_generate(_self, prompt, **_kwargs):
+        calls.append(prompt)
+        return {"issues": []}
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate)
+
+    batch_quiz_answer_explanation_issues(plan, plan.quizPacks[0], content)
+
+    assert len(calls) == 1
+    assert "id: q-1" in calls[0] and "id: q-2" in calls[0]
+
+
+def test_language_learning_tts_keeps_reset_only_when_pack_language_text_follows() -> None:
+    pack = SokqaDocumentPack.model_validate({"id": "doc-1", "type": "document", "schemaVersion": 1, "title": "英会話", "language": "ja", "learningLanguage": "en", "documents": [
+        {"id": "d1", "text": "x", "tts": {"text": "[en-US]Good morning[ja-JP]朝に使います。"}},
+        {"id": "d2", "text": "x", "tts": {"text": "[en-US]Good morning[ja-JP]"}},
+    ]})
+
+    normalize_language_learning_tts_tags(pack)
+
+    assert pack.documents[0].tts.text == "[en-US]Good morning[ja-JP]朝に使います。"
+    assert pack.documents[1].tts.text == "[en-US]Good morning"
+
+
+def test_standard_language_learning_difficulty_uses_applied_expression_guidance() -> None:
+    guidance = quiz_difficulty_block(_consistency_plan())
+
+    assert "Difficulty (standard)" in guidance
+    assert "similar expressions" in guidance
+    assert "appropriate reply" in guidance
+    assert "intermediate" not in guidance
 
 
 # --- 統合判定（系統A/B の集約） ---

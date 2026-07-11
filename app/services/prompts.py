@@ -568,7 +568,7 @@ def quiz_generation_prompt(
     # 各 Strategy がこの深さを具体化する。Language Learning は language_learning/prompt.quiz_difficulty_block で委譲。
     difficulty_depth_block = (
         "- Difficulty depth (common): the question depth follows the plan difficulty. "
-        f"beginner=basic comprehension, intermediate=applied comprehension, advanced=deeper judgment. "
+        f"beginner=basic comprehension, standard=applied comprehension, advanced=deeper judgment. "
         "Do not change choiceLanguageMode based on difficulty."
     )
     # 具体例は ja/en ペア時のみ仕様の例を出し、それ以外は言語ラベルベースの汎用例にする（pack=ja/learning=en の固定ハードコード回避）。
@@ -650,8 +650,13 @@ def quiz_generation_prompt(
 {choice_language_rule}
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
+- Do not generate only meaning questions. Use the requested difficulty when designing questions.
 - You MUST output exactly {quiz_pack.questionCount} questions in the questions[] array. Do not output fewer or more than this count. If you run out of distinct, meaningful questions, keep generating distinct scenario-based questions grounded in the quiz context until you reach exactly {quiz_pack.questionCount}.
-- Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
+- Before returning JSON:
+  - Self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
+  - Verify that answerIndex matches exactly one choice.
+  - Verify that the explanation explains only the correct choice.
+  - If the explanation supports another choice, regenerate the question before returning.
 - Do not output tts in the first quiz generation step.
 {difficulty_depth_block}
 """.strip()
@@ -834,3 +839,40 @@ Required JSON shape:
   ]
 }}
 """
+
+
+def quiz_answer_explanation_repair_prompt(
+    plan: CoursePlan,
+    quiz_pack: PlanQuizPack,
+    questions: list[dict],
+) -> str:
+    """Regenerate only questions whose answer and explanation clearly conflict."""
+    question_text = "\n\n".join(
+        "\n".join(
+            [
+                f"- id: {item.get('id', '')}",
+                f"  question: {item.get('question', '')}",
+                f"  choices: {json.dumps(item.get('choices') or [], ensure_ascii=False)}",
+                f"  answerIndex: {item.get('answerIndex', '')}",
+                f"  explanation: {item.get('explanation', '')}",
+            ]
+        )
+        for item in questions
+    )
+    return f"""Return strict JSON only. Regenerate ONLY the listed quiz questions.
+
+Keep each id exactly as provided. Do not add, remove, or alter any unlisted question.
+Each replacement must have exactly four choices, an answerIndex from 0 to 3, and an explanation that supports only choices[answerIndex]. Follow the original quiz language rules: pack language is {plan.language}, learning language is {plan.learningLanguage or 'not specified'}, choiceLanguageMode is {quiz_pack.choiceLanguageMode}, and difficulty is {plan.difficulty or 'standard'}.
+
+Before returning JSON, verify that answerIndex matches exactly one choice and the explanation explains only that choice.
+
+Questions to replace:
+{question_text}
+
+Return this shape:
+{{
+  "questions": [
+    {{"id": "original-id", "question": "replacement question", "choices": ["choice 1", "choice 2", "choice 3", "choice 4"], "answerIndex": 0, "explanation": "explanation for choice 1 only"}}
+  ]
+}}
+""".strip()

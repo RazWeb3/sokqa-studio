@@ -7,6 +7,44 @@ Standard 側は tts_optimizer.py に残り、Phase 7 時点は既存挙動を維
 
 from app.schemas.common import TtsLanguageSettings
 from app.schemas.sokqa import SokqaDocumentPack, SokqaQuizPack
+from app.schemas.common import default_speech_language_code
+
+
+def _strip_redundant_terminal_default_tag(text: str | None, pack_language: str) -> str | None:
+    """Keep switch tags stateful for Language Learning TTS only.
+
+    A final switch back to the pack language carries no following text, so it
+    is redundant. A switch that precedes Japanese (or other pack-language)
+    text is preserved.
+    """
+    if not text:
+        return text
+    default_tag = f"[{default_speech_language_code(pack_language)}]"
+    value = text.rstrip()
+    if value.endswith(default_tag):
+        return value[: -len(default_tag)].rstrip()
+    return text
+
+
+def normalize_language_learning_tts_tags(pack: SokqaDocumentPack | SokqaQuizPack) -> None:
+    """Normalize only Language Learning multilingual TTS output in place."""
+    if not pack.learningLanguage:
+        return
+    if isinstance(pack, SokqaDocumentPack):
+        for document in pack.documents:
+            if document.tts:
+                document.tts.text = _strip_redundant_terminal_default_tag(document.tts.text, pack.language)
+        return
+    for question in pack.questions:
+        if not question.tts:
+            continue
+        question.tts.questionText = _strip_redundant_terminal_default_tag(question.tts.questionText, pack.language)
+        question.tts.explanationText = _strip_redundant_terminal_default_tag(question.tts.explanationText, pack.language)
+        if question.tts.choiceTexts:
+            question.tts.choiceTexts = [
+                _strip_redundant_terminal_default_tag(text, pack.language) or ""
+                for text in question.tts.choiceTexts
+            ]
 
 
 def build_document_language_settings(pack: SokqaDocumentPack) -> TtsLanguageSettings | None:

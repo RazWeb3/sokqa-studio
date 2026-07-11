@@ -75,7 +75,32 @@ def _append_placeholder_errors(
 def _append_pydantic_errors(file_name: str, error: ValidationError, errors: list[ValidationErrorItem]) -> None:
     for issue in error.errors():
         path = ".".join(str(part) for part in issue.get("loc", [])) or "$"
-        errors.append(ValidationErrorItem(file=file_name, path=path, message=issue.get("msg", "invalid value")))
+        message = issue.get("msg", "invalid value")
+        if _is_quality_pydantic_error(path, message):
+            errors.append(ValidationErrorItem(file=file_name, path=path, message=message, severity="warning", classification="quality"))
+        else:
+            errors.append(ValidationErrorItem(file=file_name, path=path, message=message))
+
+
+def _is_quality_pydantic_error(path: str, message: str) -> bool:
+    """Some legacy model validators encode content quality rules as Pydantic errors.
+
+    Keep malformed shapes and missing required structures technical, while
+    preserving readable quiz content failures as reviewable diagnostics.
+    """
+    quality_messages = (
+        "question must not be empty",
+        "choices must contain exactly 4 items",
+        "choices must not contain exact duplicates",
+        "answerIndex must be between 0 and 3",
+        "explanation must not be empty",
+    )
+    return path.startswith("questions.") and any(marker in message for marker in quality_messages)
+
+
+def _as_quality_issues(issues: list[ValidationErrorItem]) -> list[ValidationErrorItem]:
+    """Mark readable-but-incomplete learning content as reviewable quality issues."""
+    return [issue.model_copy(update={"severity": "warning", "classification": "quality"}) for issue in issues]
 
 
 def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None = None) -> ValidationResult:
@@ -84,10 +109,10 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None =
         try:
             if file.kind == "document":
                 pack = SokqaDocumentPack.model_validate(file.content)
-                errors.extend(validate_document_semantics(file.name, pack))
+                errors.extend(_as_quality_issues(validate_document_semantics(file.name, pack)))
             elif file.kind == "quiz":
                 pack = SokqaQuizPack.model_validate(file.content)
-                errors.extend(validate_quiz_semantics(file.name, pack))
+                errors.extend(_as_quality_issues(validate_quiz_semantics(file.name, pack)))
             elif file.kind == "manifest":
                 PackManifestV2.model_validate(file.content)
         except ValidationError as exc:
@@ -95,13 +120,22 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None =
 
     if manifest:
         errors.extend(validate_manifest(manifest).errors)
+        errors.extend(_manifest_reference_errors(files, manifest))
 
-    return ValidationResult(valid=not any(error.severity == "error" for error in errors), errors=errors)
+    return ValidationResult(valid=not blocking_errors_from_issues(errors), errors=errors)
 
 
 def blocking_errors(validation: ValidationResult) -> list[ValidationErrorItem]:
-    """The single persistence gate: warnings are always reviewable, never blocking."""
-    return [issue for issue in validation.errors if issue.severity == "error"]
+    """Return only failures that make the pack unreadable, unresolvable, or unsaveable."""
+    return blocking_errors_from_issues(validation.errors)
+
+
+def blocking_errors_from_issues(issues: list[ValidationErrorItem]) -> list[ValidationErrorItem]:
+    return [issue for issue in issues if issue.classification == "technical"]
+
+
+def quality_issues(validation: ValidationResult) -> list[ValidationErrorItem]:
+    return [issue for issue in validation.errors if issue.classification == "quality"]
 
 
 def file_validation_status(validation: ValidationResult) -> str:
@@ -110,6 +144,23 @@ def file_validation_status(validation: ValidationResult) -> str:
     if validation.errors:
         return "warning"
     return "valid"
+
+
+def _manifest_reference_errors(files: list[GeneratedFile], manifest: PackManifestV2) -> list[ValidationErrorItem]:
+    """A manifest must resolve exactly the generated document and quiz files."""
+    errors: list[ValidationErrorItem] = []
+    files_by_name = {file.name: file for file in files if file.kind in {"document", "quiz"}}
+    manifest_by_name = {item.name: item for item in manifest.items}
+    for name, file in files_by_name.items():
+        item = manifest_by_name.get(name)
+        if item is None:
+            errors.append(ValidationErrorItem(file="pack_manifest.json", path="items", message=f"manifest is missing generated file reference: {name}"))
+        elif item.kind != file.kind:
+            errors.append(ValidationErrorItem(file="pack_manifest.json", path="items", message=f"manifest kind does not match generated file: {name}"))
+    for name in manifest_by_name:
+        if name not in files_by_name:
+            errors.append(ValidationErrorItem(file="pack_manifest.json", path="items", message=f"manifest references unavailable file: {name}"))
+    return errors
 
 
 def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list[ValidationErrorItem]:

@@ -89,7 +89,7 @@ def mark_promoted(temporary_id: str, creator_id: str) -> None:
 
 
 def _log(state: str, item: TemporaryGeneration) -> None:
-    logger.info("temporary_generation.%s id=%s creator_id=%s state=%s expires_at=%s file_count=%s blocking_errors=%s", state, item.id, item.creator_id, state, item.expires_at.isoformat(), len(item.files), sum(issue.severity == "error" for issue in item.validation.errors))
+    logger.info("temporary_generation.%s id=%s creator_id=%s state=%s expires_at=%s file_count=%s blocking_errors=%s", state, item.id, item.creator_id, state, item.expires_at.isoformat(), len(item.files), sum(issue.classification == "technical" for issue in item.validation.errors))
 
 
 def _purge_expired_locked(now: datetime) -> None:

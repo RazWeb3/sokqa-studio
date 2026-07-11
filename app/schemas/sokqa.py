@@ -273,6 +273,9 @@ class ValidationErrorItem(BaseModel):
     path: str
     message: str
     severity: Literal["error", "warning"] = "error"
+    # Severity is presentation-oriented.  Whether an issue prevents use of a
+    # pack is determined solely by this explicit classification.
+    classification: Literal["technical", "quality"] = "technical"
 
 
 class ValidationResult(BaseModel):
@@ -332,6 +335,8 @@ class GeneratePackResponse(BaseModel):
     persisted: bool = False
     fileValidationStatus: Literal["valid", "warning", "blocked"] = "valid"
     blockingErrors: list[ValidationErrorItem] = Field(default_factory=list)
+    qualityIssues: list[ValidationErrorItem] = Field(default_factory=list)
+    # Kept during the API transition for clients that already read warnings.
     warnings: list[ValidationErrorItem] = Field(default_factory=list)
     temporaryGenerationId: str | None = None
     temporaryGenerationVersion: int | None = None

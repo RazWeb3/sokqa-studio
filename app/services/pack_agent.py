@@ -39,7 +39,7 @@ from app.services.source_material import normalize_source
 from app.services.storage_client import StorageClient
 from app.services.storage_status import pop_storage_events
 from app.services.tts_optimizer import optimize_generated_files_with_report
-from app.services.validator import blocking_errors, file_validation_status, validate_files
+from app.services.validator import blocking_errors, file_validation_status, quality_issues, validate_files
 from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
 
@@ -54,12 +54,12 @@ def _regeneration_candidate_errors(validation) -> list:
     """
     non_blocking_messages = (
         "document section must present the learning language",
+        "citation-style wording",
     )
     return [
         error
-        for error in validation.errors
-        if error.severity == "error"
-        and not any(marker in error.message for marker in non_blocking_messages)
+        for error in quality_issues(validation)
+        if not any(marker in error.message for marker in non_blocking_messages)
     ]
 
 
@@ -220,6 +220,7 @@ def _persist_changed_revision(
     files: list[GeneratedFile],
     current_manifest: PackManifestV2,
     persist: bool,
+    quality_status: str | None = None,
 ):
     request = CommitPackRevisionInput(
         target=RevisionTarget(
@@ -228,6 +229,7 @@ def _persist_changed_revision(
             versionId=current_manifest.versionId,
         ),
         operation="tts_fix",
+        qualityStatus=quality_status,
         changedFiles=[_changed_file(file, current_manifest) for file in files],
     )
     if persist:
@@ -510,7 +512,8 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         persisted=persisted,
         fileValidationStatus=file_validation_status(validation),
         blockingErrors=blocking_errors(validation),
-        warnings=[issue for issue in validation.errors if issue.severity != "error"],
+        qualityIssues=quality_issues(validation),
+        warnings=quality_issues(validation),
         qualityStatus=file_validation_status(validation),
         publicationStatus="draft",
         jobId=job_id,
@@ -553,6 +556,11 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
             update={
                 "plan": plan,
                 "validation": validation,
+                "fileValidationStatus": file_validation_status(validation),
+                "blockingErrors": blocking_errors(validation),
+                "qualityIssues": quality_issues(validation),
+                "warnings": quality_issues(validation),
+                "qualityStatus": file_validation_status(validation),
                 "ttsRevisions": [],
                 "logs": [*logs, "No TTS replacement changes"],
             }
@@ -561,7 +569,15 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
         return revised
 
     logs.append("Persisting TTS revision" if request.persist else "Building TTS revision")
-    commit_result = _persist_changed_revision(plan, metadata, revised_files, existing.manifest, request.persist)
+    pre_persist_validation = validate_files(revised_files)
+    commit_result = _persist_changed_revision(
+        plan,
+        metadata,
+        revised_files,
+        existing.manifest,
+        request.persist,
+        file_validation_status(pre_persist_validation),
+    )
     if request.persist:
         logs.extend(event.message for event in pop_storage_events())
     manifest = commit_result.manifest
@@ -573,6 +589,14 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
     existing_prompts = list(existing.prompts or [])
     revised = GeneratePackResponse(
         status="completed",
+        generationStatus="completed",
+        persisted=bool(request.persist),
+        fileValidationStatus=file_validation_status(validation),
+        blockingErrors=blocking_errors(validation),
+        qualityIssues=quality_issues(validation),
+        warnings=quality_issues(validation),
+        qualityStatus=file_validation_status(validation),
+        publicationStatus=manifest.publicationStatus,
         jobId=existing.jobId,
         plan=plan,
         files=revised_files,
@@ -588,10 +612,10 @@ def revise_tts(request: ReviseTtsRequest) -> GeneratePackResponse:
 
 
 def append_validation_logs(logs: list[str], validation) -> None:
-    if validation.valid:
+    if not validation.errors:
         return
-    for error in validation.errors:
-        logs.append(f"validation error: {error.file} {error.path}: {error.message}")
+    for issue in validation.errors:
+        logs.append(f"validation {issue.classification}: {issue.file} {issue.path}: {issue.message}")
 
 
 def _collect_prompt_records() -> list[DebugPromptRecordSchema]:
@@ -614,7 +638,7 @@ def _collect_prompt_records() -> list[DebugPromptRecordSchema]:
 
 
 def _needs_generation_repair(validation) -> bool:
-    return not validation.valid
+    return bool(_regeneration_candidate_errors(validation))
 
 
 def _is_repairable_generation_warning(error) -> bool:

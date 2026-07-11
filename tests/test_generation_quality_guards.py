@@ -5,6 +5,7 @@ from collections import Counter
 import pytest
 
 from app.schemas.common import ReadingPattern
+from app.schemas.pack_v2 import ManifestChange, ManifestCreatorV2, ManifestItemV2, PackManifestV2
 from app.schemas.request import GeneratePackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
 from app.services import pack_agent
@@ -26,7 +27,7 @@ from app.services.prompts import (
 )
 from app.services.quiz_generator import generate_mock_quiz_pack, normalize_quiz_content
 from app.services.repairer import QUIZ_REPAIR_INSTRUCTIONS, repair_files
-from app.services.validator import validate_files
+from app.services.validator import blocking_errors, validate_files
 
 
 def _plan() -> CoursePlan:
@@ -963,8 +964,10 @@ def test_auto_choice_language_allows_per_question_switch_but_rejects_mixed_set()
     mixed_result = validate_files([mixed])
 
     assert valid_result.valid is True
-    assert mixed_result.valid is False
-    assert any("same language" in error.message for error in mixed_result.errors)
+    assert mixed_result.valid is True
+    issue = next(error for error in mixed_result.errors if "same language" in error.message)
+    assert issue.severity == "warning"
+    assert issue.classification == "quality"
 
 
 def test_existing_japanese_quiz_does_not_require_choice_texts() -> None:
@@ -992,6 +995,47 @@ def test_existing_japanese_quiz_does_not_require_choice_texts() -> None:
     result = validate_files([file])
 
     assert result.valid is True
+
+
+def test_validator_blocks_unreadable_pack_structure_as_technical_failure() -> None:
+    result = validate_files([
+        GeneratedFile(
+            name="broken_quiz.json",
+            kind="quiz",
+            content={"id": "broken_quiz", "title": "壊れたクイズ", "questions": "not an array"},
+        )
+    ])
+
+    assert result.valid is False
+    assert blocking_errors(result)
+    assert all(issue.classification == "technical" and issue.severity == "error" for issue in blocking_errors(result))
+
+
+def test_validator_blocks_manifest_reference_to_unavailable_file() -> None:
+    manifest = PackManifestV2(
+        id="pack_manifest_r1",
+        contentId="pack",
+        creator=ManifestCreatorV2(id="creator"),
+        revision=1,
+        versionId="v1",
+        buildId="build1",
+        generatedAt="2026-07-12T00:00:00+09:00",
+        change=ManifestChange(operation="initial_generate"),
+        items=[
+            ManifestItemV2(
+                kind="document",
+                name="missing.json",
+                logicalId="missing",
+                fileVersionId="fv1",
+                url="https://example.com/missing.json",
+            )
+        ],
+    )
+
+    result = validate_files([], manifest)
+
+    assert result.valid is False
+    assert any("references unavailable file" in issue.message for issue in blocking_errors(result))
 
 
 def test_compose_generation_purpose_listening_policy_includes_audio_and_placeholder_keywords() -> None:
@@ -1729,8 +1773,9 @@ def test_document_validator_flags_missing_learning_language_phrase() -> None:
 
     errors = [error for error in result.errors if error.path == "documents" and "learning language" in error.message]
     assert errors
-    assert errors[0].severity == "error"
-    assert result.valid is False
+    assert errors[0].severity == "warning"
+    assert errors[0].classification == "quality"
+    assert result.valid is True
 
 
 def test_document_validator_passes_when_learning_language_phrase_present() -> None:
@@ -1784,8 +1829,8 @@ def test_document_validator_skips_same_script_language_pair() -> None:
     assert not errors
 
 
-def test_validator_blocks_unresolved_placeholder_without_auto_replacement() -> None:
-    """[目的地] 型は保存不可にし、具体名への自動置換は行わない。"""
+def test_validator_reports_unresolved_placeholder_without_auto_replacement() -> None:
+    """[目的地] 型は品質確認対象にし、具体名への自動置換は行わない。"""
     file = GeneratedFile(
         name="travel_quiz.json",
         kind="quiz",
@@ -1806,11 +1851,13 @@ def test_validator_blocks_unresolved_placeholder_without_auto_replacement() -> N
 
     result = validate_files([file])
 
-    assert result.valid is False
-    assert any("unresolved learner-facing placeholder" in error.message for error in result.errors)
+    assert result.valid is True
+    issue = next(error for error in result.errors if "unresolved learner-facing placeholder" in error.message)
+    assert issue.severity == "warning"
+    assert issue.classification == "quality"
 
 
-def test_validator_blocks_duplicate_questions_and_choices_but_only_warns_for_document_repetition() -> None:
+def test_validator_reports_duplicate_questions_and_choices_as_quality_issues() -> None:
     quiz_file = GeneratedFile(
         name="duplicate_quiz.json",
         kind="quiz",
@@ -1838,8 +1885,13 @@ def test_validator_blocks_duplicate_questions_and_choices_but_only_warns_for_doc
 
     result = validate_files([quiz_file, document_file])
 
-    assert result.valid is False
-    assert any(error.file == "duplicate_quiz.json" and error.severity == "error" for error in result.errors)
+    assert result.valid is True
+    assert any(
+        error.file == "duplicate_quiz.json"
+        and error.severity == "warning"
+        and error.classification == "quality"
+        for error in result.errors
+    )
     assert any(error.file == "repetition_document.json" and error.severity == "warning" for error in result.errors)
 
 
@@ -1877,9 +1929,11 @@ def test_generation_completes_with_diagnostics_when_placeholder_remains_after_re
     assert persist_requests == [True]
     assert result.persisted is True
     assert result.generationStatus == "completed"
-    assert result.qualityStatus == "blocked"
+    assert result.qualityStatus == "warning"
     assert result.publicationStatus == "draft"
-    assert result.validation.valid is False
+    assert result.validation.valid is True
+    assert result.blockingErrors == []
+    assert result.qualityIssues
     assert any("unresolved learner-facing placeholder" in error.message for error in result.validation.errors)
     assert any("continuing with reviewable output" in log for log in result.logs)
 

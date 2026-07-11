@@ -49,7 +49,7 @@ from app.services.tts_recording_api import (
     load_target_pack,
 )
 from app.services.tts_text import collapse_duplicate_katakana_utterances
-from app.services.validator import blocking_errors, file_validation_status, validate_files
+from app.services.validator import blocking_errors, file_validation_status, quality_issues, validate_files
 
 
 # These categories may be *examined* by the TTS fixer.  They are not, by
@@ -1464,8 +1464,8 @@ def _evaluate_fix_preview(
     )
     response.introducedErrors = introduced
     response.remainingExistingErrors = remaining
-    response.remainingWarnings = [issue for issue in after.errors if issue.severity != "error"]
-    response.fileValidationStatus = "blocked" if after_by_key else ("warning" if response.remainingWarnings else "valid")
+    response.remainingWarnings = quality_issues(after)
+    response.fileValidationStatus = file_validation_status(after)
     response.targetIssueResolved = bool(changed and not introduced and source_issues)
     if not changed:
         response.fixStatus = "no_change"

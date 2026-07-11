@@ -4261,9 +4261,10 @@
         batchQualityState = null;
         const isPersisted = Boolean(generated.persisted);
         const blockingErrors = generated.blockingErrors || [];
-        const reviewNotice = generated.qualityStatus === "blocked"
-          ? `<div class="issue warning"><strong>生成済み・品質確認が必要</strong><span>blocking errorが残っています。品質チェック・修正または再生成を行ってください。公開、URL・QR、録音、配布は利用できません。</span>${blockingErrors.length ? `<ul>${blockingErrors.map((issue) => `<li>${escapeHtml(`${issue.file} ${issue.path}: ${issue.message}`)}</li>`).join("")}</ul>` : ""}</div>`
-          : "";
+        const qualityIssues = generated.qualityIssues || generated.warnings || [];
+        const reviewNotice = qualityIssues.length
+          ? `<div class="issue warning"><strong>生成済み・品質確認が必要</strong><span>重大な品質上の問題が残っています。内容を確認し、必要に応じて修正または再生成してください。</span><ul>${qualityIssues.map((issue) => `<li>${escapeHtml(`${issue.file} ${issue.path}: ${issue.message}`)}</li>`).join("")}</ul></div>`
+          : (blockingErrors.length ? `<div class="issue warning"><strong>生成に失敗しました</strong><span>ファイルの読み込みまたは保存を妨げる技術的な問題があります。</span><ul>${blockingErrors.map((issue) => `<li>${escapeHtml(`${issue.file} ${issue.path}: ${issue.message}`)}</li>`).join("")}</ul></div>` : "");
         const manifestUrl = generated.files?.find((file) => file.kind === "manifest")?.url || generated.manifest?.manifestUrl || "";
         const logsHtml = DEBUG_LOGS_ENABLED
           ? `<ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`
@@ -4289,7 +4290,7 @@
           </div>
           <p class="muted" id="openShareInfoHint"></p>
           <div id="autoTextQualityResult" class="stack"><div class="applied"><strong>品質チェック</strong><span>${isAutoQualityFixEnabled() ? "生成成功後に実行します。" : "自動品質チェックはOFFです。"}</span></div></div>
-          <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button>${generated.qualityStatus === "blocked" ? '<button class="secondary" id="returnToReviewBtn" type="button">構成を修正して再生成</button>' : ""}<button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
+          <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
           ${promptsHtml}
           ${logsHtml}`;
         if (!selectedPack?.manifestUrl && manifestUrl) {

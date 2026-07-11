@@ -202,6 +202,7 @@ def test_quiz_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> 
             scale="quick",
             docCount=1,
             quizCount=1,
+            questionCount=1,
             ttsReadingMode="none",
         )
     )

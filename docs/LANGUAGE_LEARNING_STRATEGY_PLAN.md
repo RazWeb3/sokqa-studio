@@ -312,6 +312,37 @@ Phase 8 で分類した「再現する」指摘（① document 構成・③ quiz
 
 ---
 
+## Phase 10：教材品質の構造課題修正（cnt_3d5ff71f76 指摘への対応）
+
+Phase 8/9 は「再現する/しない」の分類と prompt 追記で済ませていたが、実運用（cnt_3d5ff71f76）で
+以下の構造課題が再発したため、プロンプト強化のみならず「決定論的ゲート＋難易度別設問深化」で根本解決する。
+
+### 対象課題と修正案
+| 項目 | 課題 | 修正案 |
+|---|---|---|
+| ① early-phrase ルール | learningLanguage != packLanguage で一律適用。比較型・読解型にも入る | `build_language_learning_purpose_lines` の発動条件に `structurePolicy in {listening, summary}` を追加。reading・比較型は除外。japanese_learning は従来通り除外。summary を含める理由は、現在 structurePolicy 未指定時のフォールバックが summary として運用されているため。 |
+| ② LL difficulty block | difficulty が設問設計に使われず、章メタ問題（q-20 等）が混入 | 共通層は「深さ」のみ。LL層 difficulty block で beginner/intermediate/advanced の3段階を具体化（advanced=ニュアンス差・誤用修正・自然判断）。`quiz_generation_prompt` から委譲。関数名は実装詳細とし固定仕様としない。 |
+| ③ choiceTexts 省略 | multilingual+learning 選択肢でも choiceTexts が常に保持される | `tts_optimizer` の multilingual 時 `keep_all_choices` を、`choiceLanguageMode=learning` かつ各選択肢が choicesLanguage でそのまま読める場合はスパース化（省略）するよう修正。判定は learningLanguage の有無ではなく読み補正要否。 |
+| ④ LL 構造チェック | 既存 Quality Checker は学習妥当性を範囲外 | `language_learning/quality.py` へ `deterministic_ll_structure_issues` を新設（document+quiz）。共通カテゴリは追加せず、新設 `ll_structure` カテゴリ（QualityCategory Literal に追加）で text モード実行。 |
+
+### 実装制約（ルール遵守）
+- ①: prompts.py の発動条件のみ変更。既存テストは通常教材（語学含まない）で挙動変化なし。
+- ②: 共通層は抽象（深さ）のまま。LL層のみ具体追加。choiceLanguageMode 自動変換は禁止。
+- ③: tts_optimizer.py の `keep_all_choices` 判定修正のみ。日本語選択肢の漢字補正は維持。
+- ④: language_learning/quality.py へ新設、共通 quality_checker の委譲経路で統合（text モード）。
+
+### フレーズ接地の判定定義（④）
+「フレーズが問題文にそのまま存在する」ではなく、以下で判定する。
+- 学習対象（フレーズ・表現・語彙・文型）に関連する問題であること。
+- 章説明や教材メタ情報のみを問う問題（学習言語フレーズに全く接地していない問題）を検出すること。
+応用・統合問題を弾かないよう、問題文へのフレーズの直接出現を必須条件にしない。
+
+### 再生成フロー
+不合格ユニットはサイレント自動ループせず、既存 `quality_fixer` + repair プロンプト拡張で標的再生成し、
+人間承認 → 保存（既存 Revision 管理に乗せる）。
+
+---
+
 ## 完了条件
 
 - 通常教材: 既存テスト全件合格（語学含まないケースは完全一致）。

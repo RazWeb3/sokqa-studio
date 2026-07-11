@@ -50,6 +50,25 @@ Sokqa Studio の基本生成フローは二段階である。
 Planner は pack language に基づいて title、description、document titles、quiz labels を生成する。
 `targetUser` は読者属性を表す。`difficulty` は教材レベルを表す。両者を同義に扱わない。
 
+## difficulty の責務（深さの共通定義と Strategy ごとの具体化）
+
+`difficulty` は「問題の深さ・認知負荷」を表し、教材ドメイン（語学・技術・資格等）を問わず共通の責務である。
+
+共通層（quiz_generation_prompt）の定義:
+- beginner: 基礎理解
+- intermediate: 応用理解
+- advanced: 深い判断
+
+共通層は「深さ」のみを定義し、各ドメインでの具体的中身は書かない。
+
+各 Strategy は共通層の「深さ」を当該ドメインの設問設計へ具体化する。Language Learning Strategy は
+difficulty を具体化し、実装上は language_learning 側の difficulty block で提供する。
+- beginner: 意味理解・基本対応（基本フレーズの意味、場面と表現の対応）
+- intermediate: 場面適切性・使い分け（類似表現の選択、文脈に応じた表現選択）
+- advanced: ニュアンス差・誤用修正・状況に応じた自然判断
+
+`difficulty` から `choiceLanguageMode` への自動変換は行わない。`choiceLanguageMode` は計画側の設定のまま。
+
 ## テーマ別追加条件提案
 
 入力:
@@ -555,7 +574,6 @@ display text は元のまま:
 表示テキストと TTS テキストが同じ文字列でも、発音言語は `choicesLanguage` により決定される。
 
 例:
-
 ```json
 {
   "choices": ["教室", "学校", "先生", "学生"],
@@ -570,6 +588,16 @@ display text は元のまま:
   }
 }
 ```
+
+### multilingual TTS モードでの choiceTexts 省略
+
+`ttsReadingMode=multilingual` でも、`choiceLanguageMode=learning` かつ各選択肢が
+`choicesLanguage` でそのまま読めて個別の読み補正（かな化等）が不要な場合は、choiceTexts を
+省略（各要素 null または省略）してよい。
+
+判定基準は「learningLanguage の有無」ではなく「各選択肢ごとの読み補正要否」である。
+学習言語が仮名/ルビ補正を要するスクリプト（japanese/cjk/hangul: 漢字・ハングル読み等）の場合は
+choiceTexts を保持する。ラテン・キリル・アラビア等は補正不要で省略可。
 
 ## Quality Checker仕様
 
@@ -606,6 +634,19 @@ Quality Checker は保存済みパックまたは manifest target を読み込�
 - display text と tts text の意味的な不一致
 
 TTS mode では audioPath / audioUrl の null は通常状態として扱い、品質問題にしない。
+
+## Language Learning 固有の構造チェック
+
+語学教材固有の構造検証（学習言語含有・フレーズ接地・TTS網羅）は、共通 Quality Checker の
+カテゴリ（factual/style/leak/reading/notation/double_utterance/tts_text_mismatch）には追加せず、
+`generation/language_learning/quality.py` の `deterministic_tts_issues` 既存委譲経路へ新設する。
+
+- ドキュメント: 学習言語含有（学習言語フレーズの存在）、TTS網羅（学習言語フレーズ含有ユニットは multilingual で TTS 必須）。
+- クイズ: 選択肢言語混在（既存）＋問題が学習対象（フレーズ・表現・語彙・文型）に関連していること。
+  章説明や教材メタ情報のみを問う問題（学習言語フレーズに全く接地していない問題）を検出する。
+  応用・統合問題を弾かないよう、「フレーズが問題文にそのまま存在する」ではなく「学習対象に関連する問題であるか」で判定する。
+
+新設カテゴリは `ll_structure`（Literal 型に追加）。共通カテゴリとは区別し、text モードの構造検証として実行する。
 
 ## Quality Fixer仕様
 

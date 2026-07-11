@@ -1222,10 +1222,19 @@ def _quiz_tts_from_readings(
             deterministic_choices.append(text)
         choice_readings = deterministic_choices
     choice_mode, selected_language = _choice_language_mode(language_settings, language)
-    # choicesLanguage が指定され、かつ choiceLanguageMode が learning のときは
-    # 選択肢が学習言語でそのまま読めるため choiceTexts は冗長。完全に省略し、エンジンが
-    # choices を choicesLanguage で読むよう choicesLanguage のみを保持する。
-    choices_language_redundant = bool(choices_language) and choice_language_mode == "learning"
+    # choiceLanguageMode=learning かつ multilingual（allow_language_tags）のとき、選択肢は学習言語で
+    # そのまま読めるため choiceTexts は原則冗長。ただし学習言語が仮名/ルビ補正を要するスクリプト
+    # （japanese/cjk/hangul: 漢字・ハングル読み）の場合は choiceTexts が必要なため削除しない。
+    # Phase 10: 冗長判定を model が返した choicesLanguage の有無に依存させず、構造（言語ベース相違）と
+    # 読み補正要否（スクリプト種別）で決定する。ラテン・キリル・アラビア等は補正不要で省略可。
+    learn_script = language_script(learning_language) if learning_language else ""
+    choices_language_redundant = (
+        choice_language_mode == "learning"
+        and allow_language_tags
+        and bool(learning_language)
+        and _base_language(learning_language) != _base_language(language)
+        and learn_script not in ("japanese", "cjk", "hangul")
+    )
     if choices_language_redundant:
         choice_texts_output = None
     else:

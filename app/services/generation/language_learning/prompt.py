@@ -14,6 +14,11 @@ def build_language_learning_purpose_lines(plan: CoursePlan) -> list[str]:
     専用ポリシーを持たない多言語学習パック（learningLanguage があり、かつ packLanguage と異なり、
     japanese_learning 以外）にのみ適用する指示を構築して list[str] で返す。
     副作用は持たず、呼び出し側（prompts）で purpose_lines へ結合する。
+
+    Phase 10: 早出し構成ルール（短い導入→即・学習言語フレーズ→短い解説）は会話・フレーズ習得型の
+    教材目的にのみ妥当するため、structurePolicy でゲートする。listening / summary のみ適用し、
+    reading（読解型）や言語比較型等の教材目的では適用しない。summary を含める理由は、structurePolicy
+    未指定時のフォールバックが summary として運用されているため。
     """
     pack_language = (plan.language or "").strip()
     learning_language = (plan.learningLanguage or "").strip()
@@ -22,6 +27,7 @@ def build_language_learning_purpose_lines(plan: CoursePlan) -> list[str]:
         and pack_language
         and learning_language != pack_language
         and plan.structurePolicy != "japanese_learning"
+        and plan.structurePolicy in {"listening", "summary"}
     ):
         return [
             "learningLanguage(学習対象言語)の語句・フレーズ・例文など、学習対象言語そのものを本文の主役として十分な分量で提示すること。パック言語は、その意味・使う場面・ニュアンスを補助的に説明する役割に用いること。学習対象言語に触れさせず、パック言語だけで学習法や概念を語る解説に終始してはならない。重要: 学習言語フレーズは必ず**言語タグなしの素のテキスト**で書くこと。本文(text)に [en-US] や [ja-JP] などの言語タグを絶対に含めてはならない。タグ付けは後続の読み上げ最適化ステップの責務であり、本文生成時は行ってはならない。",
@@ -43,6 +49,52 @@ def is_japanese_learning_plan(plan: CoursePlan) -> bool:
     text = " ".join(str(part) for part in parts if part).lower()
     markers = ["日本語", "にほんご", "japanese", "jlpt", "n5", "n4", "ひらがな", "カタカナ"]
     return plan.language != "ja" and any(marker in text for marker in markers)
+
+
+def quiz_difficulty_block(plan: CoursePlan) -> str:
+    """語学教材（系統A: 外国語学習）の難易度別設問深化ブロック。
+
+    Phase 10: 共通層 quiz_generation_prompt は difficulty を「深さ」のみ定義する。
+    本関数はその「深さ」を語学教材の設問設計へ具体化する（LL Strategy の責務）。
+    - beginner: 意味理解・基本対応
+    - intermediate: 場面適切性・使い分け
+    - advanced: ニュアンス差・誤用修正・状況に応じた自然判断
+
+    japanese_learning（系統B）は責務分離のため既存 japanese_learning_difficulty_block に委譲し、
+    本関数は systemA（learningLanguage あり・非 japanese_learning）のみ適用する。
+    """
+    if is_japanese_learning_plan(plan) or plan.structurePolicy == "japanese_learning":
+        return ""
+    if not plan.learningLanguage:
+        return ""
+    difficulty = plan.difficulty or "standard"
+    if difficulty == "beginner":
+        guidance = """
+- Difficulty (beginner): design questions at the level of meaning comprehension and basic matching.
+  - Ask the meaning of a basic phrase, or match a phrase to its situation.
+  - Every question must be grounded in a concrete learning-language phrase/expression shown in the source.
+""".rstrip()
+    elif difficulty == "advanced":
+        guidance = """
+- Difficulty (advanced): design questions requiring nuanced judgment, not surface recognition.
+  - Ask about nuance differences between similar expressions, correction of unnatural wording, or selecting the most natural expression for a given situation.
+  - Every question must be grounded in a concrete learning-language phrase/expression; do not ask about chapter explanation or material meta-information only.
+""".rstrip()
+    elif difficulty == "intermediate":
+        guidance = """
+- Difficulty (intermediate): design questions requiring situational appropriateness and choosing between similar expressions.
+  - Ask to select the appropriate expression for a context, or to distinguish between similar expressions.
+  - Every question must be grounded in a concrete learning-language phrase/expression shown in the source.
+""".rstrip()
+    else:
+        guidance = """
+- Difficulty (standard): design questions at the level of basic comprehension and matching of learning-language phrases.
+  - Every question must be grounded in a concrete learning-language phrase/expression shown in the source.
+""".rstrip()
+    return f"""
+Language-learning quiz difficulty guidance (phase 10):
+{guidance}
+""".strip()
 
 
 def japanese_learning_difficulty_block(plan: CoursePlan) -> str:

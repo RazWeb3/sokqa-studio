@@ -561,6 +561,14 @@ def quiz_generation_prompt(
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
     learning_language = plan.learningLanguage or "not specified"
     pack_lang = plan.language
+    difficulty = plan.difficulty or "standard"
+    # 共通層: difficulty は「問題の深さ」のみを定義し、ドメイン固有の中身は書かない（Phase 10）。
+    # 各 Strategy がこの深さを具体化する。Language Learning は language_learning/prompt.quiz_difficulty_block で委譲。
+    difficulty_depth_block = (
+        "- Difficulty depth (common): the question depth follows the plan difficulty. "
+        f"beginner=basic comprehension, intermediate=applied comprehension, advanced=deeper judgment. "
+        "Do not change choiceLanguageMode based on difficulty."
+    )
     # 具体例は ja/en ペア時のみ仕様の例を出し、それ以外は言語ラベルベースの汎用例にする（pack=ja/learning=en の固定ハードコード回避）。
     is_ja_en = pack_lang == "ja" and learning_language == "en"
 
@@ -643,6 +651,7 @@ def quiz_generation_prompt(
 - You MUST output exactly {quiz_pack.questionCount} questions in the questions[] array. Do not output fewer or more than this count. If you run out of distinct, meaningful questions, keep generating distinct scenario-based questions grounded in the quiz context until you reach exactly {quiz_pack.questionCount}.
 - Before returning JSON, self-check that question, choices, answerIndex, and explanation are logically consistent for every question.
 - Do not output tts in the first quiz generation step.
+{difficulty_depth_block}
 """.strip()
     quality_rules = _quiz_quality_rules_block(plan, global_tags)
     teaching_guidance_rules = _quiz_teaching_guidance_rules_block(plan, quiz_pack)
@@ -651,6 +660,12 @@ def quiz_generation_prompt(
         _quiz_teacher_role_block(),
         _learner_facing_role_block(),
     )
+    # LL教材の難易度別設問深化は共通層の「深さ」を具体化する（Phase 10）。関数名は実装詳細。
+    from app.services.generation.language_learning.prompt import (
+        quiz_difficulty_block,
+    )
+
+    quiz_difficulty_extra = quiz_difficulty_block(plan)
     return f"""Create one Sokqa quiz JSON from the provided quiz context.
 
 Rules:
@@ -663,7 +678,9 @@ Rules:
 Course:
 - title: {plan.title}
 - target user: {plan.targetUser}
+- difficulty: {difficulty}
 {course_teaching_guidance}
+{quiz_difficulty_extra}
 {custom_instructions}
 {reading_policy_section}
 

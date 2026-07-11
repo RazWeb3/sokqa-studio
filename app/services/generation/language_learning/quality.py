@@ -7,9 +7,55 @@ Standard 側は quality_checker.py に残り、Phase 6 時点は既存挙動を�
 
 from typing import Any
 
+import re
+
 from app.schemas.common import default_speech_language_code
 from app.schemas.quality import QualityIssue
-from app.services.language_detection import choice_set_language_state, language_script, leading_script
+from app.services.language_detection import (
+    choice_set_language_state,
+    language_script,
+    leading_script,
+    scripts_in_text,
+)
+
+
+def _token_scripts(token: str) -> set[str]:
+    # トークンに含まれるスクリプト集合（CJK/日本語とラテンを正しく区別）。
+    return scripts_in_text(token)
+
+
+def _contains_learning_language_text(text: str, learning_language: str) -> bool:
+    """与えられた text に学習言語（learning_language）のフレーズが含まれるか。
+
+    学習言語のスクリプト（例: 英語=latn、日本語=japanese/cjk）を含むトークンがあれば True。
+    スクリプトが同じ場合（pack=en, learning=ja 等）は言語タグ付きセグメント
+    （[en-US]...[/] 等）の有無でも判定する。
+    """
+    if not text or not learning_language:
+        return False
+    learn_script = language_script(str(learning_language))
+    # ja/zh は scripts_in_text 上 "japanese" / "cjk" を区別するが、学習言語としては同一視。
+    learn_scripts = {learn_script}
+    if learn_script == "japanese":
+        learn_scripts.add("cjk")
+    if learn_script == "cjk":
+        learn_scripts.add("japanese")
+    for token in str(text).split():
+        if not token:
+            continue
+        if _token_scripts(token) & learn_scripts:
+            return True
+    # 言語タグ付きセグメントの検出（スクリプトが同じ場合の補完）。
+    if re.search(r"\[[a-zA-Z]{2}-[A-Z]{2}\]", str(text)):
+        return True
+    return False
+
+
+def _document_has_tts(unit: dict[str, Any]) -> bool:
+    tts = unit.get("tts")
+    if not isinstance(tts, dict):
+        return False
+    return bool(tts.get("text") or tts.get("ttsText") or tts.get("utteranceText"))
 
 
 def _speech_code(language: str) -> str:
@@ -137,6 +183,82 @@ def deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[Qu
                         choice,
                         issue_text,
                         f"{tag}{choice}",
+                    )
+                )
+    return issues
+
+
+def deterministic_ll_structure_issues(
+    file_name: str, content: dict[str, Any], *, allow_language_tags: bool = False
+) -> list[QualityIssue]:
+    """語学教材固有の構造検証（Phase 10: ll_structure カテゴリ）。
+
+    - ドキュメント: 学習言語含有（学習言語フレーズの存在）、TTS網羅（multilingual で学習言語
+      フレーズを含むユニットは TTS 必須）。
+    - クイズ: 問題が学習対象（フレーズ・表現・語彙・文型）に関連していること。章説明や教材
+      メタ情報のみを問う問題（学習言語フレーズに全く接地していない問題）を検出する。
+      応用・統合問題を弾かないよう、問題文へのフレーズの直接出現ではなく「学習言語テキストを
+      含むか」で判定する。
+
+    learningLanguage がないコンテンツは語学教材ではないため空を返す。
+    """
+    learning_language = content.get("learningLanguage")
+    if not learning_language:
+        return []
+    issues: list[QualityIssue] = []
+    content_type = content.get("type")
+    if content_type == "document":
+        for unit in content.get("documents") or []:
+            if not isinstance(unit, dict):
+                continue
+            unit_id = str(unit.get("id") or "")
+            text = str(unit.get("text") or "")
+            if not _contains_learning_language_text(text, str(learning_language)):
+                issues.append(
+                    _quality_issue(
+                        file_name,
+                        unit_id,
+                        "text",
+                        unit.get("title") or text[:40],
+                        "学習言語（" + str(learning_language) + "）のフレーズが含まれていません。語学学習教材として無効です。",
+                        "導入の直後に学習言語のフレーズを提示してください。",
+                        category="ll_structure",
+                    )
+                )
+                continue
+            if allow_language_tags and not _document_has_tts(unit):
+                issues.append(
+                    _quality_issue(
+                        file_name,
+                        unit_id,
+                        "tts",
+                        text[:40],
+                        "学習言語フレーズを含むユニットですが TTS がありません。発音学習ができません。",
+                        "multilingual モードでこのユニットの TTS を生成してください。",
+                        category="ll_structure",
+                    )
+                )
+    elif content_type == "quiz":
+        for question in content.get("questions") or []:
+            if not isinstance(question, dict):
+                continue
+            unit_id = str(question.get("id") or "")
+            question_text = str(question.get("question") or "")
+            explanation = str(question.get("explanation") or "")
+            choices = [str(choice) for choice in question.get("choices") or []]
+            grounded = _contains_learning_language_text(question_text, str(learning_language)) or any(
+                _contains_learning_language_text(choice, str(learning_language)) for choice in choices
+            )
+            if not grounded and not _contains_learning_language_text(explanation, str(learning_language)):
+                issues.append(
+                    _quality_issue(
+                        file_name,
+                        unit_id,
+                        "question",
+                        question_text[:60],
+                        "英語学習（" + str(learning_language) + "）の問題ですが、学習言語フレーズに全く接地していません（章メタ情報等のみの問題）。",
+                        "学習対象のフレーズ・表現・語彙・文型に関連する問題に修正してください。",
+                        category="ll_structure",
                     )
                 )
     return issues

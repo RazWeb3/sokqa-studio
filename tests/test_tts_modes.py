@@ -1424,12 +1424,10 @@ def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch)
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
     files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
 
-    assert files[0].content["questions"][0]["tts"]["choiceTexts"] == [
-        "[en-US]Good morning",
-        "[en-US]Hello",
-        "[en-US]Good evening",
-        "[en-US]Goodbye",
-    ]
+    # 問題③修正: learning モードかつ multilingual の場合、choiceLanguageMode=learning で
+    # 選択肢は学習言語(en)でそのまま読めるため choiceTexts は構造的に冗長となり省略される。
+    tts = files[0].content["questions"][0]["tts"]
+    assert "choiceTexts" not in tts
 
 
 def test_learning_mode_omits_choice_texts_when_choices_language_present(monkeypatch) -> None:
@@ -1545,6 +1543,107 @@ def test_learning_language_auto_keeps_only_non_pack_choice_texts(monkeypatch) ->
 
     assert all(value.startswith("[en-US]") for value in questions[0]["tts"]["choiceTexts"])
     assert "tts" not in questions[1] or "choiceTexts" not in questions[1]["tts"]
+
+
+def test_learning_mode_cjk_keeps_choice_texts_for_reading_correction(monkeypatch) -> None:
+    """問題③修正: choiceLanguageMode=learning でも学習言語が CJK/ハングル（読み補正要）の場合は
+    choiceTexts を削除せず維持する。ラテン系学習言語（en 等）のみ冗長として省略される。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+
+    # 日本語学習（pack=en, learning=ja / japanese スクリプト）→ choiceTexts 維持
+    ja_file = GeneratedFile(
+        name="ja_learning.json",
+        kind="quiz",
+        content={
+            "id": "ja_learning",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "語学",
+            "language": "en",
+            "learningLanguage": "ja",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "意味はどれですか。",
+                    "choices": ["教室", "学校", "先生", "学生"],
+                    "answerIndex": 0,
+                    "explanation": "説明。",
+                }
+            ],
+        },
+    )
+
+    def fake_ja(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-1",
+                    "questionText": "意味はどれですか。",
+                    "choices": [
+                        {"index": 0, "text": "教室"},
+                        {"index": 1, "text": "学校"},
+                        {"index": 2, "text": "先生"},
+                        {"index": 3, "text": "学生"},
+                    ],
+                    "explanationText": "説明。",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_ja)
+    ja_files, _ = optimize_generated_files_with_report([ja_file], [], mode="multilingual")
+    tts_ja = ja_files[0].content["questions"][0].get("tts", {})
+    assert "choiceTexts" in tts_ja
+
+    # 英語学習（pack=ja, learning=en / latin スクリプト）→ 冗長 choiceTexts は省略
+    en_file = GeneratedFile(
+        name="en_learning.json",
+        kind="quiz",
+        content={
+            "id": "en_learning",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "語学",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "朝の挨拶はどれですか。",
+                    "choices": ["Good morning", "Hello", "Good evening", "Goodbye"],
+                    "answerIndex": 0,
+                    "explanation": "朝は Good morning を使います。",
+                }
+            ],
+        },
+    )
+
+    def fake_en(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "q-1",
+                    "questionText": "朝の挨拶はどれですか。",
+                    "choices": [
+                        {"index": 0, "text": "[en-US]Good morning"},
+                        {"index": 1, "text": "[en-US]Hello"},
+                        {"index": 2, "text": "[en-US]Good evening"},
+                        {"index": 3, "text": "[en-US]Goodbye"},
+                    ],
+                    "explanationText": "朝は [en-US]Good morning[ja-JP] を使います。",
+                    "choicesLanguage": "en-US",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_en)
+    en_files, _ = optimize_generated_files_with_report([en_file], [], mode="multilingual")
+    tts_en = en_files[0].content["questions"][0].get("tts", {})
+    assert "choiceTexts" not in tts_en
 
 
 def test_multilingual_prompt_includes_field_language_policy(monkeypatch) -> None:

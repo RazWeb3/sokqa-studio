@@ -252,6 +252,128 @@ def test_deterministic_tts_issues_non_quiz_returns_empty():
     assert deterministic_tts_issues("doc.json", {"type": "document"}) == []
 
 
+# --- Phase 10: 構造課題修正 ---
+
+
+def test_build_language_learning_purpose_lines_gated_by_structure_policy():
+    # learningLanguage != packLanguage でも structurePolicy=reading なら対象外。
+    base = {
+        "id": "p1",
+        "title": "Reading Trip",
+        "description": "desc",
+        "targetUser": "学習者",
+        "language": "ja",
+        "learningLanguage": "en",
+        "difficulty": "standard",
+        "quizPacks": [],
+        "documents": [],
+    }
+    plan = CoursePlan.model_validate({**base, "structurePolicy": "reading"})
+    assert build_language_learning_purpose_lines(plan) == []
+    # listening / summary は対象。
+    plan_listening = CoursePlan.model_validate({**base, "structurePolicy": "listening"})
+    assert build_language_learning_purpose_lines(plan_listening)
+    plan_summary = CoursePlan.model_validate({**base, "structurePolicy": "summary"})
+    assert build_language_learning_purpose_lines(plan_summary)
+
+
+def test_quiz_difficulty_block_returns_empty_for_japanese_learning():
+    from app.services.generation.language_learning.prompt import quiz_difficulty_block
+
+    plan = CoursePlan.model_validate(
+        {
+            "id": "p1",
+            "title": "日本語入門",
+            "description": "desc",
+            "targetUser": "学習者",
+            "language": "en",
+            "learningLanguage": "ja",
+            "difficulty": "advanced",
+            "quizPacks": [],
+            "documents": [],
+        }
+    )
+    assert quiz_difficulty_block(plan) == ""
+
+
+def test_quiz_difficulty_block_advanced_grounds_in_phrase():
+    from app.services.generation.language_learning.prompt import quiz_difficulty_block
+
+    plan = CoursePlan.model_validate(
+        {
+            "id": "p1",
+            "title": "English Travel",
+            "description": "desc",
+            "targetUser": "学習者",
+            "language": "ja",
+            "learningLanguage": "en",
+            "difficulty": "advanced",
+            "quizPacks": [],
+            "documents": [],
+        }
+    )
+    block = quiz_difficulty_block(plan)
+    assert "advanced" in block
+    assert "unnatural" in block or "natural" in block
+
+
+def test_deterministic_ll_structure_issues_document_missing_phrase():
+    from app.services.generation.language_learning.quality import deterministic_ll_structure_issues
+
+    content = {
+        "type": "document",
+        "language": "ja",
+        "learningLanguage": "en",
+        "documents": [
+            {"id": "doc-1", "text": "これは長い前置きです。英語は出てきません。"}
+        ],
+    }
+    issues = deterministic_ll_structure_issues("doc.json", content, allow_language_tags=True)
+    assert any(issue.category == "ll_structure" for issue in issues)
+
+
+def test_deterministic_ll_structure_issues_document_no_tts():
+    from app.services.generation.language_learning.quality import deterministic_ll_structure_issues
+
+    content = {
+        "type": "document",
+        "language": "ja",
+        "learningLanguage": "en",
+        "documents": [
+            {"id": "doc-1", "text": "Could I get a blanket?"}
+        ],
+    }
+    issues = deterministic_ll_structure_issues("doc.json", content, allow_language_tags=True)
+    assert any(issue.category == "ll_structure" and issue.location.field == "tts" for issue in issues)
+
+
+def test_deterministic_ll_structure_issues_quiz_meta_only():
+    from app.services.generation.language_learning.quality import deterministic_ll_structure_issues
+
+    content = {
+        "type": "quiz",
+        "language": "ja",
+        "learningLanguage": "en",
+        "questions": [
+            {
+                "id": "q-20",
+                "question": "入国審査をスムーズに進める上で最も重要なことは何ですか？",
+                "choices": ["難しい質問には答えない", "笑顔を見せない", "パスポートを隠す", "準備しておく"],
+                "explanation": "準備が重要です。",
+            }
+        ],
+    }
+    issues = deterministic_ll_structure_issues("quiz.json", content)
+    assert any(issue.category == "ll_structure" for issue in issues)
+
+
+def test_deterministic_ll_structure_issues_non_ll_returns_empty():
+    from app.services.generation.language_learning.quality import deterministic_ll_structure_issues
+
+    content = {"type": "document", "language": "ja", "documents": [{"id": "d", "text": "本文"}]}
+    assert deterministic_ll_structure_issues("doc.json", content) == []
+
+
 # --- TTS 移設 ---
 
 

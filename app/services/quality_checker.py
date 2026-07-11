@@ -22,7 +22,7 @@ from app.services.tts_recording_api import load_target_pack
 
 
 MAX_QUALITY_INPUT_CHARS = 30000
-TEXT_QUALITY_CATEGORIES = {"factual", "style", "leak"}
+TEXT_QUALITY_CATEGORIES = {"factual", "style", "leak", "ll_structure"}
 TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch"}
 FULL_REPLACE_CATEGORIES = {"factual", "style", "leak", "tts_text_mismatch"}
 _logger = logging.getLogger(__name__)
@@ -103,9 +103,13 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
     settings = get_settings()
     model = settings.quality_model
 
-    deterministic_issues = _deterministic_tts_issues(loaded.file.name, loaded.file.content) if mode == "tts" else []
     multilingual_status = detect_multilingual(loaded.file.content)
     allow_language_tags = multilingual_status == MultilingualStatus.MULTILINGUAL
+    deterministic_issues = _deterministic_tts_issues(loaded.file.name, loaded.file.content) if mode == "tts" else []
+    if mode == "text":
+        deterministic_issues = deterministic_issues + _deterministic_ll_structure_issues(
+            loaded.file.name, loaded.file.content, allow_language_tags=allow_language_tags
+        )
 
     if settings.gemini_provider == "mock":
         response = _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
@@ -316,6 +320,15 @@ def _deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[Q
     from app.services.generation.language_learning.quality import deterministic_tts_issues
 
     return deterministic_tts_issues(file_name, content)
+
+
+def _deterministic_ll_structure_issues(
+    file_name: str, content: dict[str, Any], *, allow_language_tags: bool = False
+) -> list[QualityIssue]:
+    """Phase 10: 語学教材固有の構造検証（ll_structure）。実体は language_learning.quality へ。"""
+    from app.services.generation.language_learning.quality import deterministic_ll_structure_issues
+
+    return deterministic_ll_structure_issues(file_name, content, allow_language_tags=allow_language_tags)
 
 
 def _is_tts_null_issue(issue: QualityIssue) -> bool:

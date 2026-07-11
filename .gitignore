@@ -24,5 +24,4 @@ nul
 .trae/
 .codex/
 .agents/
-__pycache__/
 pycache_tmp/

@@ -3,7 +3,15 @@ import logging
 from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
 from app.schemas.request import GeneratePackRequest, PlanPackRequest, ReviseTtsRequest
 from app.schemas.common import normalize_tts_reading_mode, source_mode_for_material_mode
-from app.schemas.sokqa import CoursePlan, DebugPromptRecordSchema, GeneratePackResponse, GeneratedFile, PlanDocument
+from app.schemas.sokqa import (
+    CoursePlan,
+    DebugPromptRecordSchema,
+    GeneratePackResponse,
+    GeneratedFile,
+    PlanDocument,
+    SokqaDocumentPack,
+    SokqaQuizPack,
+)
 from app.config import get_settings
 from app.services.document_generator import (
     STRICT_MAX_DOCUMENT_FILES,
@@ -36,6 +44,103 @@ from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
 
 logger = logging.getLogger(__name__)
+
+
+def _regeneration_candidate_errors(validation) -> list:
+    """Errors worth one best-effort regeneration pass.
+
+    Existing semantic diagnostics (notably a section with no target-language
+    phrase) remain visible in validation but do not cause repeated generation.
+    """
+    non_blocking_messages = (
+        "document section must present the learning language",
+    )
+    return [
+        error
+        for error in validation.errors
+        if error.severity == "error"
+        and not any(marker in error.message for marker in non_blocking_messages)
+    ]
+
+
+def _regenerate_blocked_packs(
+    *,
+    plan,
+    document_packs,
+    quiz_packs,
+    regeneration_errors,
+    document_model,
+    quiz_model,
+):
+    """Regenerate only affected pack files once; never invent placeholder values locally."""
+    blocked_files = {error.file for error in regeneration_errors}
+    changed_document_ids: set[str] = set()
+    regenerated_documents = list(document_packs)
+    if plan.materialMode != "strict":
+        for index, (document, pack) in enumerate(zip(plan.documents, document_packs)):
+            if f"{pack.id}.json" not in blocked_files:
+                continue
+            try:
+                regenerated_documents[index] = generate_document_pack(plan, document, model=document_model)
+                changed_document_ids.add(document.id)
+            except RuntimeError as exc:
+                logger.warning(
+                    "quality_regeneration.document_failed file=%s error=%s",
+                    f"{pack.id}.json",
+                    exc,
+                )
+
+    regenerated_quizzes = list(quiz_packs)
+    for index, (quiz_plan, pack) in enumerate(zip(plan.quizPacks, quiz_packs)):
+        source_changed = bool(changed_document_ids) and (
+            not quiz_plan.sourceDocumentIds
+            or bool(set(quiz_plan.sourceDocumentIds) & changed_document_ids)
+        )
+        if f"{pack.id}.json" not in blocked_files and not source_changed:
+            continue
+        try:
+            regenerated_quizzes[index] = generate_quiz_pack(
+                plan,
+                quiz_plan,
+                _document_packs_for_quiz(plan, quiz_plan, regenerated_documents),
+                model=quiz_model,
+            )
+        except RuntimeError as exc:
+            logger.warning(
+                "quality_regeneration.quiz_failed file=%s error=%s",
+                f"{pack.id}.json",
+                exc,
+            )
+    return regenerated_documents, regenerated_quizzes
+
+
+def _sync_packs_from_files(files, document_packs, quiz_packs):
+    """Preserve successful structural repairs before selective regeneration."""
+    by_name = {file.name: file for file in files}
+    synced_documents = []
+    for pack in document_packs:
+        repaired = by_name.get(f"{pack.id}.json")
+        if repaired is None:
+            synced_documents.append(pack)
+            continue
+        try:
+            synced_documents.append(SokqaDocumentPack.model_validate(repaired.content))
+        except Exception as exc:
+            logger.warning("quality_repair.document_sync_failed file=%s error=%s", repaired.name, exc)
+            synced_documents.append(pack)
+
+    synced_quizzes = []
+    for pack in quiz_packs:
+        repaired = by_name.get(f"{pack.id}.json")
+        if repaired is None:
+            synced_quizzes.append(pack)
+            continue
+        try:
+            synced_quizzes.append(SokqaQuizPack.model_validate(repaired.content))
+        except Exception as exc:
+            logger.warning("quality_repair.quiz_sync_failed file=%s error=%s", repaired.name, exc)
+            synced_quizzes.append(pack)
+    return synced_documents, synced_quizzes
 
 
 def _logical_id_for_file(file: GeneratedFile) -> str:
@@ -337,11 +442,24 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         validation = validate_files(files)
         append_validation_logs(logs, validation)
         _log_remaining_repair_warnings(validation)
-        if _needs_generation_repair(validation):
-            # Never persist learner-facing content that still fails a hard
-            # validator (for example unresolved placeholders).  It must be
-            # regenerated/reviewed rather than silently rewritten here.
-            raise RuntimeError("生成物に保存不可の品質エラーが残っています。該当ユニットを再生成してください。")
+        document_packs, quiz_packs = _sync_packs_from_files(files, document_packs, quiz_packs)
+
+    regeneration_errors = _regeneration_candidate_errors(validation)
+    if regeneration_errors:
+        logs.append("Regenerating files with clear quality errors")
+        document_packs, quiz_packs = _regenerate_blocked_packs(
+            plan=plan,
+            document_packs=document_packs,
+            quiz_packs=quiz_packs,
+            regeneration_errors=regeneration_errors,
+            document_model=models.document,
+            quiz_model=models.quiz,
+        )
+        files = build_generated_files(document_packs, quiz_packs)
+        validation = validate_files(files)
+        append_validation_logs(logs, validation)
+        if _regeneration_candidate_errors(validation):
+            logs.append("Quality errors remain after regeneration; continuing with reviewable output")
 
     if tts_mode != "none":
         logs.append(f"Optimizing TTS ({tts_mode})")
@@ -366,6 +484,13 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
                 logs.append(
                     f"Auto-fixed {file.name} {fix.location.unitId} {fix.field}: {fix.category}"
                 )
+
+    # Revalidate immediately before persistence. Remaining issues are returned
+    # to the UI for review; quality diagnostics must not abort pack generation.
+    validation = validate_files(files)
+    append_validation_logs(logs, validation)
+    if _regeneration_candidate_errors(validation):
+        logs.append("Persisting with unresolved quality issues for post-generation review")
 
     logs.append("Persisting generated files" if request.persist else "Building Manifest")
     commit_result = _persist_initial_revision(plan, metadata, files, "initial_generate", request.persist)

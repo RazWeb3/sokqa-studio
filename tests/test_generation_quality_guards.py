@@ -1843,13 +1843,15 @@ def test_validator_blocks_duplicate_questions_and_choices_but_only_warns_for_doc
     assert any(error.file == "repetition_document.json" and error.severity == "warning" for error in result.errors)
 
 
-def test_generation_does_not_persist_when_placeholder_error_remains_after_repair(monkeypatch) -> None:
-    """未解決プレースホルダーは任意の具体名へ置換せず、保存前に停止する。"""
+def test_generation_completes_with_diagnostics_when_placeholder_remains_after_regeneration(monkeypatch) -> None:
+    """品質問題が残っても生成は完走し、任意の具体名へ自動置換しない。"""
     plan = _plan()
     plan.quizPacks = []
     plan.enableTtsOptimize = False
+    attempts = {"count": 0}
 
     def invalid_document(*_args, **_kwargs):
+        attempts["count"] += 1
         return SokqaDocumentPack(
             id="quality_pack_doc_01",
             title="基礎",
@@ -1858,14 +1860,24 @@ def test_generation_does_not_persist_when_placeholder_error_remains_after_repair
 
     monkeypatch.setattr(pack_agent, "generate_document_pack", invalid_document)
     monkeypatch.setattr(pack_agent, "repair_files", lambda files: files)
-    monkeypatch.setattr(
-        pack_agent,
-        "_persist_initial_revision",
-        lambda *_args, **_kwargs: pytest.fail("invalid content must not be persisted"),
-    )
+    original_persist = pack_agent._persist_initial_revision
+    persist_requests: list[bool] = []
 
-    with pytest.raises(RuntimeError, match="保存不可"):
-        generate_pack(GeneratePackRequest(plan=plan, persist=False, ttsReadingMode="none"))
+    def capture_persist(plan, metadata, files, operation, persist):
+        persist_requests.append(persist)
+        # Build the real revision without touching external storage.
+        return original_persist(plan, metadata, files, operation, False)
+
+    monkeypatch.setattr(pack_agent, "_persist_initial_revision", capture_persist)
+
+    result = generate_pack(GeneratePackRequest(plan=plan, persist=True, ttsReadingMode="none"))
+
+    assert result.status == "completed"
+    assert attempts["count"] == 2
+    assert persist_requests == [True]
+    assert result.validation.valid is False
+    assert any("unresolved learner-facing placeholder" in error.message for error in result.validation.errors)
+    assert any("continuing with reviewable output" in log for log in result.logs)
 
 
 def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples() -> None:

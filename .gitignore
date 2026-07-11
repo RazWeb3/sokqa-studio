@@ -21,3 +21,8 @@ model_comparison_outputs/
 *.ogg
 *.m4a
 nul
+.trae/
+.codex/
+.agents/
+__pycache__/
+pycache_tmp/

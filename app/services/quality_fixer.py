@@ -52,6 +52,9 @@ from app.services.tts_text import collapse_duplicate_katakana_utterances
 from app.services.validator import validate_files
 
 
+# These categories may be *examined* by the TTS fixer.  They are not, by
+# themselves, permission to alter content: _is_safe_auto_tts_repair is the
+# allow-list used before every automatic application.
 AUTO_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch"}
 PENDING_CATEGORIES = {"factual", "style", "leak"}
 MAX_FIX_INPUT_CHARS = 30000
@@ -59,6 +62,7 @@ logger = logging.getLogger(__name__)
 _TTS_TAG_RE = re.compile(r"\[(?:[a-z]{2,3}(?:-[A-Za-z0-9]+)*)\]|<[^>]+>")
 # 多言語パックで許可されない閉じタグ [/xx-YY] の検出用。Sokqa に [/...] 閉じタグは存在しない。
 _CLOSING_LANGUAGE_TAG_RE = re.compile(r"\[/[a-z]{2,3}(?:-[A-Za-z0-9]+)*\]")
+_LANGUAGE_TAG_RE = re.compile(r"\[([a-z]{2,3}(?:-[A-Za-z0-9]+)*)\]")
 _SEMANTIC_REWRITE_LOANWORDS = {
     "アプリ",
     "ケーブル",
@@ -92,6 +96,12 @@ def generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue],
 
 
 def generate_tts_fix(target: TtsRecordingTarget, issues: list[QualityIssue], max_fixes: int = 50) -> QualityFixResponse:
+    """Build a user-reviewable TTS fix preview.
+
+    This endpoint never persists a revision.  The stricter auto-application
+    allow-list is enforced by apply_auto_quality_fixes, which runs unattended
+    during generation.  A caller must still explicitly save this preview.
+    """
     loaded = load_target_pack(target)
     allow_language_tags = _allow_multilingual_tts_tags(loaded.file.content)
     return _generate_tts_fix_without_llm(
@@ -290,6 +300,16 @@ def _generate_tts_fix_without_llm(
                 )
             )
             continue
+        if _CLOSING_LANGUAGE_TAG_RE.search(after):
+            unapplied.append(
+                _unapplied_fix(
+                    issue,
+                    updated_json,
+                    index,
+                    reason="Sokqa のTTSタグは切替タグ方式のため、閉じタグは使用できません。",
+                )
+            )
+            continue
         if allow_language_tags and _is_invalid_multilingual_tts_fix(issue.excerpt, replacement):
             unapplied.append(
                 _unapplied_fix(
@@ -364,8 +384,8 @@ def _generate_tts_fix_without_llm(
 
 
 def apply_auto_quality_fixes(content: dict[str, Any], file_name: str) -> tuple[dict[str, Any], list[AppliedFix]]:
-    """生成パイプライン用: content を直接受け取り、AUTOカテゴリ（reading/double_utterance/
-    notation/tts_text_mismatch）の決定論的問題を自動適用する。
+    """生成パイプライン用: content を直接受け取り、検出されたTTS問題のうち、
+    表示本文との一致とタグ構造を決定論的に証明できるものだけを自動適用する。
 
     ストレージ未永続化の content でも動作するよう、load_target_pack を経由せず
     内部ロジックを直接呼び出す。PENDINGカテゴリ（factual/style/leak）は対象外。
@@ -417,6 +437,8 @@ def _apply_auto_issues_without_llm(
             allow_language_tags = _allow_multilingual_tts_tags(updated_json)
             if allow_language_tags and _is_invalid_multilingual_tts_fix(issue.excerpt, replacement):
                 continue
+        if not _is_safe_auto_tts_repair(updated_json, location, before, after):
+            continue
         if not _set_tts_field(updated_json, location, after):
             continue
         applied.append(
@@ -763,10 +785,13 @@ def _normalize_applied_fix(
     if after is None:
         logger.info("quality fix skipped applied fix: missing after for %s", raw.get("id"))
         return None
+    before = _get_tts_field(original_json, location) or _get_raw_field(original_json, location)
+    if _CLOSING_LANGUAGE_TAG_RE.search(after):
+        logger.info("quality fix skipped applied fix: closing language tag is unsupported for %s", raw.get("id"))
+        return None
     if allow_language_tags and _is_invalid_multilingual_tts_fix(_fix_after_text(raw.get("before"), location), after):
         logger.info("quality fix skipped applied fix: invalid multilingual tts fix (closing tag or latin-span katakana) for %s", raw.get("id"))
         return None
-    before = _get_tts_field(original_json, location) or _get_raw_field(original_json, location)
     _set_tts_field(updated_json, location, after)
     logger.info(
         "quality_fix.auto_applied file=%s unit_id=%s field=%s category=%s before=%r after=%r",
@@ -1009,6 +1034,52 @@ def _is_invalid_multilingual_tts_fix(excerpt: str | None, replacement: str | Non
     if excerpt_text is not None and _is_latin_span_katakana_rewrite(excerpt_text, replacement_text):
         return True
     return False
+
+
+def _is_safe_auto_tts_repair(
+    content: dict[str, Any], location: QualityLocation, before: str | None, after: str | None
+) -> bool:
+    """Return True only for TTS-only edits that cannot change learner-facing text.
+
+    The fixer must not trust an LLM category, confidence, or self-reported
+    semantic impact.  It instead proves that the post-fix spoken text reduces
+    to the same normalized display text and that any language switches use the
+    supported, non-duplicated tag format.
+    """
+    before_text = _non_empty_text(before)
+    after_text = _non_empty_text(after)
+    source_text = _non_empty_text(_get_raw_field(content, location))
+    if before_text is None or after_text is None or source_text is None or before_text == after_text:
+        return False
+    if _CLOSING_LANGUAGE_TAG_RE.search(after_text):
+        return False
+    if _normalize_tts_for_comparison(after_text) != _normalize_tts_for_comparison(source_text):
+        return False
+    return _has_valid_tts_tag_sequence(after_text)
+
+
+def _normalize_tts_for_comparison(value: str) -> str:
+    normalized, _ = _normalize_tts_search_text(value, keep_spans=False)
+    return normalized
+
+
+def _has_valid_tts_tag_sequence(value: str) -> bool:
+    """Validate switch tags without attempting to infer semantics from an LLM."""
+    tags = list(_LANGUAGE_TAG_RE.finditer(value))
+    previous_end = 0
+    previous_tag: str | None = None
+    for match in tags:
+        tag = match.group(1)
+        # Sokqa uses BCP-47-like switch tags (for example en-US, ja-JP).
+        if "-" not in tag:
+            return False
+        # A switch must govern at least one character.  Adjacent tags (whether
+        # identical or not) are redundant and make the return boundary unclear.
+        if previous_tag is not None and value[previous_end:match.start()] == "":
+            return False
+        previous_tag = tag
+        previous_end = match.end()
+    return True
 
 
 def _is_latin_span_katakana_rewrite(excerpt: str, replacement: str) -> bool:

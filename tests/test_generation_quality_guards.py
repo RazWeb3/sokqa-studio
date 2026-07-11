@@ -1784,6 +1784,90 @@ def test_document_validator_skips_same_script_language_pair() -> None:
     assert not errors
 
 
+def test_validator_blocks_unresolved_placeholder_without_auto_replacement() -> None:
+    """[目的地] 型は保存不可にし、具体名への自動置換は行わない。"""
+    file = GeneratedFile(
+        name="travel_quiz.json",
+        kind="quiz",
+        content={
+            "id": "travel_quiz",
+            "title": "旅行英語",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "[目的地]までの行き方を尋ねる表現はどれですか？",
+                    "choices": ["A", "B", "C", "D"],
+                    "answerIndex": 0,
+                    "explanation": "具体的な目的地を伝えます。",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    assert result.valid is False
+    assert any("unresolved learner-facing placeholder" in error.message for error in result.errors)
+
+
+def test_validator_blocks_duplicate_questions_and_choices_but_only_warns_for_document_repetition() -> None:
+    quiz_file = GeneratedFile(
+        name="duplicate_quiz.json",
+        kind="quiz",
+        content={
+            "id": "duplicate_quiz",
+            "title": "確認",
+            "questions": [
+                {"id": "q-1", "question": "同じ質問ですか？", "choices": ["A", "B", "C", "D"], "answerIndex": 0, "explanation": "E"},
+                {"id": "q-2", "question": "同じ質問ですか？", "choices": ["A", "A", "C", "D"], "answerIndex": 0, "explanation": "E"},
+            ],
+        },
+    )
+    document_file = GeneratedFile(
+        name="repetition_document.json",
+        kind="document",
+        content={
+            "id": "repetition_document",
+            "title": "反復練習",
+            "documents": [
+                {"id": "doc-1", "text": "I need help. と伝えます。"},
+                {"id": "doc-2", "text": "I need help. と伝えます。"},
+            ],
+        },
+    )
+
+    result = validate_files([quiz_file, document_file])
+
+    assert result.valid is False
+    assert any(error.file == "duplicate_quiz.json" and error.severity == "error" for error in result.errors)
+    assert any(error.file == "repetition_document.json" and error.severity == "warning" for error in result.errors)
+
+
+def test_generation_does_not_persist_when_placeholder_error_remains_after_repair(monkeypatch) -> None:
+    """未解決プレースホルダーは任意の具体名へ置換せず、保存前に停止する。"""
+    plan = _plan()
+    plan.quizPacks = []
+    plan.enableTtsOptimize = False
+
+    def invalid_document(*_args, **_kwargs):
+        return SokqaDocumentPack(
+            id="quality_pack_doc_01",
+            title="基礎",
+            documents=[{"id": "doc-1", "text": "[目的地]までの行き方を尋ねます。"}],
+        )
+
+    monkeypatch.setattr(pack_agent, "generate_document_pack", invalid_document)
+    monkeypatch.setattr(pack_agent, "repair_files", lambda files: files)
+    monkeypatch.setattr(
+        pack_agent,
+        "_persist_initial_revision",
+        lambda *_args, **_kwargs: pytest.fail("invalid content must not be persisted"),
+    )
+
+    with pytest.raises(RuntimeError, match="保存不可"):
+        generate_pack(GeneratePackRequest(plan=plan, persist=False, ttsReadingMode="none"))
+
+
 def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples() -> None:
     """choiceLanguageMode=pack で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-1）。"""
     plan = _plan()
@@ -1924,4 +2008,3 @@ def test_document_and_quiz_prompts_forbid_bracketed_generic_labels() -> None:
         assert "[氏名]" in prompt
         assert "[飲み物]" in prompt
         assert "[番号]" in prompt
-

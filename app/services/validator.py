@@ -1,4 +1,6 @@
 import logging
+import re
+import unicodedata
 from urllib.parse import urlparse
 
 from pydantic import ValidationError
@@ -41,6 +43,34 @@ QUIZ_CITATION_STYLE_PHRASES = (
     "過言ではないとされています",
 )
 
+# Learner-facing square-bracket labels are unfinished authoring placeholders.
+# TTS language tags are stored in tts fields and are deliberately not inspected here.
+_UNRESOLVED_PLACEHOLDER_RE = re.compile(
+    r"\[(?:国名|都市名|数量|品物|氏名|飲み物|番号|国|名前|目的地|交通手段|商品名|サイズ|ブランド名|特性|Name|Place|Company Name)\]"
+    r"|(?:〇〇|◯◯|○○|△△|××|□□|\b(?:TODO|FIXME|TBD)\b)",
+    re.IGNORECASE,
+)
+
+
+def _canonical_display_text(text: str) -> str:
+    """Exact-duplication key for display content, preserving meaningful wording."""
+    normalized = unicodedata.normalize("NFKC", text or "").strip()
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _append_placeholder_errors(
+    errors: list[ValidationErrorItem], *, file_name: str, path: str, text: str
+) -> None:
+    for match in _UNRESOLVED_PLACEHOLDER_RE.finditer(text or ""):
+        errors.append(
+            ValidationErrorItem(
+                file=file_name,
+                path=path,
+                message=f"unresolved learner-facing placeholder: {match.group(0)}",
+                severity="error",
+            )
+        )
+
 
 def _append_pydantic_errors(file_name: str, error: ValidationError, errors: list[ValidationErrorItem]) -> None:
     for issue in error.errors():
@@ -71,6 +101,7 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None =
 
 def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list[ValidationErrorItem]:
     errors: list[ValidationErrorItem] = []
+    seen_texts: dict[str, int] = {}
     for index, item in enumerate(pack.documents):
         text = item.text.strip()
         tts_text = (item.tts.text if item.tts and item.tts.text else "").strip()
@@ -92,6 +123,19 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
                     message="document text appears to be a placeholder",
                 )
             )
+        _append_placeholder_errors(errors, file_name=file_name, path=f"documents.{index}.text", text=text)
+        duplicate_of = seen_texts.get(_canonical_display_text(text)) if text else None
+        if duplicate_of is not None:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"documents.{index}.text",
+                    message=f"document text exactly duplicates documents.{duplicate_of}.text; intentional repetition requires review",
+                    severity="warning",
+                )
+            )
+        elif text:
+            seen_texts[_canonical_display_text(text)] = index
         if item.tts is not None and not tts_text and not item.tts.audioUrl and not item.tts.audioPath:
             errors.append(ValidationErrorItem(file=file_name, path=f"documents.{index}.tts", message="tts must contain text, audioPath, or audioUrl when present"))
         if tts_text and tts_text == pack.title:
@@ -146,6 +190,7 @@ def _check_learning_language_presence(
 
 def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:
     errors: list[ValidationErrorItem] = []
+    seen_questions: dict[str, int] = {}
     if pack.learningLanguage:
         for index, question in enumerate(pack.questions):
             state = choice_set_language_state(question.choices, pack.language, pack.learningLanguage)
@@ -189,6 +234,21 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
             )
 
     for index, question in enumerate(pack.questions):
+        question_text = question.question.strip()
+        _append_placeholder_errors(errors, file_name=file_name, path=f"questions.{index}.question", text=question_text)
+        _append_placeholder_errors(errors, file_name=file_name, path=f"questions.{index}.explanation", text=question.explanation)
+        duplicate_of = seen_questions.get(_canonical_display_text(question_text)) if question_text else None
+        if duplicate_of is not None:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"questions.{index}.question",
+                    message=f"quiz question exactly duplicates questions.{duplicate_of}.question",
+                    severity="error",
+                )
+            )
+        elif question_text:
+            seen_questions[_canonical_display_text(question_text)] = index
         if question.question.strip() in {pack.title, f"{pack.title} {index + 1}"}:
             errors.append(
                 ValidationErrorItem(
@@ -205,6 +265,39 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
                     message="choices must be a 4-item string array",
                 )
             )
+            continue
+        seen_choices: dict[str, int] = {}
+        for choice_index, choice in enumerate(question.choices):
+            _append_placeholder_errors(
+                errors,
+                file_name=file_name,
+                path=f"questions.{index}.choices.{choice_index}",
+                text=choice,
+            )
+            duplicate_choice = seen_choices.get(_canonical_display_text(choice))
+            if duplicate_choice is not None:
+                errors.append(
+                    ValidationErrorItem(
+                        file=file_name,
+                        path=f"questions.{index}.choices.{choice_index}",
+                        message=f"choice exactly duplicates choices.{duplicate_choice} in the same question",
+                        severity="error",
+                    )
+                )
+            else:
+                seen_choices[_canonical_display_text(choice)] = choice_index
+        if 0 <= question.answerIndex < len(question.choices):
+            answer = _canonical_display_text(question.choices[question.answerIndex])
+            for choice_index, choice in enumerate(question.choices):
+                if choice_index != question.answerIndex and _canonical_display_text(choice) == answer:
+                    errors.append(
+                        ValidationErrorItem(
+                            file=file_name,
+                            path=f"questions.{index}.choices.{choice_index}",
+                            message="a distractor exactly matches the correct answer",
+                            severity="error",
+                        )
+                    )
     errors.extend(quiz_citation_style_warnings(file_name, pack))
     return errors
 

@@ -1245,10 +1245,11 @@ def test_tts_fix_multilingual_blocks_closing_tag_and_katakana_fixes(tmp_path, mo
     assert data["appliedFixes"] == []
     assert len(data["unappliedFixes"]) == 2
     reasons = [fix["reason"] for fix in data["unappliedFixes"]]
-    assert all("多言語パック" in reason for reason in reasons)
+    assert any("閉じタグ" in reason for reason in reasons)
+    assert any("多言語パック" in reason for reason in reasons)
 
 
-def test_tts_fix_normal_pack_applies_closing_tag_and_katakana_fixes(tmp_path, monkeypatch) -> None:
+def test_tts_fix_normal_pack_rejects_closing_tag_and_keeps_katakana_fix(tmp_path, monkeypatch) -> None:
     # 単一言語パック(language=ja, learningLanguage なし)を書き、choiceTexts を設定。
     target = _write_quiz_version(tmp_path, monkeypatch)
     prefix = pack_root_prefix(target["creatorId"], target["contentId"])
@@ -1282,11 +1283,12 @@ def test_tts_fix_normal_pack_applies_closing_tag_and_katakana_fixes(tmp_path, mo
 
     response = client.post("/quality/tts-fix", json={"target": target, "issues": issues})
 
-    # 単一言語パックは従来通り(挙動維持)適用される。
+    # 単一言語パックでも閉じタグは不正だが、TTS専用の読み補正は候補化できる。
     assert response.status_code == 200
     data = response.json()
-    assert len(data["appliedFixes"]) == 2
-    assert data["unappliedFixes"] == []
+    assert len(data["appliedFixes"]) == 1
+    assert len(data["unappliedFixes"]) == 1
+    assert "閉じタグ" in data["unappliedFixes"][0]["reason"]
 
 
 def test_tts_fix_multilingual_allows_closing_tag_removal(tmp_path, monkeypatch) -> None:

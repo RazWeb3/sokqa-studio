@@ -337,6 +337,11 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         validation = validate_files(files)
         append_validation_logs(logs, validation)
         _log_remaining_repair_warnings(validation)
+        if _needs_generation_repair(validation):
+            # Never persist learner-facing content that still fails a hard
+            # validator (for example unresolved placeholders).  It must be
+            # regenerated/reviewed rather than silently rewritten here.
+            raise RuntimeError("生成物に保存不可の品質エラーが残っています。該当ユニットを再生成してください。")
 
     if tts_mode != "none":
         logs.append(f"Optimizing TTS ({tts_mode})")

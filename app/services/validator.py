@@ -12,7 +12,11 @@ from app.schemas.sokqa import (
     ValidationErrorItem,
     ValidationResult,
 )
-from app.services.language_detection import choice_set_language_state
+from app.services.language_detection import (
+    choice_set_language_state,
+    language_script,
+    scripts_in_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +102,46 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
                     message="tts.text must not be only the chapter title",
                 )
             )
+        _check_learning_language_presence(file_name, index, text, pack, errors)
     return errors
+
+
+def _check_learning_language_presence(
+    file_name: str,
+    index: int,
+    text: str,
+    pack: SokqaDocumentPack,
+    errors: list[ValidationErrorItem],
+) -> None:
+    """語学教材（learningLanguage あり）の document 各セクションに、学習言語の語句・フレーズが
+    含まれているかを検証する。含まれない場合は生成失敗（error）とする。
+
+    背景: learningLanguage と packLanguage が異なる語学教材では、生成目的文
+    (build_language_learning_purpose_lines) が「学習言語を本文の主役として提示」を指示しているが、
+    LLM が構造制約を逸脱しパック言語のみの「説明教材」を生成する再発がある。プロンプト指示の
+    遵守を保証するため、生成後の validator で学習言語スクリプトの存在を機械検証する。
+
+    - learningLanguage がない、または pack と同じスクリプト（例: pack=ja/learning=ja）の場合は
+      スクリプト差で判定できないため検証をスキップする。
+    - 学習言語スクリプト（latin/cjk/hangul 等）が text に一度も出現しない場合のみ error とする。
+    """
+    learning_language = pack.learningLanguage
+    if not learning_language:
+        return
+    learning_script = language_script(learning_language)
+    pack_script = language_script(pack.language)
+    if not learning_script or learning_script == pack_script:
+        return
+    present_scripts = scripts_in_text(text)
+    if learning_script not in present_scripts:
+        errors.append(
+            ValidationErrorItem(
+                file=file_name,
+                path=f"documents.{index}.text",
+                message=f"document section must present the learning language ({learning_language}); no learning-language phrase found",
+                severity="error",
+            )
+        )
 
 
 def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:

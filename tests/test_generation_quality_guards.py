@@ -1703,6 +1703,87 @@ def _quiz_pack_with_mode(mode: str) -> PlanQuizPack:
     )
 
 
+def test_document_validator_flags_missing_learning_language_phrase() -> None:
+    """語学教材(pack=ja, learning=en)の document セクションに英語フレーズが含まれない場合、
+    学習言語未提示として error になることを検証（症状②の再発防止）。"""
+    file = GeneratedFile(
+        name="cnt_f6e2b9f642_doc_01.json",
+        kind="document",
+        content={
+            "id": "cnt_f6e2b9f642_doc_01",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "海外旅行アドバンス英語 1",
+            "language": "ja",
+            "learningLanguage": "en",
+            "documents": [
+                {
+                    "id": "doc-1",
+                    "text": "海外旅行の最初の関門、入国審査は緊張する場面かもしれませんね。事前に準備しておきましょう。",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    errors = [error for error in result.errors if error.path == "documents.0.text" and "learning language" in error.message]
+    assert errors
+    assert errors[0].severity == "error"
+    assert result.valid is False
+
+
+def test_document_validator_passes_when_learning_language_phrase_present() -> None:
+    """学習言語フレーズが含まれる場合は error にならないことを検証。"""
+    file = GeneratedFile(
+        name="cnt_f6e2b9f642_doc_01.json",
+        kind="document",
+        content={
+            "id": "cnt_f6e2b9f642_doc_01",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "海外旅行アドバンス英語 1",
+            "language": "ja",
+            "learningLanguage": "en",
+            "documents": [
+                {
+                    "id": "doc-1",
+                    "text": "I'm here for tourism. これは最も一般的な答え方です。",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    errors = [error for error in result.errors if error.path == "documents.0.text" and "learning language" in error.message]
+    assert not errors
+
+
+def test_document_validator_skips_same_script_language_pair() -> None:
+    """pack=ja, learning=ja のようにスクリプトが同じ場合は学習言語検証をスキップする。"""
+    file = GeneratedFile(
+        name="ja_learning_doc.json",
+        kind="document",
+        content={
+            "id": "ja_learning_doc",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "日本語学習",
+            "language": "ja",
+            "learningLanguage": "ja",
+            "documents": [
+                {"id": "doc-1", "text": "ひらがなの「あ」を覚えましょう。"}
+            ],
+        },
+    )
+
+    result = validate_files([file])
+
+    errors = [error for error in result.errors if "learning language" in error.message]
+    assert not errors
+
+
 def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples() -> None:
     """choiceLanguageMode=pack で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-1）。"""
     plan = _plan()

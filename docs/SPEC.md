@@ -430,6 +430,48 @@ TTS ではパック言語を default language として扱う。
 `learningLanguage` は CoursePlan、document pack、quiz pack に optional metadata として保存する。
 新規生成では `learningLanguage` を正規ルートとして扱い、旧 `ttsLanguageSettings` は後方互換用のフォールバックとして維持する。
 
+## Language Learning 生成後検証（validator）
+
+語学教材（learningLanguage あり）の生成物は、プロンプト指示の遵守を生成後の機械検証で担保する。
+検出された場合は「品質チェックの減点」ではなく「使えない教材＝生成失敗」として扱う（error カテゴリ）。
+以下の各 validator は生成パイプライン末尾の `validate_files` で実行され、検出結果はレスポンスの `validation` フィールドに含まれる。
+
+### 1. 学習言語欠落検証（document）
+
+目的: 学習言語が完全欠落したパック言語のみの教材（「説明教材」）を検出する。
+
+背景: 生成目的文（`build_language_learning_purpose_lines`）が「学習言語を本文の主役として提示（短い導入→即・学習言語フレーズ→解説）」を指示するが、LLM が構造制約を逸脱しパック言語のみの「説明教材」を生成する再発がある。プロンプト指示の遵守を保証するため、生成後の validator で学習言語スクリプトの存在を機械検証する。
+
+注意: 本検証は教材品質の完全保証ではなく、明らかな学習言語欠落の検出を目的とする。学習言語スクリプトが 1 文字でも混入していれば通過する（例: `ABC` という社名や `I am here.` のみの短文が含まれる場合も通過する）。「英語教材として成立しているか」の判定ではなく、「学習言語文字が混入しているか」の欠落検査である。
+
+- 検出条件: `learningLanguage` と `language`（pack）が**異なるスクリプト**（例: pack=ja / learning=en）の場合、document の**各セクション `text`（documents[] 要素単位）** に学習言語スクリプト（latin / cjk / hangul 等）が 1 文字も含まれていなければ error とする。
+- 判定単位: **セクション単位**。導入文のみのセクションも含め、各セクション独立に判定する（導入直後に学習言語フレーズを置く構成を前提とするため、導入セクションのみ日本語という構成は逸脱として検出対象）。
+- 対象フィールド: `documents[].text`
+- スキップ条件（3 分岐）:
+  - `learningLanguage` 未指定 → スキップ（明快）
+  - `learningLanguage == packLanguage`（同一言語）→ スキップ
+  - `learningLanguage != packLanguage` だが**同一スクリプト**（例: pack=en / learning=fr、いずれも latin）→ スキップ
+    - **初期対応範囲の制約**: 本検証は異なるスクリプト間のみを対象とする。同一スクリプト間の言語ペア（en↔fr 等）は検証対象外。「英語教材なのにフランス語になった」等の同一スクリプト間の言語品質判定は初期対応範囲外。将来ラテン文字同士のペアを追加する場合は、スクリプト差に依存しない判定（言語ベースの語彙照合等）への拡張が必要。
+
+### 2. プレースホルダ残存検証（document / quiz）
+
+- 検出条件: learner-facing テキストに未解決のプレースホルダ（〇〇 / △△ / 株式会社〇〇 等の伏せ字、[国名] / [氏名] 等の角括弧ラベル、ASCII プレースホルダトークン）が残存する場合は error とする。
+- 対象フィールド:
+  - document: `documents[].text`、`documents[].tts.text`
+  - quiz: `questions[].question`、`questions[].choices[]`、`questions[].explanation`
+- スキップ条件（非検出）: 連続 3 文字以上のアンダースコア（`___` または `＿＿＿`）のみからなる意図的穴埋め練習形式は非検出とする。それ以外の空白・伏せ字・角括弧ラベルは検出対象。
+  - 注意: 穴埋めの許可判定はテキスト形状（連続 `_`/`＿` 3 文字以上）に基づく。データ構造（quiz の fill_blank 型指定等）での厳密な区分は現状未実装。通常説明文中の空白プレースホルダと意図的穴埋めの完全分離は validator 単体では不可能であり、形状ベースの判定で許容する。
+
+### 失敗時挙動（共通）
+
+- パイプラインは例外停止しない。`validation.valid=False` をレスポンスに含めて `status="completed"` で返却し、生成失敗としてマークする。
+- `validate_files` 検出後、`repair_files` を 1 回試行するが、上記いずれの error も LLM なしでは修復不可能（英語フレーズの注入や伏せ字の具体名解決は別生成が必要）なため実質無効。自動再生成は走らない。
+- `repair_files` の対象外 error（non-repairable）:
+  - `LANGUAGE_PHRASE_MISSING`（学習言語欠落）
+  - `PLACEHOLDER_REMAINED`（プレースホルダ残存）
+  - 理由: 修復には新規生成または意味判断が必要なため。これらは `repair_files` を通しても解消せず、完了レスポンスの `validation.valid=False` に維持される。
+- 呼び出し側（フロントエンド / ジョブ管理）は `validation.valid=False` を合図として、該当ファイルを再生成または手動修正の対象とする。
+
 quiz pack は `choiceLanguageMode` を持つ。
 
 - `pack`: 4択をパック言語にする

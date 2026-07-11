@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.quality import QualityCategory, QualityIssue, QualityLocation
+from app.schemas.sokqa import ValidationErrorItem
 from app.schemas.request import TtsRecordingTarget
 
 
@@ -57,9 +58,18 @@ class QualityFixResponse(BaseModel):
     updatedJson: dict[str, Any]
     reRecordNeededUnits: list["ReRecordNeededUnit"] = Field(default_factory=list)
     truncated: bool = False
+    # Preview outcome and whole-file state are intentionally separate.  A safe
+    # local preview may coexist with unrelated blockers elsewhere in the file.
+    fixStatus: Literal["preview_ready", "rejected", "no_change", "failed"] = "preview_ready"
+    targetIssueResolved: bool = False
+    introducedErrors: list[ValidationErrorItem] = Field(default_factory=list)
+    remainingExistingErrors: list[ValidationErrorItem] = Field(default_factory=list)
+    remainingWarnings: list[ValidationErrorItem] = Field(default_factory=list)
+    fileValidationStatus: Literal["valid", "warning", "blocked"] = "valid"
 
 
 class QualityFixApplyRequest(BaseModel):
+    target: TtsRecordingTarget | None = None
     updatedJson: dict[str, Any]
     pendingFixes: list[PendingFix] = Field(default_factory=list)
     approvedIds: list[str] = Field(default_factory=list)

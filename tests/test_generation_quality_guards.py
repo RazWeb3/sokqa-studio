@@ -1727,7 +1727,7 @@ def test_document_validator_flags_missing_learning_language_phrase() -> None:
 
     result = validate_files([file])
 
-    errors = [error for error in result.errors if error.path == "documents.0.text" and "learning language" in error.message]
+    errors = [error for error in result.errors if error.path == "documents" and "learning language" in error.message]
     assert errors
     assert errors[0].severity == "error"
     assert result.valid is False
@@ -1863,7 +1863,7 @@ def test_generation_completes_with_diagnostics_when_placeholder_remains_after_re
     original_persist = pack_agent._persist_initial_revision
     persist_requests: list[bool] = []
 
-    def capture_persist(plan, metadata, files, operation, persist):
+    def capture_persist(plan, metadata, files, operation, persist, quality_status=None):
         persist_requests.append(persist)
         # Build the real revision without touching external storage.
         return original_persist(plan, metadata, files, operation, False)
@@ -1875,6 +1875,10 @@ def test_generation_completes_with_diagnostics_when_placeholder_remains_after_re
     assert result.status == "completed"
     assert attempts["count"] == 2
     assert persist_requests == [True]
+    assert result.persisted is True
+    assert result.generationStatus == "completed"
+    assert result.qualityStatus == "blocked"
+    assert result.publicationStatus == "draft"
     assert result.validation.valid is False
     assert any("unresolved learner-facing placeholder" in error.message for error in result.validation.errors)
     assert any("continuing with reviewable output" in log for log in result.logs)

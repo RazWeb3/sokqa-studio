@@ -1,5 +1,11 @@
 # Sokqa Studio Specification
 
+## 品質状態と操作権限
+
+`qualityStatus`（`valid` / `warning` / `blocked`）は生成物の品質診断を表示するための情報であり、保存、録音、URL・QR表示、配布、公開を自動的に禁止しない。品質チェックは問題を通知し、最終判断は利用者が行う。
+
+公開状態を扱う場合は、品質とは独立した`publicationStatus`（`draft` / `published`）で管理する。
+
 ## パック生成仕様
 
 Sokqa Studio の基本生成フローは二段階である。

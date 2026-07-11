@@ -46,7 +46,7 @@ QUIZ_CITATION_STYLE_PHRASES = (
 # Learner-facing square-bracket labels are unfinished authoring placeholders.
 # TTS language tags are stored in tts fields and are deliberately not inspected here.
 _UNRESOLVED_PLACEHOLDER_RE = re.compile(
-    r"\[(?:国名|都市名|数量|品物|氏名|飲み物|番号|国|名前|目的地|交通手段|商品名|サイズ|ブランド名|特性|Name|Place|Company Name)\]"
+    r"\[(?:国名|都市名|数量|品物|もの|氏名|飲み物|番号|国|名前|目的地|交通手段|商品名|サイズ|ブランド名|特性|Name|Place|Company Name|destination|name|number|country|city|item)\]"
     r"|(?:〇〇|◯◯|○○|△△|××|□□|\b(?:TODO|FIXME|TBD)\b)",
     re.IGNORECASE,
 )
@@ -99,8 +99,22 @@ def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None =
     return ValidationResult(valid=not any(error.severity == "error" for error in errors), errors=errors)
 
 
+def blocking_errors(validation: ValidationResult) -> list[ValidationErrorItem]:
+    """The single persistence gate: warnings are always reviewable, never blocking."""
+    return [issue for issue in validation.errors if issue.severity == "error"]
+
+
+def file_validation_status(validation: ValidationResult) -> str:
+    if blocking_errors(validation):
+        return "blocked"
+    if validation.errors:
+        return "warning"
+    return "valid"
+
+
 def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list[ValidationErrorItem]:
     errors: list[ValidationErrorItem] = []
+    _append_learning_language_presence_issues(file_name, pack, errors)
     seen_texts: dict[str, int] = {}
     for index, item in enumerate(pack.documents):
         text = item.text.strip()
@@ -146,28 +160,16 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
                     message="tts.text must not be only the chapter title",
                 )
             )
-        _check_learning_language_presence(file_name, index, text, pack, errors)
     return errors
 
 
-def _check_learning_language_presence(
-    file_name: str,
-    index: int,
-    text: str,
-    pack: SokqaDocumentPack,
-    errors: list[ValidationErrorItem],
+def _append_learning_language_presence_issues(
+    file_name: str, pack: SokqaDocumentPack, errors: list[ValidationErrorItem]
 ) -> None:
-    """語学教材（learningLanguage あり）の document 各セクションに、学習言語の語句・フレーズが
-    含まれているかを検証する。含まれない場合は生成失敗（error）とする。
+    """Avoid treating brief bridges and summaries as failed learning sections.
 
-    背景: learningLanguage と packLanguage が異なる語学教材では、生成目的文
-    (build_language_learning_purpose_lines) が「学習言語を本文の主役として提示」を指示しているが、
-    LLM が構造制約を逸脱しパック言語のみの「説明教材」を生成する再発がある。プロンプト指示の
-    遵守を保証するため、生成後の validator で学習言語スクリプトの存在を機械検証する。
-
-    - learningLanguage がない、または pack と同じスクリプト（例: pack=ja/learning=ja）の場合は
-      スクリプト差で判定できないため検証をスキップする。
-    - 学習言語スクリプト（latin/cjk/hangul 等）が text に一度も出現しない場合のみ error とする。
+    Until section roles are modelled, only whole-document absence is blocking.
+    A long pack-language-only section remains a review warning.
     """
     learning_language = pack.learningLanguage
     if not learning_language:
@@ -176,16 +178,31 @@ def _check_learning_language_presence(
     pack_script = language_script(pack.language)
     if not learning_script or learning_script == pack_script:
         return
-    present_scripts = scripts_in_text(text)
-    if learning_script not in present_scripts:
+    missing_indexes = [
+        index for index, item in enumerate(pack.documents)
+        if learning_script not in scripts_in_text(item.text or "")
+    ]
+    if len(missing_indexes) == len(pack.documents) and pack.documents:
         errors.append(
             ValidationErrorItem(
                 file=file_name,
-                path=f"documents.{index}.text",
-                message=f"document section must present the learning language ({learning_language}); no learning-language phrase found",
+                path="documents",
+                message=f"document must present the learning language ({learning_language}); no learning-language phrase found anywhere",
                 severity="error",
             )
         )
+        return
+    for index in missing_indexes:
+        text = pack.documents[index].text or ""
+        if len(_canonical_display_text(text)) >= 120:
+            errors.append(
+                ValidationErrorItem(
+                    file=file_name,
+                    path=f"documents.{index}.text",
+                    message=f"long document section has no learning-language phrase ({learning_language}); review its learning role",
+                    severity="warning",
+                )
+            )
 
 
 def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:
@@ -200,6 +217,20 @@ def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[Validat
                         file=file_name,
                         path=f"questions.{index}.choices",
                         message="auto choice language mode requires all four choices in one question to use the same language",
+                        severity="error",
+                    )
+                )
+            # Single-letter choice labels (A/B/C/D) are neutral notation, not
+            # learner-language content.  The generator's targeted repair has
+            # the stricter detector; this persistence gate avoids false
+            # positives for imported or manually authored quizzes.
+            has_substantive_choice = any(len(re.sub(r"\W+", "", choice)) > 1 for choice in question.choices)
+            if pack.choiceLanguageMode == "pack" and state in {"learning", "mixed"} and has_substantive_choice:
+                errors.append(
+                    ValidationErrorItem(
+                        file=file_name,
+                        path=f"questions.{index}.choices",
+                        message="pack choice language mode requires every choice to use the pack language after repair",
                         severity="error",
                     )
                 )

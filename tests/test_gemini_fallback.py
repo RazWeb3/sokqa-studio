@@ -126,8 +126,6 @@ def test_document_parse_failure_saves_raw_and_does_not_persist_pack(tmp_path, mo
 
 
 def test_document_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> None:
-    settings = get_settings()
-    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     sleep_calls = []
     monkeypatch.setattr("app.services.document_generator.time.sleep", sleep_calls.append)
 
@@ -141,6 +139,8 @@ def test_document_generation_retries_after_parse_error_and_succeeds(monkeypatch)
             ttsReadingMode="none",
         )
     )
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     attempts = {"count": 0}
 
     def flaky_generate_json(self, _prompt, **_kwargs):
@@ -158,9 +158,31 @@ def test_document_generation_retries_after_parse_error_and_succeeds(monkeypatch)
     assert pack.documents[0].text == "再試行後に成功した本文です。"
 
 
+def test_document_generation_retries_twice_then_succeeds_on_third_attempt(monkeypatch) -> None:
+    sleep_calls = []
+    monkeypatch.setattr("app.services.document_generator.time.sleep", sleep_calls.append)
+    plan = plan_pack(
+        PlanPackRequest(theme="JSON再試行3回目", targetUser="学習者", scale="quick", docCount=1, quizCount=0, ttsReadingMode="none")
+    )
+    monkeypatch.setattr(get_settings(), "gemini_provider", "gemini")
+    calls = {"count": 0}
+
+    def generate_json(self, _prompt, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise LlmJsonParseError("broken json", attempts=[{"method": "direct", "error": "broken json"}])
+        return {"documents": [{"text": "3回目に成功した本文です。"}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", generate_json)
+
+    pack = generate_document_pack(plan, plan.documents[0])
+
+    assert calls["count"] == 3
+    assert sleep_calls == [0.5, 1.5]
+    assert pack.documents[0].text == "3回目に成功した本文です。"
+
+
 def test_document_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
-    settings = get_settings()
-    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     sleep_calls = []
     monkeypatch.setattr("app.services.document_generator.time.sleep", sleep_calls.append)
 
@@ -174,6 +196,8 @@ def test_document_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
             ttsReadingMode="none",
         )
     )
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     attempts = {"count": 0}
 
     def broken_generate_json(self, _prompt, **_kwargs):
@@ -190,8 +214,6 @@ def test_document_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
 
 
 def test_quiz_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> None:
-    settings = get_settings()
-    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     sleep_calls = []
     monkeypatch.setattr("app.services.quiz_generator.time.sleep", sleep_calls.append)
 
@@ -206,6 +228,8 @@ def test_quiz_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> 
             ttsReadingMode="none",
         )
     )
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     source_document = SokqaDocumentPack(
         id="doc_pack",
         title="基礎",
@@ -239,8 +263,6 @@ def test_quiz_generation_retries_after_parse_error_and_succeeds(monkeypatch) -> 
 
 
 def test_quiz_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
-    settings = get_settings()
-    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     sleep_calls = []
     monkeypatch.setattr("app.services.quiz_generator.time.sleep", sleep_calls.append)
 
@@ -254,6 +276,8 @@ def test_quiz_generation_raises_after_retry_exhaustion(monkeypatch) -> None:
             ttsReadingMode="none",
         )
     )
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "gemini")
     source_document = SokqaDocumentPack(
         id="doc_pack",
         title="基礎",

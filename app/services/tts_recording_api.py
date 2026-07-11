@@ -268,6 +268,19 @@ class LoadedPack:
 
 
 def load_target_pack(target: TtsRecordingTarget) -> LoadedPack:
+    if target.temporaryGenerationId:
+        from app.services.temporary_generation_store import get_temporary_generation
+
+        temporary = get_temporary_generation(target.temporaryGenerationId, str(target.creatorId))
+        candidates = [file for file in temporary.files if file.kind in {"document", "quiz"}]
+        if target.packName:
+            candidates = [file for file in candidates if file.name == target.packName]
+        if target.kind:
+            candidates = [file for file in candidates if file.kind == target.kind]
+        if len(candidates) != 1:
+            raise ValueError("temporary generation target is ambiguous; provide packName and kind")
+        file = candidates[0]
+        return _loaded_from_content(file.content, file.name, f"temporary/{temporary.id}")
     if target.packUrl:
         pack_name = target.packName or _url_basename(target.packUrl)
         if not (target.creatorId and target.contentId and target.versionId):

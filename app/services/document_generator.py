@@ -8,7 +8,7 @@ from app.schemas.sokqa import CoursePlan, PlanDocument, SokqaDocumentItem, Sokqa
 from app.config import get_settings
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
-from app.services.llm_json import LlmJsonParseContext
+from app.services.llm_json import LlmJsonParseContext, LlmJsonParseError
 from app.services.pack_ids import document_pack_id
 from app.services.prompts import document_generation_prompt
 from app.services.tagging import document_global_tags
@@ -29,6 +29,15 @@ LANGUAGE_CODE_RE = re.compile(
     rf"(?![A-Za-z0-9])"
 )
 logger = logging.getLogger(__name__)
+
+_JSON_RETRY_INSTRUCTION = """
+The previous response was not valid JSON.
+Return the complete document again as valid JSON only.
+Do not use Markdown code fences.
+Do not include comments or explanatory text.
+Escape all quotation marks inside string values.
+Ensure every property has a colon and every array item is comma-separated.
+""".strip()
 
 
 def _source_paragraphs(source_text: str) -> list[str]:
@@ -154,9 +163,24 @@ def _generate_document_json_with_retry(
     last_error: Exception | None = None
     delays = (0.5, 1.5)
     for attempt in range(1, attempts + 1):
+        retrying = attempt > 1
         try:
-            return GeminiClient().generate_json(
-                prompt,
+            attempt_prompt = _document_retry_prompt(prompt) if retrying else prompt
+        except Exception as exc:
+            # Keep this distinct from a model/JSON failure: it proves the
+            # second request was never sent and preserves the traceback.
+            logger.exception(
+                "document_generation.retry_prompt_failed file_id=%s attempt=%s max_attempts=%s model=%s exception_type=%s",
+                document.id, attempt, attempts, model, type(exc).__name__,
+            )
+            raise RuntimeError(f"document retry prompt creation failed: {document.id}") from exc
+        logger.info(
+            "document_generation.attempt_started file_id=%s attempt=%s max_attempts=%s model=%s retrying=%s response_received=%s parse_started=%s",
+            document.id, attempt, attempts, model, retrying, False, False,
+        )
+        try:
+            result = GeminiClient().generate_json(
+                attempt_prompt,
                 model=model,
                 parse_context=LlmJsonParseContext(
                     generation_unit="doc",
@@ -172,13 +196,37 @@ def _generate_document_json_with_retry(
                     scale=plan.scale,
                 ),
             )
+            logger.info(
+                "document_generation.attempt_succeeded file_id=%s attempt=%s max_attempts=%s model=%s response_received=%s parse_started=%s",
+                document.id, attempt, attempts, model, True, True,
+            )
+            return result
         except Exception as exc:
             last_error = exc
-            logger.warning("document_generation.retry doc=%s attempt=%s error=%s", document.id, attempt, repr(exc))
+            parse = exc if isinstance(exc, LlmJsonParseError) else None
+            response_received = isinstance(exc, LlmJsonParseError)
+            logger.warning(
+                "document_generation.%s file_id=%s attempt=%s max_attempts=%s model=%s response_received=%s parse_started=%s exception_type=%s json_parse_line=%s json_parse_column=%s char_position=%s error=%s",
+                "failed" if attempt >= attempts else "retry", document.id, attempt, attempts, model, response_received, response_received, type(exc).__name__,
+                _json_error_position(parse)[0], _json_error_position(parse)[1], _json_error_position(parse)[2], repr(exc),
+            )
             if attempt >= attempts:
                 break
             time.sleep(delays[min(attempt - 1, len(delays) - 1)])
     raise last_error or RuntimeError(f"document generation failed: {document.id}")
+
+
+def _document_retry_prompt(prompt: str) -> str:
+    """Reissue the same request; never feed the malformed response back in."""
+    return f"{prompt}\n\n{_JSON_RETRY_INSTRUCTION}"
+
+
+def _json_error_position(error: LlmJsonParseError | None) -> tuple[str, str, str]:
+    if not error or not error.attempts:
+        return "", "", ""
+    message = error.attempts[-1].get("error", "")
+    match = re.search(r"line (\d+) column (\d+) \(char (\d+)\)", message)
+    return match.groups() if match else ("", "", "")
 
 
 def generate_mock_document_pack(plan: CoursePlan, document: PlanDocument) -> SokqaDocumentPack:

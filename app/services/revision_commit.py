@@ -129,6 +129,8 @@ def build_revision_commit(
         buildId=build_id,
         generatedAt=generated_at,
         change=change,
+        qualityStatus=request.qualityStatus or (current_manifest.qualityStatus if current_manifest else "valid"),
+        publicationStatus=request.publicationStatus or (current_manifest.publicationStatus if current_manifest else "draft"),
         items=item_list,
     )
     manifest_url = resolve_asset_url(asset_base, manifest_relative_path(version_id))

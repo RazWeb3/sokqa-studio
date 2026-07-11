@@ -12,12 +12,14 @@ from app.schemas.quality_fix import (
 from app.services.quality_checker import QualityCheckError, check_text_quality, check_tts_quality
 from app.services.quality_fixer import (
     QualityFixError,
+    QualityFixRejectedError,
     apply_approved_fixes,
     generate_text_fix,
     generate_tts_fix,
     generate_tts_fix_with_llm,
     save_quality_fix_version,
 )
+from app.services.temporary_generation_store import TemporaryGenerationError
 
 
 router = APIRouter(prefix="/quality", tags=["quality-agents"])
@@ -31,6 +33,8 @@ def text_check(request: QualityCheckRequest) -> QualityCheckResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except QualityCheckError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
@@ -45,6 +49,8 @@ def tts_check(request: QualityCheckRequest) -> QualityCheckResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except QualityCheckError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
@@ -54,11 +60,18 @@ def tts_check(request: QualityCheckRequest) -> QualityCheckResponse:
 @router.post("/text-fix", response_model=QualityFixResponse)
 def text_fix(request: QualityFixRequest) -> QualityFixResponse:
     try:
-        return generate_text_fix(request.target, request.issues, request.maxFixes)
+        result = generate_text_fix(request.target, request.issues, request.maxFixes)
+        if result.fixStatus == "rejected":
+            raise HTTPException(status_code=422, detail="quality fix preview was rejected because it introduces blocking errors")
+        return result
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except QualityFixRejectedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except QualityFixError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -71,19 +84,29 @@ def text_fix_apply(request: QualityFixApplyRequest) -> QualityFixApplyResponse:
             request.pendingFixes,
             request.approvedIds,
             reset_tts_on_text_change=True,
+            target=request.target,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.post("/tts-fix", response_model=QualityFixResponse)
 def tts_fix(request: QualityFixRequest) -> QualityFixResponse:
     try:
-        return generate_tts_fix(request.target, request.issues, request.maxFixes)
+        result = generate_tts_fix(request.target, request.issues, request.maxFixes)
+        if result.fixStatus == "rejected":
+            raise HTTPException(status_code=422, detail="quality fix preview was rejected because it introduces blocking errors")
+        return result
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except QualityFixRejectedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except QualityFixError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -91,11 +114,18 @@ def tts_fix(request: QualityFixRequest) -> QualityFixResponse:
 @router.post("/tts-fix/llm", response_model=QualityFixResponse)
 def tts_fix_llm(request: QualityFixRequest) -> QualityFixResponse:
     try:
-        return generate_tts_fix_with_llm(request.target, request.issues, request.maxFixes)
+        result = generate_tts_fix_with_llm(request.target, request.issues, request.maxFixes)
+        if result.fixStatus == "rejected":
+            raise HTTPException(status_code=422, detail="quality fix preview was rejected because it introduces blocking errors")
+        return result
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except QualityFixRejectedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except QualityFixError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -108,3 +138,7 @@ def save_version(request: QualityFixSaveRequest) -> QualityFixSaveResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TemporaryGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except QualityFixRejectedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

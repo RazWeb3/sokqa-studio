@@ -49,7 +49,7 @@ from app.services.tts_recording_api import (
     load_target_pack,
 )
 from app.services.tts_text import collapse_duplicate_katakana_utterances
-from app.services.validator import validate_files
+from app.services.validator import blocking_errors, file_validation_status, validate_files
 
 
 # These categories may be *examined* by the TTS fixer.  They are not, by
@@ -80,6 +80,11 @@ _SEMANTIC_REWRITE_LOANWORDS = {
 
 
 class QualityFixError(RuntimeError):
+    pass
+
+
+class QualityFixRejectedError(QualityFixError):
+    """A generated candidate violates a safety invariant (HTTP 422)."""
     pass
 
 
@@ -171,7 +176,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
             allow_language_tags=allow_language_tags,
         )
         _validate_pack_json(loaded.file.name, response.updatedJson)
-        return response
+        return _evaluate_fix_preview(loaded.file.name, loaded.file.content, response, limited_issues)
     except (TypeError, ValidationError, ValueError) as exc:
         raise QualityFixError(f"quality fix response validation failed: {exc}") from exc
 
@@ -363,7 +368,7 @@ def _generate_tts_fix_without_llm(
         skipped,
         elapsed_ms,
     )
-    return QualityFixResponse(
+    return _evaluate_fix_preview(loaded.file.name, loaded.file.content, QualityFixResponse(
         fileName=loaded.file.name,
         model=f"{model}:no-llm",
         appliedFixes=applied,
@@ -380,7 +385,7 @@ def _generate_tts_fix_without_llm(
             for fix in applied
         ],
         truncated=len(issues) > max_fixes,
-    )
+    ), limited_issues)
 
 
 def apply_auto_quality_fixes(content: dict[str, Any], file_name: str) -> tuple[dict[str, Any], list[AppliedFix]]:
@@ -461,6 +466,7 @@ def apply_approved_fixes(
     approved_ids: list[str],
     *,
     reset_tts_on_text_change: bool = False,
+    target: TtsRecordingTarget | None = None,
 ) -> QualityFixApplyResponse:
     final_json = copy.deepcopy(updated_json)
     approved = set(approved_ids)
@@ -487,6 +493,17 @@ def apply_approved_fixes(
         else:
             skipped.append(fix.id)
     _validate_pack_json("finalJson", final_json)
+    if target and target.temporaryGenerationId:
+        from app.services.temporary_generation_store import get_temporary_generation, update_temporary_generation
+
+        temporary = get_temporary_generation(target.temporaryGenerationId, str(target.creatorId))
+        files = [file.model_copy(deep=True) for file in temporary.files]
+        replacement = next((file for file in files if file.name == (target.packName or "")), None)
+        if replacement is None:
+            raise ValueError("temporary generation does not contain the selected file")
+        replacement.content = final_json
+        validation = validate_files([file for file in files if file.kind in {"document", "quiz"}])
+        update_temporary_generation(target.temporaryGenerationId, str(target.creatorId), files=files, validation=validation, expected_generation=target.temporaryGenerationVersion)
     return QualityFixApplyResponse(finalJson=final_json, appliedApprovedIds=applied, skippedIds=skipped)
 
 
@@ -497,12 +514,21 @@ def save_quality_fix_version(
     *,
     storage_client: StorageClient | None = None,
 ) -> QualityFixSaveResponse:
+    if target.temporaryGenerationId:
+        return _promote_temporary_generation(target, files, applied_fixes, storage_client=storage_client)
     loaded = load_target_pack(target)
     creator_id, content_id, _ = _identity_from_storage_prefix(loaded.storage_prefix)
     storage = storage_client or StorageClient()
     _validate_target_matches_loaded_prefix(target, creator_id, content_id, loaded.storage_prefix)
     current_manifest = _load_current_manifest_v2(storage, loaded, creator_id, content_id)
 
+    # Use the same gate as initial generation.  Structural schema validation
+    # below is not enough: semantic blockers must never be persisted either.
+    candidate_files = [
+        GeneratedFile(name=file.name, kind=file.kind, content=_validate_pack_json(file.name, copy.deepcopy(file.content)))
+        for file in files
+    ]
+    validation = validate_files(candidate_files)
     text_changed = False
     response_files: list[QualityFixSaveFile] = []
     changed_files: list[ChangedPackFile] = []
@@ -569,6 +595,7 @@ def save_quality_fix_version(
             changedFiles=changed_files,
             changedUnits=changed_units,
             reRecordNeededUnits=_dedupe_manifest_rerecord_units(manifest_rerecord_units),
+            qualityStatus=file_validation_status(validate_files([GeneratedFile(name=file.name, kind=file.kind, content=file.content) for file in response_files])),
         ),
         public_base_url=get_settings().public_base_url,
     )
@@ -758,6 +785,42 @@ def _fix_response_from_data(
         ],
         updatedJson=updated_json,
         truncated=truncated,
+    )
+
+
+def _promote_temporary_generation(
+    target: TtsRecordingTarget,
+    files: list[QualityFixSaveFile],
+    applied_fixes: list[AppliedFix],
+    *,
+    storage_client: StorageClient | None,
+) -> QualityFixSaveResponse:
+    """Persist a reviewed temporary pack exactly once, after one shared validation gate."""
+    from app.services.pack_agent import _initial_commit_request, _files_from_revision_result
+    from app.services.pack_metadata import build_pack_metadata
+    from app.services.temporary_generation_store import get_temporary_generation, mark_promoted, update_temporary_generation
+
+    temporary = get_temporary_generation(target.temporaryGenerationId or "", str(target.creatorId))
+    candidate = [file.model_copy(deep=True) for file in temporary.files if file.kind in {"document", "quiz"}]
+    by_name = {file.name: file for file in candidate}
+    for submitted in files:
+        if submitted.name not in by_name or by_name[submitted.name].kind != submitted.kind:
+            raise ValueError("submitted file is not part of the temporary generation")
+        by_name[submitted.name].content = _validate_pack_json(submitted.name, copy.deepcopy(submitted.content))
+    validation = validate_files(candidate)
+    if blocking_errors(validation):
+        update_temporary_generation(target.temporaryGenerationId or "", str(target.creatorId), files=[*candidate], validation=validation)
+
+    metadata = build_pack_metadata(temporary.plan)
+    result = persist_revision_commit(storage_client or StorageClient(), None, _initial_commit_request(temporary.plan, metadata, candidate, "initial_generate"))
+    mark_promoted(target.temporaryGenerationId or "", str(target.creatorId))
+    saved = _files_from_revision_result(result)
+    return QualityFixSaveResponse(
+        newVersionId=result.versionId,
+        newAssetBaseUrl=result.assetBaseUrl,
+        storagePrefix=pack_root_prefix(metadata.creator_id, metadata.content_id),
+        files=[QualityFixSaveFile(name=file.name, kind=file.kind, content=file.content) for file in saved if file.kind in {"document", "quiz"}],
+        reRecordNeededUnits=[ReRecordNeededUnit(fileName=fix.location.fileName, unitId=fix.location.unitId, field=fix.location.field, category=fix.category) for fix in applied_fixes],
     )
 
 
@@ -1330,7 +1393,7 @@ def _mock_fix_response(file_name: str, content: dict[str, Any], issues: list[Qua
             )
             pending_index += 1
     _validate_pack_json(file_name, updated)
-    return QualityFixResponse(
+    return _evaluate_fix_preview(file_name, content, QualityFixResponse(
         fileName=file_name,
         model=model,
         appliedFixes=applied,
@@ -1346,7 +1409,7 @@ def _mock_fix_response(file_name: str, content: dict[str, Any], issues: list[Qua
         ],
         updatedJson=updated,
         truncated=truncated,
-    )
+    ), issues)
 
 
 def _validate_pack_json(file_name: str, content: dict[str, Any]) -> dict[str, Any]:
@@ -1357,10 +1420,60 @@ def _validate_pack_json(file_name: str, content: dict[str, Any]) -> dict[str, An
         normalized = SokqaQuizPack.model_validate(content).model_dump(exclude_none=True)
     else:
         raise ValueError("content type must be document or quiz")
-    result = validate_files([GeneratedFile(name=file_name, kind=kind, content=normalized)])
-    if not result.valid:
-        raise ValueError("; ".join(error.message for error in result.errors))
     return normalized
+
+
+def _normalized_fix_text(value: str | None, *, strip_tts_tags: bool = False) -> str:
+    text = unicodedata.normalize("NFKC", value or "").replace("\r\n", "\n").replace("\r", "\n")
+    if strip_tts_tags:
+        text = _TTS_TAG_RE.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _validation_key(issue: Any) -> tuple[str, str, str]:
+    return (str(issue.file), str(issue.path), str(issue.message))
+
+
+def _preview_candidate(response: QualityFixResponse) -> dict[str, Any]:
+    """Text fixes remain opt-in in updatedJson, but are evaluated as a preview."""
+    candidate = copy.deepcopy(response.updatedJson)
+    for fix in response.pendingFixes:
+        _set_raw_field(candidate, fix.location, fix.suggestedAfter)
+    return candidate
+
+
+def _evaluate_fix_preview(
+    file_name: str,
+    original: dict[str, Any],
+    response: QualityFixResponse,
+    source_issues: list[QualityIssue],
+) -> QualityFixResponse:
+    before = validate_files([GeneratedFile(name=file_name, kind=original.get("type"), content=original)])
+    candidate = _preview_candidate(response)
+    after = validate_files([GeneratedFile(name=file_name, kind=candidate.get("type"), content=candidate)])
+    before_by_key = {_validation_key(issue): issue for issue in blocking_errors(before)}
+    after_by_key = {_validation_key(issue): issue for issue in blocking_errors(after)}
+    introduced = [issue for key, issue in after_by_key.items() if key not in before_by_key]
+    remaining = [issue for key, issue in after_by_key.items() if key in before_by_key]
+    changed = any(
+        _normalized_fix_text(fix.before, strip_tts_tags=True) != _normalized_fix_text(fix.after, strip_tts_tags=True)
+        for fix in response.appliedFixes
+    ) or any(
+        _normalized_fix_text(fix.before) != _normalized_fix_text(fix.suggestedAfter)
+        for fix in response.pendingFixes
+    )
+    response.introducedErrors = introduced
+    response.remainingExistingErrors = remaining
+    response.remainingWarnings = [issue for issue in after.errors if issue.severity != "error"]
+    response.fileValidationStatus = "blocked" if after_by_key else ("warning" if response.remainingWarnings else "valid")
+    response.targetIssueResolved = bool(changed and not introduced and source_issues)
+    if not changed:
+        response.fixStatus = "no_change"
+    elif introduced:
+        response.fixStatus = "rejected"
+    else:
+        response.fixStatus = "preview_ready"
+    return response
 
 
 def _get_raw_field(content: dict[str, Any], location: QualityLocation) -> str:

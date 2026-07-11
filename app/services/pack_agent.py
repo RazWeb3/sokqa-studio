@@ -39,7 +39,7 @@ from app.services.source_material import normalize_source
 from app.services.storage_client import StorageClient
 from app.services.storage_status import pop_storage_events
 from app.services.tts_optimizer import optimize_generated_files_with_report
-from app.services.validator import validate_files
+from app.services.validator import blocking_errors, file_validation_status, validate_files
 from app.services.versioning import bump_patch
 from app.utils.ids import new_job_id
 
@@ -189,7 +189,7 @@ def _files_from_revision_result(result) -> list[GeneratedFile]:
     return files
 
 
-def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operation: str) -> CommitPackRevisionInput:
+def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operation: str, quality_status: str | None = None) -> CommitPackRevisionInput:
     return CommitPackRevisionInput(
         target=RevisionTarget(creatorId=metadata.creator_id, contentId=metadata.content_id),
         operation=operation,
@@ -201,13 +201,14 @@ def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operatio
         scale=plan.scale,
         globalTags=getattr(plan, "globalTags", []),
         creatorDisplayName=metadata.creator_display_name,
+        qualityStatus=quality_status,
         addedFiles=[_added_file(file) for file in files],
     )
 
 
-def _persist_initial_revision(plan, metadata, files: list[GeneratedFile], operation: str, persist: bool):
+def _persist_initial_revision(plan, metadata, files: list[GeneratedFile], operation: str, persist: bool, quality_status: str | None = None):
     storage = StorageClient()
-    request = _initial_commit_request(plan, metadata, files, operation)
+    request = _initial_commit_request(plan, metadata, files, operation, quality_status)
     if persist:
         return persist_revision_commit(storage, None, request)
     return build_revision_commit(None, request)
@@ -489,12 +490,12 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     # to the UI for review; quality diagnostics must not abort pack generation.
     validation = validate_files(files)
     append_validation_logs(logs, validation)
-    if _regeneration_candidate_errors(validation):
-        logs.append("Persisting with unresolved quality issues for post-generation review")
+    quality_status = file_validation_status(validation)
+    persisted = bool(request.persist)
 
-    logs.append("Persisting generated files" if request.persist else "Building Manifest")
-    commit_result = _persist_initial_revision(plan, metadata, files, "initial_generate", request.persist)
-    if request.persist:
+    logs.append("Persisting generated files" if persisted else "Building review manifest without persistence")
+    commit_result = _persist_initial_revision(plan, metadata, files, "initial_generate", persisted, quality_status)
+    if persisted:
         logs.extend(event.message for event in pop_storage_events())
     manifest = commit_result.manifest
     files = _files_from_revision_result(commit_result)
@@ -505,6 +506,13 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     job_id = new_job_id()
     response = GeneratePackResponse(
         status="completed",
+        generationStatus="completed",
+        persisted=persisted,
+        fileValidationStatus=file_validation_status(validation),
+        blockingErrors=blocking_errors(validation),
+        warnings=[issue for issue in validation.errors if issue.severity != "error"],
+        qualityStatus=file_validation_status(validation),
+        publicationStatus="draft",
         jobId=job_id,
         plan=plan,
         files=files,

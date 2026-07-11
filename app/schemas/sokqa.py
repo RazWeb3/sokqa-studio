@@ -328,6 +328,15 @@ class DebugPromptRecordSchema(BaseModel):
 
 class GeneratePackResponse(BaseModel):
     status: Literal["completed"]
+    generationStatus: Literal["completed", "completed_with_errors"] = "completed"
+    persisted: bool = False
+    fileValidationStatus: Literal["valid", "warning", "blocked"] = "valid"
+    blockingErrors: list[ValidationErrorItem] = Field(default_factory=list)
+    warnings: list[ValidationErrorItem] = Field(default_factory=list)
+    temporaryGenerationId: str | None = None
+    temporaryGenerationVersion: int | None = None
+    qualityStatus: Literal["valid", "warning", "blocked"] = "valid"
+    publicationStatus: Literal["draft", "published"] = "draft"
     jobId: str
     plan: CoursePlan
     files: list[GeneratedFile]

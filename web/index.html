@@ -1121,6 +1121,7 @@
       let selectedUnitIds = new Set();
       let creditBalance = INITIAL_CREDITS;
       let currentJobId = "";
+      let currentTemporaryGenerationId = "";
       let activeTab = "generate";
       let activeGenerationView = "settings";
       let activeQualityView = "text";
@@ -2648,6 +2649,15 @@
       }
 
       function recordingTarget(pack = selectedPack) {
+        if (pack?.temporaryGenerationId) {
+          return {
+            creatorId: pack.creatorId,
+            temporaryGenerationId: pack.temporaryGenerationId,
+            temporaryGenerationVersion: pack.temporaryGenerationVersion,
+            packName: pack.packName,
+            kind: pack.kind
+          };
+        }
         return {
           creatorId: pack?.creatorId,
           contentId: pack?.contentId,
@@ -3307,6 +3317,19 @@
       }
 
       function generatedQualityTargets(generated) {
+        if (generated?.temporaryGenerationId) {
+          return (generated.files || [])
+            .filter((file) => ["document", "quiz"].includes(file.kind))
+            .map((file) => ({
+              creatorId: generated.plan?.creatorId,
+              temporaryGenerationId: generated.temporaryGenerationId,
+              temporaryGenerationVersion: generated.temporaryGenerationVersion,
+              packName: file.name,
+              kind: file.kind,
+              logicalId: file.name.replace(/\.json$/i, ""),
+              title: file.content?.title || file.name,
+            }));
+        }
         const contentId = generated?.manifest?.contentId || "";
         const versionId = generated?.manifest?.versionId || "";
         return currentPacks.filter((pack) =>
@@ -3771,6 +3794,7 @@
         setProgress("承認反映", "実行中", "選択した本文修正をfinalJsonへ反映しています。");
         try {
           lastTextApplyResult = await requestJson("/quality/text-fix/apply", {
+            target: recordingTarget(selectedPack),
             updatedJson: lastTextFixResult.updatedJson,
             pendingFixes: lastTextFixResult.pendingFixes || [],
             approvedIds: approvedPendingFixIds()
@@ -4235,6 +4259,11 @@
 
       function renderGeneratedResult(generated) {
         batchQualityState = null;
+        const isPersisted = Boolean(generated.persisted);
+        const blockingErrors = generated.blockingErrors || [];
+        const reviewNotice = generated.qualityStatus === "blocked"
+          ? `<div class="issue warning"><strong>生成済み・品質確認が必要</strong><span>blocking errorが残っています。品質チェック・修正または再生成を行ってください。公開、URL・QR、録音、配布は利用できません。</span>${blockingErrors.length ? `<ul>${blockingErrors.map((issue) => `<li>${escapeHtml(`${issue.file} ${issue.path}: ${issue.message}`)}</li>`).join("")}</ul>` : ""}</div>`
+          : "";
         const manifestUrl = generated.files?.find((file) => file.kind === "manifest")?.url || generated.manifest?.manifestUrl || "";
         const logsHtml = DEBUG_LOGS_ENABLED
           ? `<ul class="logs">${(generated.logs || []).map((log) => `<li>${escapeHtml(log)}</li>`).join("")}</ul>`
@@ -4253,13 +4282,14 @@
             </details>`
           : "";
         $("result").innerHTML = `
-          <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.status)}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${generated.validation?.valid ? "ok" : "ng"}</strong></div></div>
+          <div class="stats"><div class="stat"><span>STATUS</span><strong>${escapeHtml(generated.generationStatus || generated.status)}</strong></div><div class="stat"><span>PERSISTED</span><strong>${isPersisted ? "yes" : "no"}</strong></div><div class="stat"><span>FILES</span><strong>${generated.files?.length || 0}</strong></div><div class="stat"><span>VALID</span><strong>${escapeHtml(generated.fileValidationStatus || (generated.validation?.valid ? "valid" : "blocked"))}</strong></div></div>
+          ${reviewNotice}
           <div class="actions">
             <button class="secondary" id="openShareInfoBtn" type="button" disabled>URL・QRを表示</button>
           </div>
           <p class="muted" id="openShareInfoHint"></p>
           <div id="autoTextQualityResult" class="stack"><div class="applied"><strong>品質チェック</strong><span>${isAutoQualityFixEnabled() ? "生成成功後に実行します。" : "自動品質チェックはOFFです。"}</span></div></div>
-          <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button><button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
+          <div class="actions"><button class="secondary" id="exportGeneratedJsonZipBtn" type="button">JSON Zip出力</button>${generated.qualityStatus === "blocked" ? '<button class="secondary" id="returnToReviewBtn" type="button">構成を修正して再生成</button>' : ""}<button id="goQualityBtn" type="button">品質チェックへ進む</button><button class="secondary" id="goRecordBtn" type="button">録音へ進む</button></div>
           ${promptsHtml}
           ${logsHtml}`;
         if (!selectedPack?.manifestUrl && manifestUrl) {
@@ -4268,6 +4298,7 @@
         $("openShareInfoBtn")?.addEventListener("click", () => openVersionInfo({ force: true }));
         updateGlobalStatus();
         $("exportGeneratedJsonZipBtn")?.addEventListener("click", exportJsonZip);
+        $("returnToReviewBtn")?.addEventListener("click", () => setGenerationView("review"));
         $("goQualityBtn")?.addEventListener("click", () => setTab("quality"));
         $("goRecordBtn")?.addEventListener("click", () => setTab("record"));
         $("downloadAllPromptsZipBtn")?.addEventListener("click", () => {
@@ -4371,18 +4402,40 @@
             ...sourcePayload()
           });
           currentJobId = generated.jobId;
+          currentTemporaryGenerationId = generated.temporaryGenerationId || "";
           renderGeneratedResult(generated);
           setGenerationView("result");
-          await loadPacks({ keepSelection: false });
-          const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId && pack.versionId === generated.manifest?.versionId)
-            || currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId)
-            || currentPacks[0];
-          if (first) await selectPack(first);
-          setBadge("genBadge", "生成済み", "success");
-          finishProgress("生成", "生成済みパックを対象に設定しました。");
+          if (generated.persisted) {
+            await loadPacks({ keepSelection: false });
+            const first = currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId && pack.versionId === generated.manifest?.versionId)
+              || currentPacks.find((pack) => pack.contentId === generated.manifest?.contentId)
+              || currentPacks[0];
+            if (first) await selectPack(first);
+            setBadge("genBadge", "生成済み", "success");
+            finishProgress("生成", "生成済みパックを対象に設定しました。");
+          } else {
+            const firstTemporaryFile = (generated.files || []).find((file) => ["document", "quiz"].includes(file.kind));
+            if (firstTemporaryFile) {
+              selectedPack = {
+                creatorId: generated.plan?.creatorId,
+                temporaryGenerationId: generated.temporaryGenerationId,
+                temporaryGenerationVersion: generated.temporaryGenerationVersion,
+                packName: firstTemporaryFile.name,
+                kind: firstTemporaryFile.kind,
+                logicalId: firstTemporaryFile.name.replace(/\.json$/i, ""),
+                title: firstTemporaryFile.content?.title || firstTemporaryFile.name,
+              };
+            }
+            setBadge("genBadge", "未保存", "warning");
+            finishProgress("生成", "生成結果を確認し、blocking errorを解消してから再生成してください。");
+          }
           if (isAutoQualityFixEnabled()) {
-            generationActionState = "quality";
-            updateGenerateActionBar();
+            if (generated.persisted || generated.temporaryGenerationId) {
+              generationActionState = "quality";
+              updateGenerateActionBar();
+              await runBatchQualityWorkflow(generated);
+            }
+          } else if (generated.temporaryGenerationId) {
             await runBatchQualityWorkflow(generated);
           }
           generationActionState = "complete";

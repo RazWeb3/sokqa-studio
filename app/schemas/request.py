@@ -464,6 +464,8 @@ class SaveTtsRulesRequest(BaseModel):
 
 
 class TtsRecordingTarget(BaseModel):
+    temporaryGenerationId: str | None = Field(default=None, min_length=12, max_length=120)
+    temporaryGenerationVersion: int | None = Field(default=None, ge=1)
     manifestUrl: str | None = Field(default=None, min_length=1)
     packUrl: str | None = Field(default=None, min_length=1)
     creatorId: str | None = Field(default=None, min_length=1, max_length=120)
@@ -471,6 +473,15 @@ class TtsRecordingTarget(BaseModel):
     versionId: str | None = Field(default=None, min_length=1, max_length=80)
     packName: str | None = Field(default=None, min_length=1, max_length=160)
     kind: Literal["document", "quiz"] | None = None
+
+    @model_validator(mode="after")
+    def validate_temporary_target(self):
+        if not self.temporaryGenerationId:
+            return self
+        saved_fields = (self.manifestUrl, self.packUrl, self.contentId, self.versionId)
+        if any(value is not None for value in saved_fields) or not self.creatorId:
+            raise ValueError("temporaryGenerationId requires creatorId and cannot be combined with a saved pack target")
+        return self
 
 
 class RevisePackTtsRequest(BaseModel):

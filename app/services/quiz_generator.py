@@ -1,4 +1,5 @@
 import logging
+import re
 import random
 import time
 
@@ -7,7 +8,7 @@ from app.config import get_settings
 from app.services.document_generator import sanitize_learner_facing_text
 from app.services.gemini_client import GeminiClient
 from app.services.generation_status import record_generation_source
-from app.services.llm_json import LlmJsonParseContext
+from app.services.llm_json import LlmJsonParseContext, LlmJsonParseError
 from app.services.language_detection import choice_set_language_state
 from app.services.pack_ids import quiz_pack_id
 from app.services.prompts import quiz_generation_prompt, quiz_pack_violation_repair_prompt, quiz_shortage_repair_prompt
@@ -109,7 +110,7 @@ def _generate_quiz_json_with_retry(
     for attempt in range(1, attempts + 1):
         try:
             return GeminiClient().generate_json(
-                prompt,
+                prompt if attempt == 1 else prompt + "\n\nPrevious output had a JSON syntax error. Return the same requested content as valid JSON only; no Markdown or commentary.",
                 model=model,
                 parse_context=LlmJsonParseContext(
                     generation_unit="quiz",
@@ -127,11 +128,24 @@ def _generate_quiz_json_with_retry(
             )
         except Exception as exc:
             last_error = exc
-            logger.warning("quiz_generation.retry quiz=%s attempt=%s error=%s", quiz_plan.id, attempt, repr(exc))
+            parse = exc if isinstance(exc, LlmJsonParseError) else None
+            line, column, position = _json_error_position(parse)
+            logger.warning(
+                "quiz_generation.%s file_id=%s attempt=%s max_attempts=%s exception_type=%s json_parse_line=%s json_parse_column=%s char_position=%s error=%s",
+                "failed" if attempt >= attempts else "retry", quiz_plan.id, attempt, attempts, type(exc).__name__, line, column, position, repr(exc),
+            )
             if attempt >= attempts:
                 break
             time.sleep(delays[min(attempt - 1, len(delays) - 1)])
     raise last_error or RuntimeError(f"quiz generation failed: {quiz_plan.id}")
+
+
+def _json_error_position(error: LlmJsonParseError | None) -> tuple[str, str, str]:
+    if not error or not error.attempts:
+        return "", "", ""
+    message = error.attempts[-1].get("error", "")
+    match = re.search(r"line (\d+) column (\d+) \(char (\d+)\)", message)
+    return match.groups() if match else ("", "", "")
 
 
 def generate_mock_quiz_pack(
@@ -269,11 +283,16 @@ def _repair_pack_language_violations(
 
     violation_ids = {violation["id"] for violation in violations}
     logger.warning(
-        "quiz_generator.pack_language_violations quiz=%s count=%s",
+        "quiz_generator.pack_language_violations.detected quiz=%s count=%s question_ids=%s",
         quiz_plan.id,
         len(violations),
+        sorted(str(item) for item in violation_ids),
     )
     try:
+        logger.info(
+            "quiz_generator.pack_language_violations.repair_started quiz=%s count=%s question_ids=%s",
+            quiz_plan.id, len(violations), sorted(str(item) for item in violation_ids),
+        )
         prompt = quiz_pack_violation_repair_prompt(plan, quiz_plan, violations)
         repaired = GeminiClient().generate_json(
             prompt,
@@ -298,6 +317,7 @@ def _repair_pack_language_violations(
             quiz_plan.id,
             repr(exc),
         )
+        logger.warning("quiz_generator.pack_language_violations.remaining quiz=%s count=%s", quiz_plan.id, len(violations))
         return content
 
     repaired_by_id = {
@@ -306,6 +326,7 @@ def _repair_pack_language_violations(
         if isinstance(item, dict) and item.get("id") in violation_ids
     }
     if not repaired_by_id:
+        logger.warning("quiz_generator.pack_language_violations.remaining quiz=%s count=%s", quiz_plan.id, len(violations))
         return content
 
     fixed_questions = []
@@ -329,6 +350,13 @@ def _repair_pack_language_violations(
             fixed_questions.append(question)
     content = dict(content)
     content["questions"] = fixed_questions
+    remaining = _pack_language_violations(content, plan, quiz_plan)
+    logger.info(
+        "quiz_generator.pack_language_violations.repair_completed quiz=%s repaired_count=%s remaining_count=%s",
+        quiz_plan.id, len(violations) - len(remaining), len(remaining),
+    )
+    if remaining:
+        logger.warning("quiz_generator.pack_language_violations.remaining quiz=%s count=%s", quiz_plan.id, len(remaining))
     return content
 
 

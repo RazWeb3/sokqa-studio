@@ -86,6 +86,8 @@ class PackManifestV2(BaseModel):
     buildId: str = Field(..., min_length=1)
     generatedAt: str = Field(..., min_length=1)
     change: ManifestChange
+    qualityStatus: Literal["valid", "warning", "blocked"] = "valid"
+    publicationStatus: Literal["draft", "published"] = "draft"
     items: list[ManifestItemV2] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -112,6 +114,8 @@ class PackLatestV2(BaseModel):
     language: str = "ja"
     generatedAt: str = Field(..., min_length=1)
     change: ManifestChange
+    qualityStatus: Literal["valid", "warning", "blocked"] = "valid"
+    publicationStatus: Literal["draft", "published"] = "draft"
     items: list[ManifestItemV2] = Field(default_factory=list)
 
 
@@ -171,6 +175,8 @@ class CommitPackRevisionInput(BaseModel):
     scale: str | None = None
     globalTags: list[str] | None = None
     creatorDisplayName: str | None = None
+    qualityStatus: Literal["valid", "warning", "blocked"] | None = None
+    publicationStatus: Literal["draft", "published"] | None = None
     changedFiles: list[ChangedPackFile] = Field(default_factory=list)
     addedFiles: list[AddedPackFile] = Field(default_factory=list)
     removedFiles: list[RemovedPackFile] = Field(default_factory=list)

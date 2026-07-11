@@ -76,5 +76,7 @@ def build_pack_latest(result: RevisionCommitResult, creator_id: str) -> PackLate
         language=result.manifest.language,
         generatedAt=result.manifest.generatedAt,
         change=result.manifest.change,
+        qualityStatus=result.manifest.qualityStatus,
+        publicationStatus=result.manifest.publicationStatus,
         items=result.items,
     )

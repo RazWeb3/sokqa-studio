@@ -259,6 +259,8 @@ def _pack_item_from_v2_manifest_item(
         "url": item.url,
         "assetBaseUrl": f"{base_url}/{storage_prefix}",
         "storagePrefix": storage_prefix,
+        "qualityStatus": manifest.qualityStatus,
+        "publicationStatus": manifest.publicationStatus,
         "items": [
             {
                 "kind": manifest_item.kind,

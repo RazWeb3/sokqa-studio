@@ -11,6 +11,7 @@ from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizP
 from app.services import pack_agent
 from app.services.document_generator import generate_mock_document_pack, normalize_document_content
 from app.services.gemini_client import GeminiClient
+from app.services.generation.context import GenerationContext
 from app.services.tagging import document_global_tags, quiz_global_tags
 from app.services.pack_agent import generate_pack
 from app.services.prompts import (
@@ -28,6 +29,10 @@ from app.services.prompts import (
 from app.services.quiz_generator import generate_mock_quiz_pack, normalize_quiz_content
 from app.services.repairer import QUIZ_REPAIR_INSTRUCTIONS, repair_files
 from app.services.validator import blocking_errors, validate_files
+
+
+def _language_learning_context(plan: CoursePlan, choice_mode: str | None = None) -> GenerationContext:
+    return GenerationContext("language_learning", plan.language, plan.learningLanguage, choice_mode, "multilingual")
 
 
 def _plan() -> CoursePlan:
@@ -960,8 +965,9 @@ def test_auto_choice_language_allows_per_question_switch_but_rejects_mixed_set()
         "さようなら",
     ]
 
-    valid_result = validate_files([valid])
-    mixed_result = validate_files([mixed])
+    context = GenerationContext("language_learning", "ja", "en", "auto", "multilingual")
+    valid_result = validate_files([valid], context=context)
+    mixed_result = validate_files([mixed], context=context)
 
     assert valid_result.valid is True
     assert mixed_result.valid is True
@@ -1769,7 +1775,9 @@ def test_document_validator_flags_missing_learning_language_phrase() -> None:
         },
     )
 
-    result = validate_files([file])
+    result = validate_files(
+        [file], context=GenerationContext("language_learning", "ja", "en", None, "multilingual")
+    )
 
     errors = [error for error in result.errors if error.path == "documents" and "learning language" in error.message]
     assert errors
@@ -1915,10 +1923,10 @@ def test_generation_completes_with_diagnostics_when_placeholder_remains_after_re
     original_persist = pack_agent._persist_initial_revision
     persist_requests: list[bool] = []
 
-    def capture_persist(plan, metadata, files, operation, persist, quality_status=None):
+    def capture_persist(plan, metadata, files, operation, persist, quality_status=None, **kwargs):
         persist_requests.append(persist)
         # Build the real revision without touching external storage.
-        return original_persist(plan, metadata, files, operation, False)
+        return original_persist(plan, metadata, files, operation, False, **kwargs)
 
     monkeypatch.setattr(pack_agent, "_persist_initial_revision", capture_persist)
 
@@ -1988,7 +1996,7 @@ def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples
     """choiceLanguageMode=pack で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-1）。"""
     plan = _plan()
     plan.learningLanguage = "en"
-    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()], context=_language_learning_context(plan, "pack"))
 
     # 既存の選択肢言語指示が維持されていること
     assert "Write all four choices in each question in the pack language (ja)" in prompt
@@ -2007,7 +2015,7 @@ def test_quiz_prompt_learning_mode_includes_question_structure_and_good_bad_exam
     """choiceLanguageMode=learning で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-2）。"""
     plan = _plan()
     plan.learningLanguage = "en"
-    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()])
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()], context=_language_learning_context(plan, "learning"))
 
     # 既存の選択肢言語指示が維持されていること
     assert "Write all four choices in each question in the learning language (en)" in prompt
@@ -2028,10 +2036,10 @@ def test_quiz_prompt_choice_language_instruction_preserved_across_modes() -> Non
     plan = _plan()
     plan.learningLanguage = "en"
 
-    pack_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+    pack_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()], context=_language_learning_context(plan, "pack"))
     assert "Write all four choices in each question in the pack language (ja)" in pack_prompt
 
-    learning_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()])
+    learning_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()], context=_language_learning_context(plan, "learning"))
     assert "Write all four choices in each question in the learning language (en)" in learning_prompt
 
 
@@ -2039,7 +2047,7 @@ def test_quiz_prompt_auto_mode_text_unchanged_and_no_structure_template() -> Non
     """auto モードは既存文言が維持され、構造テンプレート・Good/Bad 例が追加されていないこと（要件3-4）。"""
     plan = _plan()
     plan.learningLanguage = "en"
-    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("auto"), [_source_pack()])
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("auto"), [_source_pack()], context=_language_learning_context(plan, "auto"))
 
     # 既存 auto 文言が維持されていること
     assert ("Choose either the pack language (ja) or learning language (en) per question. "
@@ -2057,7 +2065,7 @@ def test_quiz_prompt_non_ja_en_pack_uses_generic_good_bad_examples_without_hardc
     plan = _plan()
     plan.language = "ko"
     plan.learningLanguage = "fr"
-    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()], context=_language_learning_context(plan, "pack"))
 
     assert "question には学習言語（fr）の表現・フレーズを提示" in prompt
     assert "四つの選択肢はすべてパック言語（ko）で書き" in prompt

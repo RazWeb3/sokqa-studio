@@ -19,6 +19,7 @@ from app.services.language_detection import (
     language_script,
     scripts_in_text,
 )
+from app.services.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +104,18 @@ def _as_quality_issues(issues: list[ValidationErrorItem]) -> list[ValidationErro
     return [issue.model_copy(update={"severity": "warning", "classification": "quality"}) for issue in issues]
 
 
-def validate_files(files: list[GeneratedFile], manifest: PackManifestV2 | None = None) -> ValidationResult:
+def validate_files(
+    files: list[GeneratedFile], manifest: PackManifestV2 | None = None, *, context: GenerationContext | None = None
+) -> ValidationResult:
     errors: list[ValidationErrorItem] = []
     for file in files:
         try:
             if file.kind == "document":
                 pack = SokqaDocumentPack.model_validate(file.content)
-                errors.extend(_as_quality_issues(validate_document_semantics(file.name, pack)))
+                errors.extend(_as_quality_issues(validate_document_semantics(file.name, pack, context=context)))
             elif file.kind == "quiz":
                 pack = SokqaQuizPack.model_validate(file.content)
-                errors.extend(_as_quality_issues(validate_quiz_semantics(file.name, pack)))
+                errors.extend(_as_quality_issues(validate_quiz_semantics(file.name, pack, context=context)))
             elif file.kind == "manifest":
                 PackManifestV2.model_validate(file.content)
         except ValidationError as exc:
@@ -163,9 +166,12 @@ def _manifest_reference_errors(files: list[GeneratedFile], manifest: PackManifes
     return errors
 
 
-def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list[ValidationErrorItem]:
+def validate_document_semantics(
+    file_name: str, pack: SokqaDocumentPack, *, context: GenerationContext | None = None
+) -> list[ValidationErrorItem]:
     errors: list[ValidationErrorItem] = []
-    _append_learning_language_presence_issues(file_name, pack, errors)
+    if context and context.is_language_learning:
+        _append_learning_language_presence_issues(file_name, pack, errors, context=context)
     seen_texts: dict[str, int] = {}
     for index, item in enumerate(pack.documents):
         text = item.text.strip()
@@ -215,14 +221,14 @@ def validate_document_semantics(file_name: str, pack: SokqaDocumentPack) -> list
 
 
 def _append_learning_language_presence_issues(
-    file_name: str, pack: SokqaDocumentPack, errors: list[ValidationErrorItem]
+    file_name: str, pack: SokqaDocumentPack, errors: list[ValidationErrorItem], *, context: GenerationContext
 ) -> None:
     """Avoid treating brief bridges and summaries as failed learning sections.
 
     Until section roles are modelled, only whole-document absence is blocking.
     A long pack-language-only section remains a review warning.
     """
-    learning_language = pack.learningLanguage
+    learning_language = context.learning_language
     if not learning_language:
         return
     learning_script = language_script(learning_language)
@@ -256,12 +262,14 @@ def _append_learning_language_presence_issues(
             )
 
 
-def validate_quiz_semantics(file_name: str, pack: SokqaQuizPack) -> list[ValidationErrorItem]:
+def validate_quiz_semantics(
+    file_name: str, pack: SokqaQuizPack, *, context: GenerationContext | None = None
+) -> list[ValidationErrorItem]:
     errors: list[ValidationErrorItem] = []
     seen_questions: dict[str, int] = {}
-    if pack.learningLanguage:
+    if context and context.is_language_learning and context.learning_language:
         for index, question in enumerate(pack.questions):
-            state = choice_set_language_state(question.choices, pack.language, pack.learningLanguage)
+            state = choice_set_language_state(question.choices, context.pack_language, context.learning_language)
             if pack.choiceLanguageMode == "auto" and state == "mixed":
                 errors.append(
                     ValidationErrorItem(

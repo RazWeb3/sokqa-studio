@@ -304,6 +304,19 @@ Gemini に多言語対応の読み上げ用テキスト生成を依頼し、必�
 
 ## 多言語設定
 
+## 生成モードの決定
+
+生成開始時に Strategy が `standard` または `language_learning` を一度だけ決定する。下流の
+TTS 最適化、Validator、Quality Checker、Quality Fixer は `GenerationContext` を受け取り、
+`learningLanguage` の有無や生成済みの言語タグからモードを再推測しない。
+
+- `learningLanguage` が未指定、または pack language と同じ場合は Standard。
+- `japanese_learning` は既存 Strategy の条件（pack language が `ja` 以外）を維持する。
+- 既存の保存済みパックには生成モードがないため Standard として扱う。新規 manifest は
+  `generationMode` を保存する。
+- Language Learning の言語タグは発音言語の切替境界だけに使う。同一言語への連続切替や空タグは
+  正規化するが、固有名詞や短い英字列の意味的な境界は自動変更せず `tts_language_boundary` として検出する。
+
 対象:
 
 - document

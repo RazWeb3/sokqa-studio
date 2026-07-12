@@ -21,6 +21,9 @@ from app.services.language_detection import (
     scripts_in_text,
 )
 
+_LANGUAGE_TAG_RE = re.compile(r"\[([a-z]{2,3}(?:-[A-Za-z0-9]+)*)\]", re.I)
+_JAPANESE_GRAMMAR_RE = re.compile(r"[ぁ-ん一-龥々][ぁ-ん]*(?:は|が|を|に|で|と|の|から|まで|です|ます)")
+
 
 def quiz_answer_explanation_consistency_prompt(questions: list[dict]) -> str:
     """Return a single, conservative semantic-review request for a whole quiz.
@@ -283,6 +286,42 @@ def deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[Qu
                         f"{tag}{choice}",
                     )
                 )
+    return issues
+
+
+def tts_language_boundary_issues(file_name: str, content: dict[str, Any]) -> list[QualityIssue]:
+    """Report ambiguous tag boundaries without rewriting their meaning."""
+    issues: list[QualityIssue] = []
+    pack_language = str(content.get("language") or "ja")
+    default_tag = f"[{_speech_code(pack_language)}]".lower()
+
+    def inspect(unit_id: str, field: str, value: object) -> None:
+        if not isinstance(value, str):
+            return
+        tags = list(_LANGUAGE_TAG_RE.finditer(value))
+        for index, tag in enumerate(tags):
+            next_start = tags[index + 1].start() if index + 1 < len(tags) else len(value)
+            span = value[tag.end():next_start]
+            if not span:
+                issues.append(_quality_issue(file_name, unit_id, field, tag.group(0), "空のTTS言語区間があります。", "空タグを削除してください。", category="tts_language_boundary"))
+            elif tag.group(0).lower() != default_tag and (
+                _JAPANESE_GRAMMAR_RE.search(span) or re.search(r"[\u3040-\u30ff\u3400-\u9fff]", span)
+            ):
+                issues.append(_quality_issue(file_name, unit_id, field, span[:60], "非デフォルト言語タグ内に日本語の文法要素が含まれています。", "言語境界を確認してください。", category="tts_language_boundary"))
+
+    for unit in content.get("documents") or content.get("questions") or []:
+        if not isinstance(unit, dict):
+            continue
+        tts = unit.get("tts")
+        if not isinstance(tts, dict):
+            continue
+        unit_id = str(unit.get("id") or "")
+        for field, value in tts.items():
+            if isinstance(value, list):
+                for item in value:
+                    inspect(unit_id, field, item)
+            else:
+                inspect(unit_id, field, value)
     return issues
 
 

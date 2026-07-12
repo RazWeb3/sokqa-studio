@@ -1,6 +1,7 @@
 import json
 
 from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack, SokqaDocumentPack
+from app.services.generation.context import GenerationContext
 from app.services.pack_ids import document_pack_id, quiz_pack_id
 from app.services.source_material import source_prompt_block
 from app.services.tagging import document_global_tags, quiz_global_tags
@@ -479,7 +480,9 @@ Quiz context source: generic fallback
 """.strip()
 
 
-def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
+def document_generation_prompt(
+    plan: CoursePlan, document: PlanDocument, *, context: GenerationContext | None = None
+) -> str:
     source_block = source_prompt_block(plan.sourceText, plan.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
     reading_policy_section = _selected_reading_patterns_block(plan)
@@ -501,6 +504,7 @@ def document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
 """.strip()
     quality_rules = _document_quality_rules_block(plan, global_tags)
     teaching_guidance_rules = _document_teaching_guidance_rules_block(plan)
+    language_learning_role = _language_learning_document_role_block(context)
     course_teaching_guidance = _course_teaching_guidance_block(plan)
     teaching_guidance_role = _learner_facing_role_block()
     return f"""Create one Sokqa document JSON.
@@ -509,6 +513,7 @@ Rules:
 {generation_instruction}
 {quality_rules}
 {teaching_guidance_rules}
+{language_learning_role}
 
 Course:
 - title: {plan.title}
@@ -555,13 +560,16 @@ def quiz_generation_prompt(
     plan: CoursePlan,
     quiz_pack: PlanQuizPack,
     source_documents: list[SokqaDocumentPack],
+    *,
+    context: GenerationContext | None = None,
 ) -> str:
     quiz_context = _quiz_context_block(plan, source_documents)
     reading_policy_section = _selected_reading_patterns_block(plan)
     custom_instructions = _custom_instructions_block(plan)
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
-    learning_language = plan.learningLanguage or "not specified"
+    is_language_learning = bool(context and context.is_language_learning)
+    learning_language = context.learning_language if is_language_learning else "not applicable"
     pack_lang = plan.language
     difficulty = plan.difficulty or "standard"
     # 共通層: difficulty は「問題の深さ」のみを定義し、ドメイン固有の中身は書かない（Phase 10）。
@@ -607,7 +615,9 @@ def quiz_generation_prompt(
             f"  Bad: choices をパック言語（{pack_lang}）にする、または問題文と選択肢の言語関係が噛み合わなくなっている点が誤り。"
         )
 
-    if quiz_pack.choiceLanguageMode == "pack":
+    if not is_language_learning:
+        choice_language_rule = "- Treat this as a standard knowledge quiz. Do not impose Language Learning choice-language rules."
+    elif quiz_pack.choiceLanguageMode == "pack":
         choice_language_rule = (
             f"- Write all four choices in each question in the pack language ({plan.language}).\n"
             "- Question structure (pack mode):\n"
@@ -672,13 +682,15 @@ def quiz_generation_prompt(
         quiz_difficulty_block,
     )
 
-    quiz_difficulty_extra = quiz_difficulty_block(plan)
+    quiz_difficulty_extra = quiz_difficulty_block(plan) if is_language_learning else ""
+    language_learning_role = _language_learning_quiz_role_block(context)
     return f"""Create one Sokqa quiz JSON from the provided quiz context.
 
 Rules:
 {generation_instruction}
 {quality_rules}
 {teaching_guidance_rules}
+{language_learning_role}
 
 {teaching_guidance_role}
 
@@ -875,4 +887,27 @@ Return this shape:
     {{"id": "original-id", "question": "replacement question", "choices": ["choice 1", "choice 2", "choice 3", "choice 4"], "answerIndex": 0, "explanation": "explanation for choice 1 only"}}
   ]
 }}
+""".strip()
+
+
+def _language_learning_document_role_block(context: GenerationContext | None) -> str:
+    if not context or not context.is_language_learning:
+        return ""
+    return f"""
+# Language Learning teacher role
+You are a language teacher skilled in second-language acquisition and practical conversation instruction.
+- The goal is not general knowledge about the theme. Help learners understand, choose, and say the learning language ({context.learning_language}).
+- Make the learning-language phrase the subject of every substantive section. Give only a short situation, then present the phrase, its meaning in the pack language, and its nuance, politeness, or usage condition.
+- Do not spend a long introductory explanation before the first learning-language phrase. Do not add language tags to learner-facing text.
+""".strip()
+
+
+def _language_learning_quiz_role_block(context: GenerationContext | None) -> str:
+    if not context or not context.is_language_learning:
+        return ""
+    return f"""
+# Language Learning quiz role
+- Test the learning language ({context.learning_language}), not general knowledge about the chapter or theme.
+- Prefer meaning, situational appropriateness, register, natural replies, nuance, and correction of clear misuse.
+- Every question must be grounded in a concrete learning-language phrase or expression. Do not create chapter-metadata or theme-fact recall questions.
 """.strip()

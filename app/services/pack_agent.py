@@ -31,8 +31,7 @@ from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.content_validator import validate_english_spans
 from app.services.quality_fixer import apply_auto_quality_fixes
-from app.services.generation.strategy import resolve_generation_strategy
-from app.services.quality.context import QualityContext
+from app.services.generation.context import GenerationContext
 from app.services.repairer import repair_files
 from app.services.revision_commit import build_revision_commit
 from app.services.revision_store import persist_revision_commit
@@ -200,7 +199,7 @@ def _files_from_revision_result(result) -> list[GeneratedFile]:
     return files
 
 
-def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operation: str, quality_status: str | None = None) -> CommitPackRevisionInput:
+def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operation: str, quality_status: str | None = None, generation_context: GenerationContext | None = None) -> CommitPackRevisionInput:
     return CommitPackRevisionInput(
         target=RevisionTarget(creatorId=metadata.creator_id, contentId=metadata.content_id),
         operation=operation,
@@ -208,6 +207,7 @@ def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operatio
         title=plan.title,
         description=plan.description,
         language=plan.language,
+        generationMode=(generation_context.mode if generation_context else "standard"),
         author=plan.author,
         scale=plan.scale,
         globalTags=getattr(plan, "globalTags", []),
@@ -217,15 +217,18 @@ def _initial_commit_request(plan, metadata, files: list[GeneratedFile], operatio
     )
 
 
-def _persist_initial_revision(plan, metadata, files: list[GeneratedFile], operation: str, persist: bool, quality_status: str | None = None):
+def _persist_initial_revision(plan, metadata, files: list[GeneratedFile], operation: str, persist: bool, quality_status: str | None = None, generation_context: GenerationContext | None = None):
     storage = StorageClient()
-    request = _initial_commit_request(plan, metadata, files, operation, quality_status)
+    request = _initial_commit_request(plan, metadata, files, operation, quality_status, generation_context)
     if persist:
         return persist_revision_commit(storage, None, request)
     return build_revision_commit(None, request)
 
 
-def _ensure_initial_pack_is_persistable(plan, metadata, files: list[GeneratedFile], quality_status: str) -> None:
+def _ensure_initial_pack_is_persistable(
+    plan, metadata, files: list[GeneratedFile], quality_status: str,
+    generation_context: GenerationContext | None = None,
+) -> None:
     """Reject only a pack that remains structurally unsafe after normalization.
 
     The preview uses the same manifest builder as persistence, but does not
@@ -235,9 +238,11 @@ def _ensure_initial_pack_is_persistable(plan, metadata, files: list[GeneratedFil
     """
     preview = build_revision_commit(
         None,
-        _initial_commit_request(plan, metadata, files, "initial_generate", quality_status),
+        _initial_commit_request(plan, metadata, files, "initial_generate", quality_status, generation_context),
     )
-    preview_validation = validate_files(_files_from_revision_result(preview), preview.manifest)
+    preview_validation = validate_files(
+        _files_from_revision_result(preview), preview.manifest, context=generation_context
+    )
     errors = blocking_errors(preview_validation)
     if errors:
         raise PackPersistenceError(errors)
@@ -427,6 +432,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         plan.ttsLanguageSettings = request.ttsLanguageSettings
     plan = _resolve_selected_reading_patterns(plan)
     tts_mode = _effective_tts_mode(plan, request.ttsReadingMode)
+    generation_context = GenerationContext.from_request(request, tts_reading_mode=tts_mode)
     if tts_mode != "llm" and plan.selectedReadingPatternIds:
         plan = plan.model_copy(update={"selectedReadingPatternIds": []})
     models = resolve_task_models(plan, request)
@@ -447,7 +453,10 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
         ]
     else:
         logs.append("Generating Documents")
-        document_packs = [generate_document_pack(plan, document, model=models.document) for document in plan.documents]
+        document_packs = [
+            generate_document_pack(plan, document, model=models.document, context=generation_context)
+            for document in plan.documents
+        ]
     logs.extend(event.message for event in pop_generation_events())
 
     logs.append("Generating Quizzes from Documents")
@@ -457,6 +466,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
             quiz_pack,
             _document_packs_for_quiz(plan, quiz_pack, document_packs),
             model=models.quiz,
+            context=generation_context,
         )
         for quiz_pack in plan.quizPacks
     ]
@@ -465,13 +475,13 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     files = build_generated_files(document_packs, quiz_packs)
 
     logs.append("Validating")
-    validation = validate_files(files)
+    validation = validate_files(files, context=generation_context)
     append_validation_logs(logs, validation)
 
     if _needs_generation_repair(validation):
         logs.append("Repairing")
         files = repair_files(files)
-        validation = validate_files(files)
+        validation = validate_files(files, context=generation_context)
         append_validation_logs(logs, validation)
         _log_remaining_repair_warnings(validation)
         document_packs, quiz_packs = _sync_packs_from_files(files, document_packs, quiz_packs)
@@ -488,15 +498,17 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
             quiz_model=models.quiz,
         )
         files = build_generated_files(document_packs, quiz_packs)
-        validation = validate_files(files)
+        validation = validate_files(files, context=generation_context)
         append_validation_logs(logs, validation)
         if _regeneration_candidate_errors(validation):
             logs.append("Quality errors remain after regeneration; continuing with reviewable output")
 
     if tts_mode != "none":
         logs.append(f"Optimizing TTS ({tts_mode})")
-        files, tts_report = optimize_generated_files_with_report(files, plan.ttsRules, tts_mode, plan.ttsLanguageSettings)
-        validation = validate_files(files)
+        files, tts_report = optimize_generated_files_with_report(
+            files, plan.ttsRules, tts_mode, plan.ttsLanguageSettings, context=generation_context
+        )
+        validation = validate_files(files, context=generation_context)
         append_validation_logs(logs, validation)
     else:
         tts_report = None
@@ -508,9 +520,8 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
             validate_english_spans(file.content, file.name)
 
     logs.append("Applying auto quality fixes")
-    quality_context = QualityContext(resolve_generation_strategy(request))
     for file in files:
-        updated_content, applied = apply_auto_quality_fixes(file.content, file.name, context=quality_context)
+        updated_content, applied = apply_auto_quality_fixes(file.content, file.name, context=generation_context)
         if applied:
             file.content = updated_content
             for fix in applied:
@@ -520,21 +531,24 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
 
     # Revalidate immediately before persistence. Remaining issues are returned
     # to the UI for review; quality diagnostics must not abort pack generation.
-    validation = validate_files(files)
+    validation = validate_files(files, context=generation_context)
     append_validation_logs(logs, validation)
     quality_status = file_validation_status(validation)
     persisted = bool(request.persist)
 
-    _ensure_initial_pack_is_persistable(plan, metadata, files, quality_status)
+    _ensure_initial_pack_is_persistable(plan, metadata, files, quality_status, generation_context)
 
     logs.append("Persisting generated files" if persisted else "Building review manifest without persistence")
-    commit_result = _persist_initial_revision(plan, metadata, files, "initial_generate", persisted, quality_status)
+    commit_result = _persist_initial_revision(
+        plan, metadata, files, "initial_generate", persisted, quality_status,
+        generation_context=generation_context,
+    )
     if persisted:
         logs.extend(event.message for event in pop_storage_events())
     manifest = commit_result.manifest
     files = _files_from_revision_result(commit_result)
 
-    validation = validate_files(files, manifest)
+    validation = validate_files(files, manifest, context=generation_context)
     append_validation_logs(logs, validation)
     prompts = _collect_prompt_records()
     job_id = new_job_id()

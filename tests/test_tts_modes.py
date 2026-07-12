@@ -6,6 +6,7 @@ from app.schemas.common import TtsLanguageSettings, TtsRule, default_speech_lang
 from app.schemas.request import GeneratePackRequest, PlanPackRequest
 from app.schemas.sokqa import CoursePlan, GeneratedFile, QuizTts
 from app.services.gemini_client import GeminiClient
+from app.services.generation.context import GenerationContext
 from app.services.tts_optimizer import (
     MAX_TTS_FILE_CHARS,
     _gemini_document_chunk_readings,
@@ -1422,7 +1423,10 @@ def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch)
         }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
-    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
+    files, _ = optimize_generated_files_with_report(
+        [file], [], mode="multilingual",
+        context=GenerationContext("language_learning", "ja", "en", "learning", "multilingual"),
+    )
 
     # choiceTexts is retained because no choicesLanguage is present: switch
     # tags alone do not make the common fallback locale explicit.
@@ -1479,7 +1483,10 @@ def test_learning_mode_omits_choice_texts_when_choices_language_present(monkeypa
         }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
-    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
+    files, _ = optimize_generated_files_with_report(
+        [file], [], mode="multilingual",
+        context=GenerationContext("language_learning", "ja", "en", "auto", "multilingual"),
+    )
 
     tts = files[0].content["questions"][0]["tts"]
     # 冗長な choiceTexts は省略される
@@ -1538,7 +1545,10 @@ def test_learning_language_auto_keeps_only_non_pack_choice_texts(monkeypatch) ->
         }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
-    files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
+    files, _ = optimize_generated_files_with_report(
+        [file], [], mode="multilingual",
+        context=GenerationContext("language_learning", "ja", "en", "auto", "multilingual"),
+    )
     questions = files[0].content["questions"]
 
     assert all(value.startswith("[en-US]") for value in questions[0]["tts"]["choiceTexts"])
@@ -1594,7 +1604,10 @@ def test_learning_mode_cjk_keeps_choice_texts_for_reading_correction(monkeypatch
         }
 
     monkeypatch.setattr(GeminiClient, "generate_json", fake_ja)
-    ja_files, _ = optimize_generated_files_with_report([ja_file], [], mode="multilingual")
+    ja_files, _ = optimize_generated_files_with_report(
+        [ja_file], [], mode="multilingual",
+        context=GenerationContext("language_learning", "en", "ja", "learning", "multilingual"),
+    )
     tts_ja = ja_files[0].content["questions"][0].get("tts", {})
     assert "choiceTexts" in tts_ja
 

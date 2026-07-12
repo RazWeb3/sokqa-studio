@@ -17,16 +17,17 @@ from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
 from app.services.language_detection import leading_script
 from app.services.llm_json import LlmJsonParseContext
-from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.tts_recording_api import load_target_pack
-from app.services.generation.strategy import resolve_generation_strategy
-from app.services.quality.context import QualityContext
+from app.services.storage_client import StorageClient
+from app.services.pack_paths import pack_root_prefix
+from app.services.generation.context import GenerationContext
+from app.services.generation.language_learning.quality import deterministic_ll_structure_issues, deterministic_tts_issues, tts_language_boundary_issues
 from app.services.quality.dispatcher import check_quality
 
 
 MAX_QUALITY_INPUT_CHARS = 30000
 TEXT_QUALITY_CATEGORIES = {"factual", "style", "leak", "ll_structure"}
-TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch"}
+TTS_QUALITY_CATEGORIES = {"reading", "double_utterance", "notation", "tts_text_mismatch", "tts_language_boundary"}
 FULL_REPLACE_CATEGORIES = {"factual", "style", "leak", "tts_text_mismatch"}
 _logger = logging.getLogger(__name__)
 
@@ -103,19 +104,18 @@ def check_tts_quality(target: TtsRecordingTarget, max_issues: int = 50) -> Quali
 
 def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: str) -> QualityCheckResponse:
     loaded = load_target_pack(target)
-    context = _quality_context_for_target(target)
+    context = _quality_context_for_target(target, loaded.file.content)
     settings = get_settings()
     model = settings.quality_model
 
-    multilingual_status = detect_multilingual(loaded.file.content)
-    allow_language_tags = multilingual_status == MultilingualStatus.MULTILINGUAL
+    allow_language_tags = context.allow_language_tags
     def _standard_content_issues(_: dict[str, Any]) -> list[QualityIssue]:
         return []
 
     def _language_learning_content_issues(content: dict[str, Any]) -> list[QualityIssue]:
         if mode == "tts":
-            return _deterministic_tts_issues(loaded.file.name, content)
-        return _deterministic_ll_structure_issues(
+            return deterministic_tts_issues(loaded.file.name, content) + tts_language_boundary_issues(loaded.file.name, content)
+        return deterministic_ll_structure_issues(
             loaded.file.name, content, allow_language_tags=allow_language_tags
         )
 
@@ -183,7 +183,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         raise QualityCheckError(f"quality check unexpected error: {exc}") from exc
 
 
-def _quality_context_for_target(target: TtsRecordingTarget) -> QualityContext:
+def _quality_context_for_target(target: TtsRecordingTarget, content: dict[str, Any] | None = None) -> GenerationContext:
     """Use an already available temporary generation plan, never file heuristics.
 
     Persisted/legacy quality API callers do not carry a plan.  They retain the
@@ -194,10 +194,21 @@ def _quality_context_for_target(target: TtsRecordingTarget) -> QualityContext:
         from app.services.temporary_generation_store import get_temporary_generation
 
         temporary = get_temporary_generation(target.temporaryGenerationId, str(target.creatorId))
-        return QualityContext(resolve_generation_strategy(GeneratePackRequest(plan=temporary.plan, persist=False)))
-    from app.services.generation.strategies.standard import StandardStrategy
-
-    return QualityContext(StandardStrategy())
+        request = GeneratePackRequest(plan=temporary.plan, persist=False)
+        return GenerationContext.from_request(request, tts_reading_mode=str(temporary.plan.ttsReadingMode or "none"))
+    if target.creatorId and target.contentId and target.versionId:
+        try:
+            manifest = StorageClient().read_manifest(pack_root_prefix(target.creatorId, target.contentId), target.versionId)
+            if manifest.get("generationMode") == "language_learning":
+                return GenerationContext(
+                    "language_learning", str(manifest.get("language") or "ja"),
+                    str((content or {}).get("learningLanguage") or "") or None,
+                    str((content or {}).get("choiceLanguageMode") or "") or None,
+                    "multilingual",
+                )
+        except Exception:
+            _logger.info("quality_check.manifest_context_unavailable target=%s", target.contentId)
+    return GenerationContext.standard()
 
 
 def _generate_json_with_retry(
@@ -348,22 +359,6 @@ def _normalize_quality_issue_location(issue: QualityIssue) -> QualityIssue:
             )
         }
     )
-
-
-def _deterministic_tts_issues(file_name: str, content: dict[str, Any]) -> list[QualityIssue]:
-    """Phase 6: 実体は generation.language_learning.quality へ移設（互換委譲）。"""
-    from app.services.generation.language_learning.quality import deterministic_tts_issues
-
-    return deterministic_tts_issues(file_name, content)
-
-
-def _deterministic_ll_structure_issues(
-    file_name: str, content: dict[str, Any], *, allow_language_tags: bool = False
-) -> list[QualityIssue]:
-    """Phase 10: 語学教材固有の構造検証（ll_structure）。実体は language_learning.quality へ。"""
-    from app.services.generation.language_learning.quality import deterministic_ll_structure_issues
-
-    return deterministic_ll_structure_issues(file_name, content, allow_language_tags=allow_language_tags)
 
 
 def _is_tts_null_issue(issue: QualityIssue) -> bool:

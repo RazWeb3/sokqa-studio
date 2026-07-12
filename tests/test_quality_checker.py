@@ -543,7 +543,7 @@ def test_detect_multilingual_returns_unknown_when_undetectable() -> None:
     )
 
 
-def test_quality_checker_rounds_unknown_multilingual_to_normal_for_prompt(monkeypatch) -> None:
+def test_quality_checker_uses_resolved_context_for_prompt(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_provider", "gemini")
 
@@ -564,9 +564,7 @@ def test_quality_checker_rounds_unknown_multilingual_to_normal_for_prompt(monkey
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
-    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
-
-    monkeypatch.setattr(quality_checker, "detect_multilingual", lambda _data: MultilingualStatus.UNKNOWN)
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda *_args: QualityContext(LanguageLearningStrategy()))
 
     observed: dict[str, bool] = {}
     original_quality_prompt = quality_checker._quality_prompt
@@ -587,7 +585,7 @@ def test_quality_checker_rounds_unknown_multilingual_to_normal_for_prompt(monkey
         max_issues=50,
     )
     assert response.fileName == file.name
-    assert observed["multilingual"] is False
+    assert observed["multilingual"] is True
 
 
 def test_quality_checker_filters_empty_suggestion_issues_and_keeps_others() -> None:
@@ -655,7 +653,7 @@ def test_tts_quality_check_detects_missing_learning_language_choice_texts(monkey
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
-    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda *_args: QualityContext(LanguageLearningStrategy()))
 
     response = client.post(
         "/quality/tts-check",
@@ -712,7 +710,7 @@ def test_tts_quality_check_detects_choice_language_mode_violation_and_mixed_choi
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
-    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda *_args: QualityContext(LanguageLearningStrategy()))
 
     response = client.post(
         "/quality/tts-check",
@@ -764,7 +762,7 @@ def test_tts_quality_check_detects_choice_text_length_mismatch(monkeypatch) -> N
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
-    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda *_args: QualityContext(LanguageLearningStrategy()))
 
     response = client.post(
         "/quality/tts-check",

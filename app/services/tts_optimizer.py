@@ -14,6 +14,7 @@ from app.schemas.sokqa import (
     TtsReportItem,
 )
 from app.services.gemini_client import GeminiClient
+from app.services.generation.context import GenerationContext
 from app.services.language_detection import language_script, leading_script
 from app.services.llm_json import LlmJsonParseContext
 from app.services.tts_text import collapse_duplicate_katakana_parentheticals, normalize_tts_text, strip_choice_separator
@@ -1720,6 +1721,7 @@ def optimize_document_pack(
     file_name: str = "",
     warnings: list[TtsReportItem] | None = None,
     language_settings: TtsLanguageSettings | None = None,
+    context: GenerationContext | None = None,
 ) -> SokqaDocumentPack:
     active_mode = _mode_or_default(mode)
     # 語学教材用ドキュメント TTS 言語設定は language_learning/tts.build_document_language_settings へ委譲（Phase 5 候補3）。
@@ -1728,7 +1730,8 @@ def optimize_document_pack(
         build_document_language_settings,
     )
 
-    language_settings = build_document_language_settings(pack) or language_settings
+    if context and context.is_language_learning:
+        language_settings = build_document_language_settings(pack) or language_settings
     rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []
@@ -1787,7 +1790,7 @@ def optimize_document_pack(
             item.tts = None
     # Language Learning owns its stateful tag convention. Keep common TTS
     # behavior untouched for all other material types.
-    if active_mode == "multilingual" and pack.learningLanguage:
+    if active_mode == "multilingual" and context and context.is_language_learning:
         from app.services.generation.language_learning.tts import normalize_language_learning_tts_tags
 
         normalize_language_learning_tts_tags(pack)
@@ -1802,9 +1805,11 @@ def optimize_quiz_pack(
     file_name: str = "",
     warnings: list[TtsReportItem] | None = None,
     language_settings: TtsLanguageSettings | None = None,
+    context: GenerationContext | None = None,
 ) -> SokqaQuizPack:
     active_mode = _mode_or_default(mode)
-    language_settings = _effective_quiz_language_settings(pack, language_settings)
+    if context and context.is_language_learning:
+        language_settings = _effective_quiz_language_settings(pack, language_settings)
     rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []
@@ -1836,8 +1841,8 @@ def optimize_quiz_pack(
                 pack.language,
                 active_mode == "multilingual",
                 language_settings,
-                pack.learningLanguage,
-                pack.choiceLanguageMode,
+                context.learning_language if context and context.is_language_learning else None,
+                context.choice_language_mode if context and context.is_language_learning else None,
                 file_name=file_name,
             )
             llm_ids.extend(question.id for question in selected_questions)
@@ -1857,8 +1862,8 @@ def optimize_quiz_pack(
                             language=pack.language,
                             allow_language_tags=True,
                             language_settings=language_settings,
-                            learning_language=pack.learningLanguage,
-                            choice_language_mode=pack.choiceLanguageMode,
+                            learning_language=context.learning_language if context and context.is_language_learning else None,
+                            choice_language_mode=context.choice_language_mode if context and context.is_language_learning else None,
                         ),
                     ),
                     rules,
@@ -1875,14 +1880,14 @@ def optimize_quiz_pack(
                     language=pack.language,
                     allow_language_tags=False,
                     language_settings=language_settings,
-                    learning_language=pack.learningLanguage,
-                    choice_language_mode=pack.choiceLanguageMode,
+                    learning_language=context.learning_language if context and context.is_language_learning else None,
+                    choice_language_mode=context.choice_language_mode if context and context.is_language_learning else None,
                 )
         else:
             question.tts = None
     # See document path above: only Language Learning removes a terminal
     # default-language reset tag; an in-text reset remains meaningful.
-    if active_mode == "multilingual" and pack.learningLanguage:
+    if active_mode == "multilingual" and context and context.is_language_learning:
         from app.services.generation.language_learning.tts import normalize_language_learning_tts_tags
 
         normalize_language_learning_tts_tags(pack)
@@ -1894,6 +1899,8 @@ def optimize_generated_files_with_report(
     rules: list[TtsRule],
     mode: TtsReadingMode | None = None,
     language_settings: TtsLanguageSettings | None = None,
+    *,
+    context: GenerationContext | None = None,
 ) -> tuple[list[GeneratedFile], TtsReport]:
     active_mode = _mode_or_default(mode)
     optimized = []
@@ -1901,10 +1908,10 @@ def optimize_generated_files_with_report(
     warnings: list[TtsReportItem] = []
     for file in files:
         if file.kind == "document":
-            pack = optimize_document_pack(SokqaDocumentPack.model_validate(file.content), rules, active_mode, llm_ids, file.name, warnings, language_settings)
+            pack = optimize_document_pack(SokqaDocumentPack.model_validate(file.content), rules, active_mode, llm_ids, file.name, warnings, language_settings, context)
             file.content = pack.model_dump(exclude_none=True)
         elif file.kind == "quiz":
-            pack = optimize_quiz_pack(SokqaQuizPack.model_validate(file.content), rules, active_mode, llm_ids, file.name, warnings, language_settings)
+            pack = optimize_quiz_pack(SokqaQuizPack.model_validate(file.content), rules, active_mode, llm_ids, file.name, warnings, language_settings, context)
             file.content = pack.model_dump(exclude_none=True)
         optimized.append(file)
     report = validate_tts_files(optimized, active_mode, llm_ids)
@@ -1917,6 +1924,8 @@ def optimize_generated_files(
     rules: list[TtsRule],
     mode: TtsReadingMode | None = None,
     language_settings: TtsLanguageSettings | None = None,
+    *,
+    context: GenerationContext | None = None,
 ) -> list[GeneratedFile]:
-    optimized, _ = optimize_generated_files_with_report(files, rules, mode, language_settings)
+    optimized, _ = optimize_generated_files_with_report(files, rules, mode, language_settings, context=context)
     return optimized

@@ -76,6 +76,7 @@ class PackManifestV2(BaseModel):
     title: str | None = None
     description: str = ""
     language: str = "ja"
+    generationMode: Literal["standard", "language_learning"] = "standard"
     author: str | None = None
     scale: str | None = None
     globalTags: list[str] = Field(default_factory=list)
@@ -171,6 +172,7 @@ class CommitPackRevisionInput(BaseModel):
     title: str | None = None
     description: str | None = None
     language: str | None = None
+    generationMode: Literal["standard", "language_learning"] | None = None
     author: str | None = None
     scale: str | None = None
     globalTags: list[str] | None = None

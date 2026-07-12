@@ -11,6 +11,7 @@ from app.services.generation_status import record_generation_source
 from app.services.llm_json import LlmJsonParseContext, LlmJsonParseError
 from app.services.pack_ids import document_pack_id
 from app.services.prompts import document_generation_prompt
+from app.services.generation.context import GenerationContext
 from app.services.tagging import document_global_tags
 from app.services.tts_text import normalize_tts_text
 
@@ -124,11 +125,13 @@ def generate_strict_source_document_pack(
     )
 
 
-def generate_document_pack(plan: CoursePlan, document: PlanDocument, model: str | None = None) -> SokqaDocumentPack:
+def generate_document_pack(
+    plan: CoursePlan, document: PlanDocument, model: str | None = None, *, context: GenerationContext | None = None
+) -> SokqaDocumentPack:
     if get_settings().gemini_provider == "gemini":
         try:
             settings = get_settings()
-            prompt = document_generation_prompt(plan, document)
+            prompt = document_generation_prompt(plan, document, context=context)
             content = _generate_document_json_with_retry(
                 prompt,
                 document=document,

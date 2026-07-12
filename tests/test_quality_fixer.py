@@ -1241,12 +1241,13 @@ def test_tts_fix_multilingual_blocks_closing_tag_and_katakana_fixes(tmp_path, mo
 
     assert response.status_code == 200
     data = response.json()
-    # 閉じタグ付与・英文カタカナ化はいずれも unapplied になる。
-    assert data["appliedFixes"] == []
-    assert len(data["unappliedFixes"]) == 2
+    # 保存済み既存パックは Standard 扱い。閉じタグは共通で拒否するが、
+    # Language Learning 専用のカタカナ化制限は適用しない。
+    assert len(data["appliedFixes"]) == 1
+    assert data["appliedFixes"][0]["after"] == "プリーズ"
+    assert len(data["unappliedFixes"]) == 1
     reasons = [fix["reason"] for fix in data["unappliedFixes"]]
     assert any("閉じタグ" in reason for reason in reasons)
-    assert any("多言語パック" in reason for reason in reasons)
 
 
 def test_tts_fix_normal_pack_rejects_closing_tag_and_keeps_katakana_fix(tmp_path, monkeypatch) -> None:

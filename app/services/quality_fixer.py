@@ -31,13 +31,11 @@ from app.schemas.pack_v2 import (
 from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocumentPack, SokqaQuizPack
 from app.schemas.request import TtsRecordingTarget
 from app.services.gemini_client import GeminiClient
-from app.services.language_detection import leading_script
+from app.services.language_detection import language_script, leading_script, scripts_in_text
 from app.services.llm_json import LlmJsonParseContext
-from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.pack_paths import pack_root_prefix
 from app.services.generation.language_learning.quality import deterministic_tts_issues
-from app.services.generation.strategy import resolve_generation_strategy
-from app.services.quality.context import QualityContext
+from app.services.generation.context import GenerationContext
 from app.services.quality.language_learning import (
     is_local_katakana_to_tagged_latin_reversal,
     language_learning_text_fix_policy,
@@ -114,8 +112,8 @@ def generate_tts_fix(target: TtsRecordingTarget, issues: list[QualityIssue], max
     during generation.  A caller must still explicitly save this preview.
     """
     loaded = load_target_pack(target)
-    context = _quality_context_for_target(target)
-    allow_language_tags = _allow_multilingual_tts_tags(loaded.file.content)
+    context = _quality_context_for_target(target, loaded.file.content)
+    allow_language_tags = context.allow_language_tags
     return _generate_tts_fix_without_llm(
         target, [issue for issue in issues if issue.category in AUTO_CATEGORIES], max_fixes, allow_language_tags=allow_language_tags, context=context
     )
@@ -131,11 +129,11 @@ def generate_text_fix(target: TtsRecordingTarget, issues: list[QualityIssue], ma
 
 def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue], max_fixes: int, *, mode: str) -> QualityFixResponse:
     loaded = load_target_pack(target)
-    context = _quality_context_for_target(target)
+    context = _quality_context_for_target(target, loaded.file.content)
     if mode == "tts":
         _validate_tts_fix_input(loaded.file.content)
         issues = [_normalize_tts_issue_location(issue) for issue in issues]
-    allow_language_tags = _allow_multilingual_tts_tags(loaded.file.content) if mode == "tts" else False
+    allow_language_tags = context.allow_language_tags if mode == "tts" else False
     settings = get_settings()
     model = settings.fix_model
     limited_issues = issues[:max_fixes]
@@ -183,6 +181,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
             input_truncated=input_truncated or len(issues) > max_fixes,
             allow_language_tags=allow_language_tags,
             is_language_learning=context.is_language_learning,
+            learning_language=context.learning_language,
         )
         _validate_pack_json(loaded.file.name, response.updatedJson)
         return _evaluate_fix_preview(loaded.file.name, loaded.file.content, response, limited_issues)
@@ -196,7 +195,7 @@ def _generate_tts_fix_without_llm(
     max_fixes: int,
     *,
     allow_language_tags: bool = False,
-    context: QualityContext | None = None,
+    context: GenerationContext | None = None,
 ) -> QualityFixResponse:
     started = time.perf_counter()
     loaded = load_target_pack(target)
@@ -404,7 +403,7 @@ def _generate_tts_fix_without_llm(
 
 
 def apply_auto_quality_fixes(
-    content: dict[str, Any], file_name: str, *, context: QualityContext | None = None
+    content: dict[str, Any], file_name: str, *, context: GenerationContext | None = None
 ) -> tuple[dict[str, Any], list[AppliedFix]]:
     """生成パイプライン用: content を直接受け取り、検出されたTTS問題のうち、
     表示本文との一致とタグ構造を決定論的に証明できるものだけを自動適用する。
@@ -430,7 +429,7 @@ def _apply_auto_issues_without_llm(
     issues: list[QualityIssue],
     file_name: str,
     *,
-    context: QualityContext | None = None,
+    context: GenerationContext | None = None,
 ) -> list[AppliedFix]:
     """_generate_tts_fix_without_llm の content 直接版（ストレージアクセスなし）。"""
     applied: list[AppliedFix] = []
@@ -466,7 +465,7 @@ def _apply_auto_issues_without_llm(
                 before, replacement, _get_raw_field(updated_json, location)
             ):
                 continue
-            allow_language_tags = _allow_multilingual_tts_tags(updated_json)
+            allow_language_tags = bool(context and context.allow_language_tags)
             if allow_language_tags and _is_invalid_multilingual_tts_fix(issue.excerpt, replacement):
                 continue
         if not _is_safe_auto_tts_repair(updated_json, location, before, after):
@@ -778,6 +777,7 @@ def _fix_response_from_data(
     input_truncated: bool,
     allow_language_tags: bool = False,
     is_language_learning: bool = False,
+    learning_language: str | None = None,
 ) -> QualityFixResponse:
     data = data if isinstance(data, dict) else {}
     raw_applied = data.get("appliedFixes", [])
@@ -805,7 +805,7 @@ def _fix_response_from_data(
             # Do not let a text repair remove an explicit learning expression,
             # quoted expression, or its visible explanation.  This guard is
             # LL-only: Standard pending fixes keep their historic behavior.
-            before_terms = re.findall(r"[A-Za-z][A-Za-z0-9' -]*|[\u3040-\u30ff\u3400-\u9fff]+", before)
+            before_terms = _learning_language_terms(before, learning_language)
             missing = [term for term in before_terms if len(term.strip()) >= 2 and term not in after]
             if not after.strip():
                 reason = "replacement is empty"
@@ -841,6 +841,16 @@ def _fix_response_from_data(
         updatedJson=updated_json,
         truncated=truncated,
     )
+
+
+def _learning_language_terms(value: str, learning_language: str | None) -> list[str]:
+    """Extract only spans in the resolved learning language for LL fix safety."""
+    script = language_script(learning_language or "")
+    if script == "latin":
+        return re.findall(r"[A-Za-z][A-Za-z0-9' -]*", value)
+    if script in {"japanese", "cjk", "hangul"}:
+        return [token for token in re.findall(r"[^\s、。,.!?]+", value) if script in scripts_in_text(token)]
+    return []
 
 
 def _promote_temporary_generation(
@@ -1130,14 +1140,6 @@ def _is_clear_vocabulary_rewrite(excerpt: str | None, replacement: str | None) -
     return _adds_semantic_loanword_to_mixed_term(excerpt_text, replacement_text)
 
 
-def _allow_multilingual_tts_tags(content: dict[str, Any]) -> bool:
-    """content が多言語パックなら True を返す。既存の multilingual 検出を利用。
-    単一言語パックでは False(従来の挙動維持)。"""
-    if not isinstance(content, dict):
-        return False
-    return detect_multilingual(content) == MultilingualStatus.MULTILINGUAL
-
-
 def _is_invalid_multilingual_tts_fix(excerpt: str | None, replacement: str | None) -> bool:
     """多言語パックで許可しない TTS 修正を検出する。
     (a) 閉じタグ [/xx-YY] を含む置換(閉じタグの付与)。
@@ -1414,17 +1416,28 @@ Return this JSON shape:
 """.strip(), truncated
 
 
-def _quality_context_for_target(target: TtsRecordingTarget) -> QualityContext:
+def _quality_context_for_target(target: TtsRecordingTarget, content: dict[str, Any] | None = None) -> GenerationContext:
     """Use the temporary generation's exact plan; never infer from pack JSON."""
     if target.temporaryGenerationId:
         from app.schemas.request import GeneratePackRequest
         from app.services.temporary_generation_store import get_temporary_generation
 
         temporary = get_temporary_generation(target.temporaryGenerationId, str(target.creatorId))
-        return QualityContext(resolve_generation_strategy(GeneratePackRequest(plan=temporary.plan, persist=False)))
-    from app.services.generation.strategies.standard import StandardStrategy
-
-    return QualityContext(StandardStrategy())
+        request = GeneratePackRequest(plan=temporary.plan, persist=False)
+        return GenerationContext.from_request(request, tts_reading_mode=str(temporary.plan.ttsReadingMode or "none"))
+    if target.creatorId and target.contentId and target.versionId:
+        try:
+            manifest = StorageClient().read_manifest(pack_root_prefix(target.creatorId, target.contentId), target.versionId)
+            if manifest.get("generationMode") == "language_learning":
+                return GenerationContext(
+                    "language_learning", str(manifest.get("language") or "ja"),
+                    str((content or {}).get("learningLanguage") or "") or None,
+                    str((content or {}).get("choiceLanguageMode") or "") or None,
+                    "multilingual",
+                )
+        except Exception:
+            logger.info("quality_fix.manifest_context_unavailable target=%s", target.contentId)
+    return GenerationContext.standard()
 
 
 def _mock_fix_response(file_name: str, content: dict[str, Any], issues: list[QualityIssue], model: str, truncated: bool) -> QualityFixResponse:

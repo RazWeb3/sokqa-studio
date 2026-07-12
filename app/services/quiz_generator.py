@@ -17,6 +17,7 @@ from app.services.prompts import (
     quiz_pack_violation_repair_prompt,
     quiz_shortage_repair_prompt,
 )
+from app.services.generation.context import GenerationContext
 from app.services.tagging import quiz_global_tags
 
 
@@ -57,11 +58,13 @@ def generate_quiz_pack(
     quiz_plan: PlanQuizPack,
     document_packs: list[SokqaDocumentPack],
     model: str | None = None,
+    *,
+    context: GenerationContext | None = None,
 ) -> SokqaQuizPack:
     if get_settings().gemini_provider == "gemini":
         try:
             settings = get_settings()
-            prompt = quiz_generation_prompt(plan, quiz_plan, document_packs)
+            prompt = quiz_generation_prompt(plan, quiz_plan, document_packs, context=context)
             content = _generate_quiz_json_with_retry(
                 prompt,
                 quiz_plan=quiz_plan,

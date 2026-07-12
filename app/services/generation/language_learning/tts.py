@@ -8,6 +8,10 @@ Standard 側は tts_optimizer.py に残り、Phase 7 時点は既存挙動を維
 from app.schemas.common import TtsLanguageSettings
 from app.schemas.sokqa import SokqaDocumentPack, SokqaQuizPack
 from app.schemas.common import default_speech_language_code
+import re
+
+
+_LANGUAGE_TAG_RE = re.compile(r"\[([a-z]{2,3}(?:-[A-Za-z0-9]+)*)\]", re.I)
 
 
 def _strip_redundant_terminal_default_tag(text: str | None, pack_language: str) -> str | None:
@@ -26,6 +30,35 @@ def _strip_redundant_terminal_default_tag(text: str | None, pack_language: str) 
     return text
 
 
+def normalize_language_tag_structure(text: str | None, pack_language: str) -> str | None:
+    """Remove only provably redundant TTS switches; never infer phrase meaning.
+
+    A switch to the current language, an empty switch interval, and an initial
+    switch to the pack language have no pronunciation effect.  Ambiguous spans
+    such as ``[en-US]Wi-Fiの料金`` are intentionally left untouched for the
+    boundary validator to report rather than silently changing learner audio.
+    """
+    if not text:
+        return text
+    default_code = default_speech_language_code(pack_language).lower()
+    current = default_code
+    output: list[str] = []
+    position = 0
+    for match in _LANGUAGE_TAG_RE.finditer(text):
+        segment = text[position:match.start()]
+        if segment:
+            output.append(segment)
+        tag = match.group(1).lower()
+        next_match = _LANGUAGE_TAG_RE.search(text, match.end())
+        next_segment = text[match.end():next_match.start() if next_match else len(text)]
+        if tag != current and next_segment:
+            output.append(match.group(0))
+            current = tag
+        position = match.end()
+    output.append(text[position:])
+    return _strip_redundant_terminal_default_tag("".join(output), pack_language)
+
+
 def normalize_language_learning_tts_tags(pack: SokqaDocumentPack | SokqaQuizPack) -> None:
     """Normalize only Language Learning multilingual TTS output in place."""
     if not pack.learningLanguage:
@@ -33,16 +66,16 @@ def normalize_language_learning_tts_tags(pack: SokqaDocumentPack | SokqaQuizPack
     if isinstance(pack, SokqaDocumentPack):
         for document in pack.documents:
             if document.tts:
-                document.tts.text = _strip_redundant_terminal_default_tag(document.tts.text, pack.language)
+                document.tts.text = normalize_language_tag_structure(document.tts.text, pack.language)
         return
     for question in pack.questions:
         if not question.tts:
             continue
-        question.tts.questionText = _strip_redundant_terminal_default_tag(question.tts.questionText, pack.language)
-        question.tts.explanationText = _strip_redundant_terminal_default_tag(question.tts.explanationText, pack.language)
+        question.tts.questionText = normalize_language_tag_structure(question.tts.questionText, pack.language)
+        question.tts.explanationText = normalize_language_tag_structure(question.tts.explanationText, pack.language)
         if question.tts.choiceTexts:
             question.tts.choiceTexts = [
-                _strip_redundant_terminal_default_tag(text, pack.language) or ""
+                normalize_language_tag_structure(text, pack.language) or ""
                 for text in question.tts.choiceTexts
             ]
 

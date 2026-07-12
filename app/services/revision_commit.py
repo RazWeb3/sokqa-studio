@@ -112,6 +112,7 @@ def build_revision_commit(
         title=current_manifest.title if current_manifest else request.title,
         description=current_manifest.description if current_manifest else (request.description or ""),
         language=current_manifest.language if current_manifest else (request.language or "ja"),
+        generationMode=current_manifest.generationMode if current_manifest else (request.generationMode or "standard"),
         author=current_manifest.author if current_manifest else request.author,
         scale=current_manifest.scale if current_manifest else request.scale,
         globalTags=current_manifest.globalTags if current_manifest else (request.globalTags or []),

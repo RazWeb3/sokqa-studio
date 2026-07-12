@@ -1993,54 +1993,39 @@ def test_persistability_gate_rejects_only_structurally_invalid_pack() -> None:
 
 
 def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples() -> None:
-    """choiceLanguageMode=pack で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-1）。"""
+    """Language Learning の pack 契約は共通Quiz指示なしで構築される。"""
     plan = _plan()
     plan.learningLanguage = "en"
     prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()], context=_language_learning_context(plan, "pack"))
 
-    # 既存の選択肢言語指示が維持されていること
-    assert "Write all four choices in each question in the pack language (ja)" in prompt
-    # 問題構造の出し分け指示
-    assert "Question structure (pack mode)" in prompt
-    assert "question には学習言語（en）の表現・フレーズを提示" in prompt
-    assert "四つの選択肢はすべてパック言語（ja）で書き" in prompt
-    assert "explanation もパック言語（ja）で書くこと" in prompt
-    # Good/Bad 例（ja/en ペア時の具体例）
-    assert "Good/Bad examples (pack mode)" in prompt
-    assert "It's a pleasure to finally meet you." in prompt
-    assert "選択肢が学習言語になっている点が誤り" in prompt
+    assert "# pack mode contract" in prompt
+    assert "All four choices are written in the pack language (ja)" in prompt
+    assert "Do not use four learning-language answer candidates in this mode" in prompt
+    assert "Pack-language purity (strict):" not in prompt
+    assert "# 出題者の役割（quiz 固有）" not in prompt
 
 
 def test_quiz_prompt_learning_mode_includes_question_structure_and_good_bad_examples() -> None:
-    """choiceLanguageMode=learning で、問題構造の出し分け指示と Good/Bad 例が含まれること（要件3-2）。"""
+    """Language Learning の learning 契約は共通Quiz指示なしで構築される。"""
     plan = _plan()
     plan.learningLanguage = "en"
     prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()], context=_language_learning_context(plan, "learning"))
 
-    # 既存の選択肢言語指示が維持されていること
-    assert "Write all four choices in each question in the learning language (en)" in prompt
-    # 問題構造の出し分け指示
-    assert "Question structure (learning mode)" in prompt
-    assert "question にはパック言語（ja）で場面・意図・ニュアンスを提示" in prompt
-    assert "四つの選択肢はすべて学習言語（en）の表現で書く" in prompt
-    assert "explanation はパック言語（ja）で書くこと" in prompt
-    # Good/Bad 例（ja/en ペア時の具体例）
-    assert "Good/Bad examples (learning mode)" in prompt
-    assert "初対面の相手に丁寧に会えた喜びを伝えたいとき" in prompt
-    assert "How do you do?" in prompt
-    assert "choices を日本語にする" in prompt
+    assert "# learning mode contract" in prompt
+    assert "All four choices are written in the learning language (en)" in prompt
+    assert "Do not use pack-language-only general-knowledge" in prompt
+    assert "Pack-language purity (strict):" not in prompt
 
 
-def test_quiz_prompt_choice_language_instruction_preserved_across_modes() -> None:
-    """既存の選択肢言語指示が各モードに含まれること（削除されていない確認：要件3-3）。"""
+def test_language_learning_quiz_prompt_has_a_separate_contract_for_each_mode() -> None:
     plan = _plan()
     plan.learningLanguage = "en"
 
     pack_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()], context=_language_learning_context(plan, "pack"))
-    assert "Write all four choices in each question in the pack language (ja)" in pack_prompt
+    assert "# pack mode contract" in pack_prompt
 
     learning_prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("learning"), [_source_pack()], context=_language_learning_context(plan, "learning"))
-    assert "Write all four choices in each question in the learning language (en)" in learning_prompt
+    assert "# learning mode contract" in learning_prompt
 
 
 @pytest.mark.parametrize("mode", ["pack", "learning", "auto"])
@@ -2055,12 +2040,10 @@ def test_language_learning_quiz_prompt_requires_document_grounding_without_chang
         context=_language_learning_context(plan, mode),
     )
 
-    assert "Language Learning quiz grounding (strict):" in prompt
-    assert "reuse concrete learning-language phrases" in prompt
-    assert "referenced quiz-context documents" in prompt
-    assert "learners can answer without understanding the learning-language content" in prompt
-    assert "correct answer and its explanation must be supported" in prompt
-    assert "Do not require every question to be written entirely in the learning language." in prompt
+    assert "This is a language-acquisition quiz" in prompt
+    assert "select a concrete source phrase, source situation, and tested skill internally" in prompt
+    assert "Every correct answer must be supported by the source content" in prompt
+    assert "Source documents:" in prompt
     assert f'"choiceLanguageMode": "{mode}"' in prompt
 
 
@@ -2072,6 +2055,24 @@ def test_standard_quiz_prompt_excludes_language_learning_grounding_rules() -> No
 
     assert "Language Learning quiz grounding (strict):" not in prompt
     assert "learners can answer without understanding the learning-language content" not in prompt
+
+
+def test_language_learning_document_prompt_is_separate_from_standard_teaching_policy() -> None:
+    plan = _plan()
+    plan.learningLanguage = "en"
+
+    prompt = document_generation_prompt(
+        plan,
+        plan.documents[0],
+        context=_language_learning_context(plan),
+    )
+
+    assert "Create one Language Learning Sokqa document JSON." in prompt
+    assert "# Language Learning document design" in prompt
+    assert "Present the learning-language phrase in the first sentence" in prompt
+    assert "# 話者の姿勢（学習者向けロール）" not in prompt
+    assert "Structure policy:" not in prompt
+    assert "Pack-language purity (strict):" not in prompt
 
 
 def test_advanced_language_learning_quiz_prompt_avoids_meaning_question_bias_and_varies_forms() -> None:
@@ -2092,33 +2093,24 @@ def test_advanced_language_learning_quiz_prompt_avoids_meaning_question_bias_and
     assert "vary question forms where the source material and question count allow it" in prompt
 
 
-def test_quiz_prompt_auto_mode_text_unchanged_and_no_structure_template() -> None:
-    """auto モードは既存文言が維持され、構造テンプレート・Good/Bad 例が追加されていないこと（要件3-4）。"""
+def test_language_learning_auto_mode_has_its_own_contract() -> None:
     plan = _plan()
     plan.learningLanguage = "en"
     prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("auto"), [_source_pack()], context=_language_learning_context(plan, "auto"))
 
-    # 既存 auto 文言が維持されていること
-    assert ("Choose either the pack language (ja) or learning language (en) per question. "
-            "All four choices within one question must use the same chosen language. "
-            "Never mix languages inside one four-choice set.") in prompt
-    # 構造テンプレート・Good/Bad 例が追加されていないこと
-    assert "Question structure (pack mode)" not in prompt
-    assert "Question structure (learning mode)" not in prompt
-    assert "Good/Bad examples (pack mode)" not in prompt
-    assert "Good/Bad examples (learning mode)" not in prompt
+    assert "# auto mode contract" in prompt
+    assert "Never mix pack-language and learning-language choices." in prompt
+    assert "Pack-language purity (strict):" not in prompt
 
 
-def test_quiz_prompt_non_ja_en_pack_uses_generic_good_bad_examples_without_hardcoded_language() -> None:
-    """ja/en 以外のペアでも、言語ハードコードせず言語ラベルベースの汎用例が出ること（要件: 非ハードコード）。"""
+def test_language_learning_prompt_uses_language_labels_without_hardcoding() -> None:
     plan = _plan()
     plan.language = "ko"
     plan.learningLanguage = "fr"
     prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()], context=_language_learning_context(plan, "pack"))
 
-    assert "question には学習言語（fr）の表現・フレーズを提示" in prompt
-    assert "四つの選択肢はすべてパック言語（ko）で書き" in prompt
-    # 固定ハードコードされた ja/en 具体例が出ないこと
+    assert "learning-language phrases" in prompt
+    assert "pack language (ko)" in prompt
     assert "It's a pleasure to finally meet you." not in prompt
     assert "How do you do?" not in prompt
 

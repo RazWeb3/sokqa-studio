@@ -1,6 +1,6 @@
 import pytest
 from app.config import get_settings
-from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack
+from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack, SokqaQuizPack
 from app.services.gemini_client import GeminiClient
 from app.services.generation.context import GenerationContext
 from app.services.generation_status import pop_generation_events
@@ -11,6 +11,7 @@ from app.services.quiz_generator import (
     generate_quiz_pack,
 )
 from app.services.validator import validate_files
+from app.services.tts_optimizer import optimize_quiz_pack
 
 
 def _plan(choice_language_mode: str = "pack", learning_language: str = "en") -> CoursePlan:
@@ -277,10 +278,39 @@ def test_unresolved_pack_language_violation_is_returned_as_quality_warning(monke
     )
 
     assert retained == content
-    assert any("pack_language_repair.failed" in message for message in caplog.messages)
+    assert any("choice_language_repair.failed" in message for message in caplog.messages)
     assert any(issue.classification == "quality" and "pack choice language mode" in issue.message for issue in validation.errors)
     events = pop_generation_events()
-    assert any("pack_language_repair.failed" in event.message for event in events)
+    assert any("choice_language_repair.failed" in event.message for event in events)
+
+
+def test_learning_mode_pack_language_choices_are_quality_warnings() -> None:
+    plan = _plan(choice_language_mode="learning")
+    content = _pack_violation_content()
+    validation = validate_files(
+        [GeneratedFile(name="quiz.json", kind="quiz", content={**content, "id": "quiz", "type": "quiz", "title": "確認", "language": "ja", "learningLanguage": "en", "choiceLanguageMode": "learning"})],
+        context=GenerationContext("language_learning", "ja", "en", "learning", "multilingual"),
+    )
+
+    assert any(issue.classification == "quality" and "violation (learning)" in issue.message and "q-1" in issue.message for issue in validation.errors)
+
+
+def test_tts_guard_omits_english_choice_language_for_japanese_learning_mode_choices(monkeypatch) -> None:
+    plan = _plan(choice_language_mode="learning")
+    pack = SokqaQuizPack.model_validate({
+        "id": "quiz", "type": "quiz", "title": "確認", "language": "ja", "learningLanguage": "en", "choiceLanguageMode": "learning",
+        "questions": [{"id": "q-1", "question": "適切な表現はどれですか？", "choices": ["丁寧に尋ねる", "大声で言う", "無視する", "急ぐ"], "answerIndex": 0, "explanation": "英語表現を選びます。"}],
+    })
+    monkeypatch.setattr("app.services.tts_optimizer._gemini_quiz_tts_map", lambda *args, **kwargs: {})
+
+    optimized = optimize_quiz_pack(
+        pack, [], mode="multilingual", context=GenerationContext("language_learning", "ja", "en", "learning", "multilingual")
+    )
+
+    assert optimized.questions[0].choices == ["丁寧に尋ねる", "大声で言う", "無視する", "急ぐ"]
+    if optimized.questions[0].tts:
+        assert optimized.questions[0].tts.choicesLanguage is None
+        assert not any("[en-US]" in text for text in optimized.questions[0].tts.choiceTexts or [])
 
 
 def test_initial_quiz_generation_invalid_structure_still_raises(monkeypatch) -> None:

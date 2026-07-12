@@ -76,7 +76,12 @@ def generate_quiz_pack(
 
             # 問題②: choiceLanguageMode="pack" なのに一部問題で選択肢が学習言語になった場合、
             # 違反問題のみを厳格プロンプトで再生成して pack言語へ是正する。
-            if quiz_plan.choiceLanguageMode == "pack" and plan.learningLanguage:
+            if (
+                context
+                and context.is_language_learning
+                and quiz_plan.choiceLanguageMode in {"pack", "learning"}
+                and plan.learningLanguage
+            ):
                 content = _repair_pack_language_violations(
                     content, plan, quiz_plan, model=model or settings.quiz_model
                 )
@@ -279,8 +284,8 @@ def normalize_quiz_content(
 
 
 def _pack_language_violations(content: dict, plan: CoursePlan, quiz_plan: PlanQuizPack) -> list[dict]:
-    """choiceLanguageMode="pack" なのに選択肢が学習言語になっている問題を検知する。"""
-    if quiz_plan.choiceLanguageMode != "pack" or not plan.learningLanguage:
+    """choiceLanguageMode の選択肢言語違反を問題単位で決定論的に検知する（互換名）。"""
+    if quiz_plan.choiceLanguageMode not in {"pack", "learning", "auto"} or not plan.learningLanguage:
         return []
     violations: list[dict] = []
     for question in content.get("questions") or []:
@@ -290,8 +295,13 @@ def _pack_language_violations(content: dict, plan: CoursePlan, quiz_plan: PlanQu
         if not choices:
             continue
         state = choice_set_language_state(choices, plan.language, str(plan.learningLanguage))
-        if state in {"learning", "mixed"}:
-            violations.append({"id": question.get("id"), "question": question.get("question", "")})
+        is_violation = (
+            (quiz_plan.choiceLanguageMode == "pack" and state in {"learning", "mixed"})
+            or (quiz_plan.choiceLanguageMode == "learning" and state in {"pack", "mixed"})
+            or (quiz_plan.choiceLanguageMode == "auto" and state == "mixed")
+        )
+        if is_violation:
+            violations.append({"id": question.get("id"), "question": question.get("question", ""), "choices": choices})
     return violations
 
 
@@ -302,7 +312,7 @@ def _repair_pack_language_violations(
     *,
     model: str | None = None,
 ) -> dict:
-    """packモード違反の問題のみを、厳格プロンプトで再生成して pack言語へ是正する。
+    """選択肢言語違反の問題のみを、厳格プロンプトで再生成して是正する。
 
     検知された違反問題の id をキーに、再生成結果で choices を置換する。
     これは任意の品質後処理であり、応答形式・置換のいずれかに問題があれば
@@ -312,17 +322,18 @@ def _repair_pack_language_violations(
     if not violations:
         return content
 
+    choice_mode = quiz_plan.choiceLanguageMode
     violation_ids = {violation["id"] for violation in violations}
     logger.warning(
-        "quiz_generator.pack_language_violations.detected quiz=%s count=%s question_ids=%s",
-        quiz_plan.id,
+        "quiz_generator.choice_language_violations.detected quiz=%s choice_language_mode=%s count=%s question_ids=%s",
+        quiz_plan.id, choice_mode,
         len(violations),
         sorted(str(item) for item in violation_ids),
     )
     try:
         logger.info(
-            "quiz_generator.pack_language_violations.repair_started quiz=%s count=%s question_ids=%s",
-            quiz_plan.id, len(violations), sorted(str(item) for item in violation_ids),
+            "quiz_generator.choice_language_repair.started quiz=%s choice_language_mode=%s repair_target_count=%s question_ids=%s",
+            quiz_plan.id, choice_mode, len(violations), sorted(str(item) for item in violation_ids),
         )
         prompt = quiz_pack_violation_repair_prompt(plan, quiz_plan, violations)
         repaired = GeminiClient().generate_json(
@@ -388,21 +399,19 @@ def _repair_pack_language_violations(
         merged = dict(content)
         merged["questions"] = fixed_questions
         remaining = _pack_language_violations(merged, plan, quiz_plan)
-        logger.info(
-            "quiz_generator.pack_language_violations.repair_completed quiz=%s repaired_count=%s remaining_count=%s",
-            quiz_plan.id, len(violations) - len(remaining), len(remaining),
-        )
+        logger.info("quiz_generator.choice_language_repair.candidate quiz=%s choice_language_mode=%s repaired_candidate_count=%s candidate_remaining_count=%s", quiz_plan.id, choice_mode, len(repaired_by_id), len(remaining))
         if remaining:
             raise ValueError(f"repair left {len(remaining)} pack-language violations")
+        logger.info("quiz_generator.choice_language_repair.applied quiz=%s choice_language_mode=%s repair_target_count=%s final_unresolved_count=0", quiz_plan.id, choice_mode, len(violations))
         return merged
     except Exception as exc:
         logger.warning(
-            "quiz_generator.pack_language_repair.failed quiz=%s remaining_count=%s error=%r",
-            quiz_plan.id, len(violations), exc,
+            "quiz_generator.choice_language_repair.failed quiz=%s choice_language_mode=%s transaction=rolled_back repair_target_count=%s final_unresolved_count=%s error=%r",
+            quiz_plan.id, choice_mode, len(violations), len(violations), exc,
         )
         record_generation_source(
             "gemini",
-            f"Quiz {quiz_plan.id} pack_language_repair.failed; retained original quiz with {len(violations)} unresolved pack-language warnings.",
+            f"Quiz {quiz_plan.id} choice_language_repair.failed ({choice_mode}); retained original quiz with {len(violations)} unresolved choice-language warnings.",
         )
         return content
 

@@ -483,6 +483,12 @@ Quiz context source: generic fallback
 def document_generation_prompt(
     plan: CoursePlan, document: PlanDocument, *, context: GenerationContext | None = None
 ) -> str:
+    if context and context.is_language_learning:
+        from app.services.generation.language_learning.prompt import (
+            language_learning_document_generation_prompt,
+        )
+
+        return language_learning_document_generation_prompt(plan, document)
     source_block = source_prompt_block(plan.sourceText, plan.sourceMode)
     source_section = f"\n\n{source_block}" if source_block else ""
     reading_policy_section = _selected_reading_patterns_block(plan)
@@ -569,6 +575,12 @@ def quiz_generation_prompt(
     root_id = quiz_pack_id(plan, quiz_pack)
     global_tags = json.dumps(quiz_global_tags(plan, quiz_pack), ensure_ascii=False)
     is_language_learning = bool(context and context.is_language_learning)
+    if is_language_learning:
+        from app.services.generation.language_learning.prompt import (
+            language_learning_quiz_generation_prompt,
+        )
+
+        return language_learning_quiz_generation_prompt(plan, quiz_pack, source_documents)
     learning_language = context.learning_language if is_language_learning else "not applicable"
     pack_lang = plan.language
     difficulty = plan.difficulty or "standard"
@@ -642,14 +654,6 @@ def quiz_generation_prompt(
             f"- Choose either the pack language ({plan.language}) or learning language ({learning_language}) per question. "
             "All four choices within one question must use the same chosen language. Never mix languages inside one four-choice set."
         )
-    language_learning_grounding_rule = ""
-    if is_language_learning:
-        language_learning_grounding_rule = """
-- Language Learning quiz grounding (strict): reuse concrete learning-language phrases, expressions, sentences, dialogue turns, or language-use distinctions from the referenced quiz-context documents.
-- Every question must assess understanding or use of the learning language. Do not create general knowledge, etiquette, safety, procedural, travel, or factual questions that learners can answer without understanding the learning-language content.
-- The correct answer and its explanation must be supported by the referenced quiz-context document content. Distractors may be newly written, but must remain plausible language alternatives.
-- The pack language may be used for instructions, scenario descriptions, meanings, and explanations. Do not require every question to be written entirely in the learning language.
-""".strip()
     generation_instruction = f"""
 - Return strict JSON only.
 - type must be "quiz".
@@ -666,7 +670,6 @@ def quiz_generation_prompt(
 - Each choices array must contain 4 meaningful strings, not objects.
 - packLanguage is "{plan.language}" and learningLanguage is "{learning_language}".
 {choice_language_rule}
-{language_learning_grounding_rule}
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
 - Do not generate only meaning questions. Use the requested difficulty when designing questions.
@@ -753,16 +756,16 @@ def quiz_pack_violation_repair_prompt(
     quiz_pack: PlanQuizPack,
     violations: list[dict],
 ) -> str:
-    """packモード違反の問題のみを、厳格な pack言語指示で再生成するためのプロンプト。
-
-    choiceLanguageMode="pack" なのに一部の問題で選択肢が学習言語になった場合、
-    violate した問題だけを対象に、全選択肢を pack言語で書き直すよう要求する。
-    既存の quiz_generation_prompt の Good/Bad 例を強めたもの。
-    """
+    """pack / learning の違反問題だけを、計画済みの選択肢言語で再生成する。"""
     learning_language = plan.learningLanguage or "not specified"
     pack_lang = plan.language
+    is_learning = quiz_pack.choiceLanguageMode == "learning"
+    target_language = learning_language if is_learning else pack_lang
+    opposite_language = pack_lang if is_learning else learning_language
+    target_label = "learning" if is_learning else "pack"
     violation_lines = "\n".join(
-        f"- {violation['id']}: {violation['question']}" for violation in violations
+        f"- {violation['id']}: {violation['question']} / choices: {' | '.join(violation.get('choices') or [])}"
+        for violation in violations
     )
     return f"""Re-generate ONLY the listed quiz questions with corrected choice language.
 
@@ -770,11 +773,11 @@ Rules:
 - type must be "quiz".
 - Return strict JSON only. Do not output markdown fences.
 - language must be "{plan.language}".
-- choiceLanguageMode is "pack". Every single choice in EVERY question MUST be written in the pack language ({plan.language}).
-- This is a strict correction task: rewrite the choices of the listed questions so that ALL four choices are in the pack language ({plan.language}).
-- Do NOT output any choice in the learning language ({learning_language}).
-- Keep the question id, question text meaning, correct answer, and explanation of each listed question. Only the choice language is being corrected to the pack language.
-- Each choices array must contain exactly 4 meaningful strings, all in the pack language ({plan.language}).
+- choiceLanguageMode is "{quiz_pack.choiceLanguageMode}". Every single choice in EVERY listed question MUST be written in the {target_label} language ({target_language}).
+- This is a strict correction task: rewrite the choices of the listed questions so that ALL four choices are in the {target_label} language ({target_language}).
+- Do NOT output choices only in the opposite language ({opposite_language}).
+- Keep the question id, question text meaning, correct answer, and explanation of each listed question. Only the choice language is being corrected.
+- Each choices array must contain exactly 4 meaningful strings, all in the {target_label} language ({target_language}).
 - answerIndex must be an integer from 0 to 3 and must still point to the correct choice after correction.
 
 Quiz pack:
@@ -783,7 +786,7 @@ Quiz pack:
 - purpose: {quiz_pack.purpose}
 - choiceLanguageMode: {quiz_pack.choiceLanguageMode}
 
-Questions to correct (rewrite their choices in the pack language {plan.language}):
+Questions to correct (rewrite their choices in the {target_label} language {target_language}):
 {violation_lines}
 
 Required JSON shape:
@@ -792,7 +795,7 @@ Required JSON shape:
     {{
       "id": "q-1",
       "question": "Meaningful question based on source documents.",
-      "choices": ["choice 1 (pack language)", "choice 2 (pack language)", "choice 3 (pack language)", "choice 4 (pack language)"],
+      "choices": ["choice 1 ({target_label} language)", "choice 2 ({target_label} language)", "choice 3 ({target_label} language)", "choice 4 ({target_label} language)"],
       "answerIndex": 0,
       "explanation": "Specific explanation grounded in source documents."
     }}

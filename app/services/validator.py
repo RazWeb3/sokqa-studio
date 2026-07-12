@@ -293,6 +293,34 @@ def validate_quiz_semantics(
                         severity="error",
                     )
                 )
+            if pack.choiceLanguageMode == "learning" and state in {"pack", "mixed"} and has_substantive_choice:
+                errors.append(
+                    ValidationErrorItem(
+                        file=file_name,
+                        path=f"questions.{index}.choices",
+                        message=(
+                            f"choiceLanguageMode violation (learning) for question {question.id}: "
+                            "all four choices must use the learning language"
+                        ),
+                        severity="warning",
+                        classification="quality",
+                    )
+                )
+            if state in {"pack", "learning", "mixed"}:
+                expected = "learning" if pack.choiceLanguageMode == "learning" else "pack" if pack.choiceLanguageMode == "pack" else None
+                if expected and state != expected:
+                    errors.append(
+                        ValidationErrorItem(
+                            file=file_name,
+                            path=f"questions.{index}.tts.choicesLanguage",
+                            message=(
+                                f"choice language mismatch prevents safe TTS language assignment for question {question.id}; "
+                                "choicesLanguage was omitted or must be reviewed"
+                            ),
+                            severity="warning",
+                            classification="quality",
+                        )
+                    )
     if pack.questions:
         answer_indexes = {question.answerIndex for question in pack.questions}
         if len(answer_indexes) == 1 and len(pack.questions) > 1:

@@ -15,7 +15,7 @@ from app.schemas.sokqa import (
 )
 from app.services.gemini_client import GeminiClient
 from app.services.generation.context import GenerationContext
-from app.services.language_detection import language_script, leading_script
+from app.services.language_detection import choice_set_language_state, language_script, leading_script
 from app.services.llm_json import LlmJsonParseContext
 from app.services.tts_text import collapse_duplicate_katakana_parentheticals, normalize_tts_text, strip_choice_separator
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
@@ -1810,6 +1810,25 @@ def optimize_quiz_pack(
     active_mode = _mode_or_default(mode)
     if context and context.is_language_learning:
         language_settings = _effective_quiz_language_settings(pack, language_settings)
+        mismatched_ids = [
+            question.id
+            for question in pack.questions
+            if (
+                (pack.choiceLanguageMode == "pack" and choice_set_language_state(question.choices, pack.language, pack.learningLanguage) in {"learning", "mixed"})
+                or (pack.choiceLanguageMode == "learning" and choice_set_language_state(question.choices, pack.language, pack.learningLanguage) in {"pack", "mixed"})
+            )
+        ]
+        if mismatched_ids:
+            # The plan's selected language is not trustworthy for these choices.
+            # Preserve display text and use auto reading rather than assigning a
+            # known-wrong locale or tag (for example Japanese as en-US).
+            language_settings = language_settings.model_copy(
+                update={"choicesLanguageMode": "auto", "choicesLanguage": None}
+            )
+            logger.warning(
+                "tts_optimizer.choice_language_guard file=%s choice_language_mode=%s question_ids=%s action=omit_choices_language",
+                file_name or f"{pack.id}.json", pack.choiceLanguageMode, mismatched_ids,
+            )
     rules = _rules_for_mode(rules, active_mode)
     llm_ids = llm_ids if llm_ids is not None else []
     warnings = warnings if warnings is not None else []

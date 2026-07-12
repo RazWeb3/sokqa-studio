@@ -81,6 +81,7 @@ def _regenerate_blocked_packs(
     regeneration_errors,
     document_model,
     quiz_model,
+    generation_context: GenerationContext | None = None,
 ):
     """Regenerate only affected pack files once; never invent placeholder values locally."""
     blocked_files = {error.file for error in regeneration_errors}
@@ -114,6 +115,7 @@ def _regenerate_blocked_packs(
                 quiz_plan,
                 _document_packs_for_quiz(plan, quiz_plan, regenerated_documents),
                 model=quiz_model,
+                context=generation_context,
             )
         except RuntimeError as exc:
             logger.warning(
@@ -496,6 +498,7 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
             regeneration_errors=regeneration_errors,
             document_model=models.document,
             quiz_model=models.quiz,
+            generation_context=generation_context,
         )
         files = build_generated_files(document_packs, quiz_packs)
         validation = validate_files(files, context=generation_context)

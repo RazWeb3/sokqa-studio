@@ -1,6 +1,7 @@
 import json
 import logging
 from collections import Counter
+from types import SimpleNamespace
 
 import pytest
 
@@ -2026,6 +2027,50 @@ def test_generation_completes_with_diagnostics_when_placeholder_remains_after_re
     assert result.qualityIssues
     assert any("unresolved learner-facing placeholder" in error.message for error in result.validation.errors)
     assert any("continuing with reviewable output" in log for log in result.logs)
+
+
+def test_quiz_regeneration_preserves_language_learning_context(monkeypatch) -> None:
+    """品質再生成でも、問題単位の選択肢言語修正を有効にするコンテキストを保持する。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+    plan.quizPacks[0].choiceLanguageMode = "learning"
+    context = _language_learning_context(plan, "learning")
+    original_quiz = SokqaQuizPack(
+        id="quality_pack_quiz_01",
+        title="確認クイズ",
+        language="ja",
+        learningLanguage="en",
+        choiceLanguageMode="learning",
+        questions=[
+            {
+                "id": "q-1",
+                "question": "適切な表現はどれですか？",
+                "choices": ["選択肢A", "選択肢B", "選択肢C", "選択肢D"],
+                "answerIndex": 0,
+                "explanation": "解説です。",
+            }
+        ],
+    )
+    captured = {}
+
+    def regenerate_quiz(*_args, **kwargs):
+        captured["context"] = kwargs.get("context")
+        return original_quiz
+
+    monkeypatch.setattr(pack_agent, "generate_quiz_pack", regenerate_quiz)
+
+    _, regenerated_quizzes = pack_agent._regenerate_blocked_packs(
+        plan=plan,
+        document_packs=[_source_pack()],
+        quiz_packs=[original_quiz],
+        regeneration_errors=[SimpleNamespace(file="quality_pack_quiz_01.json")],
+        document_model=None,
+        quiz_model=None,
+        generation_context=context,
+    )
+
+    assert regenerated_quizzes == [original_quiz]
+    assert captured["context"] is context
 
 
 def test_normalizers_accept_bare_llm_collections() -> None:

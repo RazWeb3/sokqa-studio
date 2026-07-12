@@ -15,6 +15,11 @@ from app.services.tagging import document_global_tags, quiz_global_tags
 
 def language_learning_document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
     """Build Language Learning documents without Standard teaching policy."""
+    # Import lazily: prompts.py dispatches to this module for language-learning
+    # plans, while these audience/difficulty contracts must remain shared across
+    # every generation strategy.
+    from app.services.prompts import _audience_learning_profile_block, _difficulty_learning_profile_block
+
     pack_language = plan.language
     learning_language = plan.learningLanguage or "not specified"
     root_id = document_pack_id(plan, document)
@@ -23,6 +28,8 @@ def language_learning_document_generation_prompt(plan: CoursePlan, document: Pla
     source_section = f"\n\n{source_block}" if source_block else ""
     custom_instructions = (plan.customInstructions or "").strip()
     custom_block = f"\nUser-provided constraints:\n{custom_instructions}" if custom_instructions else ""
+    audience_profile = _audience_learning_profile_block(plan)
+    difficulty_profile = _difficulty_learning_profile_block(plan)
     return f"""Create one Language Learning Sokqa document JSON.
 
 # Language Learning document design
@@ -33,6 +40,9 @@ def language_learning_document_generation_prompt(plan: CoursePlan, document: Pla
 - Keep concrete names and locations when they make an example useful; explain that they can be replaced with the learner's own detail.
 - Prefer additional usable language content—substitutions, polite alternatives, natural replies, or misuse notes—over generic summaries or travel advice.
 - Do not put language tags such as [en-US] or [ja-JP] in document text. TTS is generated later.
+
+{audience_profile}
+{difficulty_profile}
 
 # Output contract
 - Return strict JSON only. Do not output Markdown, commentary, tts fields, or item tags.
@@ -80,6 +90,8 @@ def language_learning_quiz_generation_prompt(
     teaching design, question forms, language contracts, and source grounding
     are owned here.
     """
+    from app.services.prompts import _audience_learning_profile_block, _difficulty_learning_profile_block
+
     learning_language = plan.learningLanguage or "not specified"
     pack_language = plan.language
     source_text = "\n\n".join(
@@ -114,6 +126,8 @@ def language_learning_quiz_generation_prompt(
 """.strip()
 
     difficulty = quiz_difficulty_block(plan)
+    audience_profile = _audience_learning_profile_block(plan)
+    difficulty_profile = _difficulty_learning_profile_block(plan)
     custom_instructions = (plan.customInstructions or "").strip()
     custom_block = f"\nUser-provided constraints:\n{custom_instructions}" if custom_instructions else ""
     root_id = quiz_pack_id(plan, quiz_pack)
@@ -123,6 +137,8 @@ def language_learning_quiz_generation_prompt(
 # Language Learning question design
 - This is a language-acquisition quiz, not a travel, safety, etiquette, or general-knowledge quiz.
 - Before writing each question, select a concrete source phrase, source situation, and tested skill internally. Do not output these planning fields.
+{audience_profile}
+{difficulty_profile}
 - Every correct answer must be supported by the source content. Distractors may be new, but must be plausible language alternatives or plausible interpretations of the source phrase.
 - Reuse source expressions across a pack only when testing a distinct skill; do not pad the requested count with theme facts or generic advice.
 - Use varied skills where the source supports them: meaning, situation appropriateness, naturalness, politeness/register, dialogue response, misuse correction, and nuance.

@@ -339,9 +339,110 @@ def _course_teaching_guidance_block(plan: CoursePlan) -> str:
     return _join_non_empty_blocks(
         _structure_policy_block(plan),
         _material_mode_block(plan),
+        _audience_learning_profile_block(plan),
+        _difficulty_learning_profile_block(plan),
         _japanese_learning_difficulty_block(plan),
         _generation_guidance_block(plan),
     )
+
+
+def _audience_learning_profile_block(plan: CoursePlan) -> str:
+    """Return an opt-in teaching profile for a built-in target-user choice.
+
+    The UI's target-user choices promise more than a change of tone.  Each
+    profile therefore controls examples, explanation structure, and the kind
+    of learning check we ask for.  Free-form audiences intentionally keep the
+    existing generic behaviour.
+    """
+    target_user = (plan.targetUser or "").strip()
+    profiles = {
+        "小学生": """
+# 小学生プロファイル
+- 身近な生活・学校・遊びの場面から説明を始める。抽象的な言葉は日常語で言い換え、必要な専門用語は意味をすぐ添えること。
+- 一度に扱う新しい考えは一つに絞り、短い文と具体例で段階的に説明すること。前提知識があるものとして進めない。
+- クイズでは、身近な場面で正しい考え方や用語を選ぶ問題を中心にし、長文読解や言葉遊びで難しくしないこと。
+""",
+        "中学生": """
+# 中学生プロファイル
+- 学校生活、身近なサービス、社会とのつながりを使って説明し、具体例から用語や仕組みへ進むこと。
+- 用語の意味だけで終わらせず、「なぜそうなるか」「何が違うか」を一段ずつ示すこと。
+- クイズでは、基本用語の関係や短い場面での選択を扱い、暗記した語句の再生だけにしないこと。
+""",
+        "高校生": """
+# 高校生プロファイル
+- 進学、アルバイト、社会の仕組み、将来の学びにつながる文脈を必要に応じて使い、概念の背景と因果関係を説明すること。
+- 似た概念を比較し、根拠をもって自分で判断できるように説明すること。
+- クイズでは、比較・理由付け・短いケース判断を取り入れ、単語の定義を問うだけで終わらせないこと。
+""",
+        "大学生": """
+# 大学生プロファイル
+- 概念の前提、構造、相互関係を明確にし、学業・研究・社会での活用場面を必要に応じて結びつけること。
+- 複数の選択肢や立場がある場合は、判断基準とトレードオフを示して自律的な理解を促すこと。
+- クイズでは、概念の比較、ケース分析、根拠に基づく判断を優先すること。
+""",
+        "社会人": """
+# 社会人プロファイル
+- 業務での目的、判断、リスク、成果との関係を示し、専門職でない人にも使える実務的な理解へつなげること。
+- 専門用語は前提にせず、仕事で「何に役立つか」「判断を誤ると何が起きるか」を簡潔に説明すること。
+- クイズでは、業務上の短い場面で適切な行動・判断・理解を選ぶ問題を優先すること。
+""",
+        "実務担当者": """
+# 実務担当者プロファイル
+- 実際の担当業務で必要な手順、判断基準、確認事項、例外、リスクを中心にし、実行に移せる粒度で説明すること。
+- 一般論だけで済ませず、条件によって対応が変わる点や、見落としやすい運用上の注意を明確にすること。
+- クイズでは、手順の順序、条件分岐、優先順位、トラブル予防を問う実務的なケース判断を優先すること。
+""",
+    }
+    if target_user == "資格学習者":
+        return _qualification_learning_profile_block(plan)
+    profile = profiles.get(target_user)
+    return profile.strip() if profile else ""
+
+
+def _qualification_learning_profile_block(plan: CoursePlan) -> str:
+    """Return the teaching contract for the explicit qualification-learner audience.
+
+    ``targetUser`` is normally a presentation-level audience hint.  The
+    qualification-learner option is different: it expresses a concrete study
+    objective, so it needs a content-design contract that reaches both document
+    and quiz generation.  Keep this opt-in to avoid changing the behaviour of
+    free-form audiences that merely happen to mention an exam.
+    """
+    if (plan.targetUser or "").strip() != "資格学習者":
+        return ""
+    return """
+# 資格学習者プロファイル（試験対策）
+この教材は資格試験に備える学習者向けである。単なる資格紹介ではなく、受験時に知識を使って正誤を判断できる状態を目標にすること。
+- 本文では、試験で区別して問われやすい用語、条件、役割、手順、因果関係を中心に扱う。各論点は定義だけで終わらせず、似た概念との違い、判断の基準、または短い具体場面のいずれかを添えて理解につなげること。
+- テーマの概要紹介だけで1セクションを使わない。資格そのものの対象者・沿革・一般的な注目度を説明するのは、その情報が明示された学習目標または出題範囲である場合に限る。
+- クイズは本文の一文をそのまま再生する確認問題にしない。正しい用語・条件・手順を選ぶ問題、似た概念を区別する問題、または短い状況から適切な判断を選ぶ問題を優先すること。
+- 複数問を作る場合、少なくとも半数は用語の丸暗記だけで解けない識別・適用・状況判断の問題にすること。1問だけの場合も、単なる資格紹介や対象者の暗記を問わないこと。
+- 選択肢にはもっともらしい誤答を置くが、曖昧さや意地悪な言い回しで迷わせない。解説では正解の根拠に加え、混同しやすい判断軸を簡潔に示すこと。
+- 出力前に、各設問が「本文の一文を見れば答えられるだけの再生問題」ではなく、試験対策として知識の理解・区別・適用を確かめているか確認すること。
+""".strip()
+
+
+def _difficulty_learning_profile_block(plan: CoursePlan) -> str:
+    """Translate the selected difficulty into instructional depth for all audiences."""
+    difficulty = plan.difficulty or "standard"
+    profiles = {
+        "beginner": """
+# 難易度プロファイル: 初級
+- 前提知識を置かず、重要な用語は最初に平易に説明する。説明は一つの条件・関係から始め、段階を飛ばさないこと。
+- クイズでは、基本理解、用語と意味の対応、または一つの条件で判断できる短い場面を中心にすること。
+""",
+        "standard": """
+# 難易度プロファイル: 標準
+- 基本用語を使いながら、似た概念の違い、理由、複数の条件の関係まで説明すること。
+- クイズでは、比較、短い応用場面、または二つ以上の手掛かりからの判断を中心にすること。
+""",
+        "advanced": """
+# 難易度プロファイル: 上級
+- 定義の正確な適用範囲、例外、複数の要因の関係、トレードオフまで扱うこと。ただし対象ユーザーに合わない語彙や不必要な専門性で難しくしないこと。
+- クイズでは、複数条件の優先順位、例外を含む判断、根拠を比較するケースを中心にすること。細かな暗記や難問化そのものを目的にしないこと。
+""",
+    }
+    return profiles.get(difficulty, profiles["standard"]).strip()
 
 
 def _document_teaching_guidance_rules_block(plan: CoursePlan) -> str:

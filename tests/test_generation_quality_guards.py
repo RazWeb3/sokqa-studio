@@ -86,6 +86,88 @@ def test_quiz_generation_prompt_requires_consistency_integer_and_direct_style() 
     assert "This suppression applies only to question. Do not change TTS fields or answer-checking logic." in prompt
 
 
+def test_qualification_learner_profile_requires_exam_oriented_documents_and_quizzes() -> None:
+    plan = _plan()
+    plan.targetUser = "資格学習者"
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "資格学習者プロファイル（試験対策）" in prompt
+        assert "単なる資格紹介ではなく、受験時に知識を使って正誤を判断できる状態" in prompt
+        assert "テーマの概要紹介だけで1セクションを使わない" in prompt
+        assert "本文の一文をそのまま再生する確認問題にしない" in prompt
+        assert "少なくとも半数は用語の丸暗記だけで解けない識別・適用・状況判断の問題" in prompt
+
+
+def test_qualification_learner_profile_does_not_change_other_audiences() -> None:
+    plan = _plan()
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert "資格学習者プロファイル（試験対策）" not in document_prompt
+    assert "資格学習者プロファイル（試験対策）" not in quiz_prompt
+
+
+@pytest.mark.parametrize(
+    ("target_user", "marker"),
+    [
+        ("小学生", "小学生プロファイル"),
+        ("中学生", "中学生プロファイル"),
+        ("高校生", "高校生プロファイル"),
+        ("大学生", "大学生プロファイル"),
+        ("資格学習者", "資格学習者プロファイル（試験対策）"),
+        ("社会人", "社会人プロファイル"),
+        ("実務担当者", "実務担当者プロファイル"),
+    ],
+)
+def test_every_builtin_target_user_gets_a_learning_profile(target_user: str, marker: str) -> None:
+    plan = _plan()
+    plan.targetUser = target_user
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert marker in document_prompt
+    assert marker in quiz_prompt
+
+
+@pytest.mark.parametrize(
+    ("difficulty", "marker"),
+    [
+        ("beginner", "難易度プロファイル: 初級"),
+        ("standard", "難易度プロファイル: 標準"),
+        ("advanced", "難易度プロファイル: 上級"),
+    ],
+)
+def test_every_difficulty_gets_a_concrete_teaching_profile(difficulty: str, marker: str) -> None:
+    plan = _plan()
+    plan.difficulty = difficulty
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0])
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()])
+
+    assert marker in document_prompt
+    assert marker in quiz_prompt
+
+
+def test_language_learning_generation_keeps_target_user_and_difficulty_profiles() -> None:
+    plan = _plan()
+    plan.targetUser = "小学生"
+    plan.difficulty = "advanced"
+    plan.learningLanguage = "en"
+    context = _language_learning_context(plan)
+
+    document_prompt = document_generation_prompt(plan, plan.documents[0], context=context)
+    quiz_prompt = quiz_generation_prompt(plan, plan.quizPacks[0], [_source_pack()], context=context)
+
+    for prompt in [document_prompt, quiz_prompt]:
+        assert "小学生プロファイル" in prompt
+        assert "難易度プロファイル: 上級" in prompt
+
+
 def test_quiz_generation_prompt_forbids_square_bracket_placeholders() -> None:
     plan = _plan()
 

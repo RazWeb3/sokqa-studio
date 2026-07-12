@@ -9,6 +9,7 @@ from app.services.gemini_client import GeminiClient
 from app.services.generation.context import GenerationContext
 from app.services.tts_optimizer import (
     MAX_TTS_FILE_CHARS,
+    _ensure_learning_language_explanation_tags,
     _gemini_document_chunk_readings,
     _guard_llm_text,
     _speech_text,
@@ -1428,10 +1429,95 @@ def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch)
         context=GenerationContext("language_learning", "ja", "en", "learning", "multilingual"),
     )
 
+
+def test_language_learning_explanation_keeps_tts_when_llm_omits_english_tags(monkeypatch) -> None:
+    """English inside a Japanese explanation must not fall through to raw TTS."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_provider", "mock")
+    file = GeneratedFile(
+        name="english_explanation.json",
+        kind="quiz",
+        content={
+            "id": "english_explanation",
+            "type": "quiz",
+            "schemaVersion": 1,
+            "title": "英会話",
+            "language": "ja",
+            "learningLanguage": "en",
+            "choiceLanguageMode": "learning",
+            "questions": [{
+                "id": "q-16",
+                "question": "店員に丁寧に場所を尋ねるにはどう言いますか？",
+                "choices": [
+                    "Excuse me, where can I find the milk section?",
+                    "Where is the milk?",
+                    "Show me the milk.",
+                    "I need milk, where is it?",
+                ],
+                "answerIndex": 0,
+                "explanation": "Excuse meで丁寧に注意を引き、where can I find...?は場所を尋ねる表現です。",
+            }],
+        },
+    )
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {"items": [{
+            "id": "q-16",
+            "questionText": "店員に丁寧に場所を尋ねるにはどう言いますか？",
+            "choices": [
+                {"index": 0, "text": "Excuse me, where can I find the milk section?"},
+                {"index": 1, "text": "Where is the milk?"},
+                {"index": 2, "text": "Show me the milk."},
+                {"index": 3, "text": "I need milk, where is it?"},
+            ],
+            # Reproduces the faulty LLM response: no inline language tags.
+            "explanationText": "Excuse meで丁寧に注意を引き、where can I find...?は場所を尋ねる表現です。",
+        }]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    files, _ = optimize_generated_files_with_report(
+        [file], [], mode="multilingual",
+        context=GenerationContext("language_learning", "ja", "en", "learning", "multilingual"),
+    )
+
+    tts = files[0].content["questions"][0]["tts"]
+    assert tts["explanationText"] == (
+        "[en-US]Excuse me[ja-JP]で丁寧に注意を引き、"
+        "[en-US]where can I find...?[ja-JP]は場所を尋ねる表現です。"
+    )
+
     # choiceTexts is retained because no choicesLanguage is present: switch
     # tags alone do not make the common fallback locale explicit.
     tts = files[0].content["questions"][0]["tts"]
     assert "choiceTexts" in tts
+
+
+def test_learning_explanation_fallback_preserves_existing_language_tags() -> None:
+    text = "[en-US]Where can I find it?[ja-JP]は場所を尋ねる表現です。"
+
+    assert _ensure_learning_language_explanation_tags(
+        text,
+        default_language="ja",
+        learning_language="en",
+    ) == text
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "詳細はhttps://example.com/helpを確認します。",
+        "support@example.comへ連絡します。",
+        "Wi-Fiの設定を確認します。",
+        "APIの応答を確認します。",
+        "iPhoneの設定を開きます。",
+    ],
+)
+def test_learning_explanation_fallback_does_not_tag_latin_identifiers(value: str) -> None:
+    assert _ensure_learning_language_explanation_tags(
+        value,
+        default_language="ja",
+        learning_language="en",
+    ) == value
 
 
 def test_learning_mode_omits_choice_texts_when_choices_language_present(monkeypatch) -> None:

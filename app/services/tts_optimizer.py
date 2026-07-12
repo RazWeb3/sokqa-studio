@@ -51,6 +51,9 @@ _EDIT_TRACE_PATTERNS = [
         "recommendation": "助詞の連続が不自然で、LLMが読み補助ではなく文章編集に入った疑いがあります。このフィールドは辞書ベースの読みへフォールバックしました。",
     }
 ]
+_LATIN_SPEECH_SPAN_RE = re.compile(
+    r"[A-Za-z\u00c0-\u024f](?:[A-Za-z\u00c0-\u024f0-9'’.,!?;:()\- ]*[A-Za-z\u00c0-\u024f0-9!?])?"
+)
 
 
 def _katakana_word(value: str) -> str | None:
@@ -770,6 +773,46 @@ def _apply_field_language_tags(
     return _strip_edge_default_tags(text, default_language) or source_text
 
 
+def _ensure_learning_language_explanation_tags(
+    text: str,
+    *,
+    default_language: str,
+    learning_language: str | None,
+) -> str:
+    """Provide a safe deterministic fallback for untagged English in explanations.
+
+    Language-learning explanations often quote a short English phrase inside a
+    Japanese explanation.  If an LLM omits its mixed-language tags, the normal
+    sparse TTS optimisation sees identical source and reading text and drops
+    ``explanationText`` entirely.  Tag standalone Latin spans so the override
+    is retained and Cloud TTS switches voices correctly.
+    """
+    if (
+        not learning_language
+        or _base_language(learning_language) == _base_language(default_language)
+        or language_script(learning_language) != "latin"
+        or LANGUAGE_TAG_RE.search(text)
+    ):
+        return text
+
+    learning_tag = _language_tag(learning_language)
+    default_tag = _language_tag(default_language)
+
+    def replace(match: re.Match[str]) -> str:
+        span = match.group(0)
+        # Keep identifiers, product names, abbreviations, URLs and email
+        # components in the default voice.  This fallback is for natural
+        # learning phrases; a phrase has at least two Latin tokens.
+        if not any(char.isspace() for char in span):
+            return span
+        end = match.end()
+        # A return tag is needed only when following text is present. This
+        # keeps terminal foreign-language phrases free of meaningless resets.
+        return f"{learning_tag}{span}{default_tag if end < len(text) else ''}"
+
+    return _LATIN_SPEECH_SPAN_RE.sub(replace, text)
+
+
 def _apply_choice_language_tags(
     choices: list[str],
     choice_readings: list[str],
@@ -1200,6 +1243,12 @@ def _quiz_tts_from_readings(
         allow_language_tags=allow_language_tags,
         language_settings=language_settings,
     )
+    if allow_language_tags:
+        explanation_text = _ensure_learning_language_explanation_tags(
+            explanation_text,
+            default_language=language,
+            learning_language=learning_language,
+        )
     question_text_output = _optional_speech_text(question.question, question_text, rules, language)
     choice_readings = _apply_choice_language_tags(
         question.choices,

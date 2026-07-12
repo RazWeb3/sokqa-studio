@@ -459,7 +459,7 @@
       .record-action-loader { grid-column: 1 / -1; margin-top: 4px; }
       .record-action-controls { display: none; min-width: 0; }
       .record-action-controls.active { display: flex; align-items: center; min-width: 0; }
-      .record-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; width: 100%; }
+      .record-settings-grid { display: grid; grid-template-columns: minmax(118px, 172px) minmax(190px, 1fr); gap: 8px; width: 100%; }
       .record-playback-grid { display: grid; grid-template-columns: minmax(112px, 128px) minmax(0, 1fr); gap: 8px; align-items: center; width: 100%; }
       .record-playback-grid .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
       .record-playback-grid audio { display: none; }
@@ -975,7 +975,6 @@
               <div class="record-action-controls active" id="recordRecordControls">
                 <div class="record-settings-grid">
                   <label>録音するテキスト<select id="recordingTextSource"><option value="raw">生テキスト</option><option value="corrected">補正テキスト</option></select></label>
-                  <label>基本言語<select id="recordingVoiceLanguage"><option value="ja-JP">日本語</option><option value="en-US">英語（米国）</option></select></label>
                   <label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label>
                 </div>
               </div>
@@ -4147,24 +4146,21 @@
         updateRecordActionBar();
       }
 
-      async function loadTtsVoices(languageCode = "ja-JP") {
+      async function loadTtsVoices() {
         try {
-          const data = await requestGet(`/tts/voices?languageCode=${encodeURIComponent(languageCode)}`);
+          const data = await requestGet("/tts/voices");
           const voices = data.voices || [];
           if (!voices.length) return;
           $("recordingVoiceSelect").innerHTML = voices.map((voice) => {
-            const primaryLanguage = (voice.languageCodes || [languageCode])[0] || languageCode;
-            const label = voice.label || `${voice.name} / ${primaryLanguage}`;
-            return `<option value="${escapeHtml(voice.name)}" data-language-code="${escapeHtml(primaryLanguage)}">${escapeHtml(label)}</option>`;
+            const primaryLanguage = (voice.languageCodes || [""])[0];
+            const label = voice.label || voice.name;
+            const languageLabel = primaryLanguage ? `（${primaryLanguage}）` : "";
+            return `<option value="${escapeHtml(voice.name)}" data-language-code="${escapeHtml(primaryLanguage)}">${escapeHtml(label)}${languageLabel}</option>`;
           }).join("");
         } catch (error) {
           setProgress("声種一覧", "失敗", `既定の声種を使います: ${error.message}`, 1);
         }
       }
-
-      $("recordingVoiceLanguage")?.addEventListener("change", (event) => {
-        loadTtsVoices(event.target.value);
-      });
 
       function readJsonFile(file) {
         return new Promise((resolve, reject) => {

@@ -84,6 +84,8 @@ def test_recording_ui_sends_one_record_request_without_client_chunking() -> None
     assert 'id="recordViewPlaybackTab"' in html
     assert 'id="recordViewDeleteTab"' in html
     assert '<label>録音するテキスト<select id="recordingTextSource"><option value="raw">生テキスト</option><option value="corrected">補正テキスト</option></select></label>' in html
+    assert 'id="recordingVoiceLanguage"' not in html
+    assert 'const data = await requestGet("/tts/voices");' in html
     assert 'id="recordActionBadge"' in html
     assert 'id="recordActionTitle"' in html
     assert 'id="recordActionText"' in html
@@ -105,7 +107,7 @@ def test_recording_ui_sends_one_record_request_without_client_chunking() -> None
     assert ".record-action-bar {" in html
     assert "grid-template-columns: var(--fixed-action-state-width) minmax(250px, 300px) minmax(0, 1fr);" in html
     assert ".record-action-controls.active { display: flex; align-items: center; min-width: 0; }" in html
-    assert ".record-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; width: 100%; }" in html
+    assert ".record-settings-grid { display: grid; grid-template-columns: minmax(118px, 172px) minmax(190px, 1fr); gap: 8px; width: 100%; }" in html
     assert ".record-playback-grid .player-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }" in html
     assert ".record-playback-grid audio { display: none; }" in html
     assert ".record-action-buttons { display: none; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }" in html

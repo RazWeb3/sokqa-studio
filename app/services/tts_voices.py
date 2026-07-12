@@ -29,10 +29,41 @@ SOKQA_VOICES: tuple[SokqaVoice, ...] = (
     SokqaVoice("ja-JP-Chirp3-HD-Zephyr", "朗読向け（女性）Zephyr", "female", "high", 30),
     SokqaVoice("ja-JP-Chirp3-HD-Charon", "朗読向け（男性）Charon", "male", "high", 40),
     SokqaVoice("ja-JP-Neural2-B", "標準（開発用）Neural2", "female", "standard", 50),
+    SokqaVoice("en-US-Chirp3-HD-Aoede", "学習向け（女性）Aoede", "female", "high", 10),
+    SokqaVoice("en-US-Chirp3-HD-Orus", "ビジネス向け（男性）Orus", "male", "high", 20),
+    SokqaVoice("en-US-Chirp3-HD-Zephyr", "朗読向け（女性）Zephyr", "female", "high", 30),
+    SokqaVoice("en-US-Chirp3-HD-Charon", "朗読向け（男性）Charon", "male", "high", 40),
 )
 
+_LINKED_CHIRP3_HD_LOCALES = frozenset({"ja-JP", "en-US"})
+_DEFAULT_LINKED_VOICE_BY_LOCALE = {
+    "ja-JP": "ja-JP-Chirp3-HD-Aoede",
+    "en-US": "en-US-Chirp3-HD-Aoede",
+}
+
 def is_chirp3_hd_voice(voice_name: str | None) -> bool:
-    return bool(voice_name and voice_name.startswith("ja-JP-Chirp3-HD-"))
+    return bool(voice_name and "-Chirp3-HD-" in voice_name)
+
+
+def linked_voice_for_language(voice_name: str | None, language_code: str) -> str | None:
+    """Return the same adopted Chirp3 speaker in another supported locale.
+
+    We deliberately map only the four product-adopted high-quality voices. A
+    Neural2 fallback cannot promise that the same speaker exists in both
+    languages, so callers retain their requested voice instead.
+    """
+    if not voice_name or language_code not in _LINKED_CHIRP3_HD_LOCALES:
+        return None
+    for voice in SOKQA_VOICES:
+        suffix = voice.name.split("-", 2)[-1]
+        if voice_name.endswith(f"-{suffix}") and "-Chirp3-HD-" in voice_name:
+            return f"{language_code}-{suffix}"
+    return None
+
+
+def default_linked_voice_for_language(language_code: str) -> str | None:
+    """Return the product default for a tagged bilingual recording."""
+    return _DEFAULT_LINKED_VOICE_BY_LOCALE.get(language_code)
 
 
 def filter_sokqa_voices(voices: list[dict[str, Any]]) -> list[dict[str, Any]]:

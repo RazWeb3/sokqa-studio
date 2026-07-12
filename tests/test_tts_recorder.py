@@ -179,6 +179,38 @@ def test_record_pack_audio_passes_voice_options_to_default_synthesizer(monkeypat
     }
 
 
+def test_record_pack_audio_switches_linked_voices_for_language_tags(monkeypatch) -> None:
+    pack = _document_pack()
+    assert pack.documents[0].tts is not None
+    pack.documents[0].tts.text = "[ja-JP]こんにちは。[en-US]Hello."
+    units = extract_recording_units_from_document_pack(pack, text_source="corrected")
+    storage = FakeStorageClient()
+    calls = []
+
+    def fake_synthesize_text_to_mp3(text, *, language_code=None, voice_name=None, speaking_rate=None, pitch=None):
+        calls.append((text, language_code, voice_name))
+        return text.encode()
+
+    monkeypatch.setattr(tts_recorder, "synthesize_text_to_mp3", fake_synthesize_text_to_mp3)
+
+    summary = record_pack_audio(
+        pack,
+        units,
+        "sokqa/creators/creator/packs/content/versions/v1",
+        storage_client=storage,
+        synthesize_fn=tts_recorder.synthesize_text_to_mp3,
+        language_code="ja-JP",
+        voice_name="ja-JP-Chirp3-HD-Aoede",
+    )
+
+    assert summary.success_count == 1
+    assert calls == [
+        ("こんにちは。", "ja-JP", "ja-JP-Chirp3-HD-Aoede"),
+        ("Hello.", "en-US", "en-US-Chirp3-HD-Aoede"),
+    ]
+    assert storage.saved_bytes[0]["data"] == "こんにちは。Hello.".encode()
+
+
 def test_recorded_audio_urls_are_excluded_from_unrecorded_targets() -> None:
     quiz = _quiz_pack()
     assert quiz.questions[0].tts is not None

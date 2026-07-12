@@ -12,7 +12,9 @@ from app.schemas.sokqa import DocumentTts, GeneratedFile, QuizTts, SokqaDocument
 from app.services.pack_paths import resolve_asset_url
 from app.services.storage_client import StorageClient
 from app.services.tts_estimation import RecordingUnit
+from app.services.tts_language_tags import parse_tts_language_segments
 from app.services.tts_synthesizer import synthesize_text_to_mp3
+from app.services.tts_voices import default_linked_voice_for_language, linked_voice_for_language
 
 Synthesizer = Callable[[str], bytes]
 AudioPathFactory = Callable[[RecordingUnit], str]
@@ -177,6 +179,57 @@ def record_pack_audio(
 
 
 def _synthesize_audio(
+    synthesize_fn: Synthesizer,
+    text: str,
+    *,
+    language_code: str | None = None,
+    voice_name: str | None = None,
+    speaking_rate: float | None = None,
+    pitch: float | None = None,
+) -> bytes:
+    default_language = language_code or get_settings().cloud_tts_language_code
+    segments = parse_tts_language_segments(text, default_language)
+    if not segments:
+        raise ValueError("TTS text is empty after language tags are removed")
+    if len(segments) == 1 and segments[0].language_code == default_language:
+        return _synthesize_single_audio(
+            synthesize_fn,
+            segments[0].text,
+            language_code=language_code,
+            voice_name=voice_name,
+            speaking_rate=speaking_rate,
+            pitch=pitch,
+        )
+
+    audio_segments: list[bytes] = []
+    for segment in segments:
+        segment_voice = (
+            linked_voice_for_language(voice_name, segment.language_code)
+            or (default_linked_voice_for_language(segment.language_code) if voice_name is None else None)
+            or voice_name
+        )
+        if segment_voice is None or (segment.language_code != default_language and segment_voice == voice_name):
+            raise ValueError(
+                f"selected voice does not support tagged language {segment.language_code}; "
+                "select one of the adopted Chirp3 HD voices"
+            )
+        audio_segments.append(
+            _synthesize_single_audio(
+                synthesize_fn,
+                segment.text,
+                language_code=segment.language_code,
+                voice_name=segment_voice,
+                speaking_rate=speaking_rate,
+                pitch=pitch,
+            )
+        )
+    # Cloud TTS MP3 responses are complete MPEG frame streams. Appending the
+    # streams keeps each segment's encoded audio intact and avoids a lossy,
+    # CPU-heavy transcode in the request path.
+    return b"".join(audio_segments)
+
+
+def _synthesize_single_audio(
     synthesize_fn: Synthesizer,
     text: str,
     *,

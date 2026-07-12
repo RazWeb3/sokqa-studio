@@ -975,6 +975,7 @@
               <div class="record-action-controls active" id="recordRecordControls">
                 <div class="record-settings-grid">
                   <label>録音するテキスト<select id="recordingTextSource"><option value="raw">生テキスト</option><option value="corrected">補正テキスト</option></select></label>
+                  <label>基本言語<select id="recordingVoiceLanguage"><option value="ja-JP">日本語</option><option value="en-US">英語（米国）</option></select></label>
                   <label>音声<select id="recordingVoiceSelect"><option value="ja-JP-Neural2-B" data-language-code="ja-JP">標準（開発用）Neural2</option></select></label>
                 </div>
               </div>
@@ -4160,6 +4161,10 @@
           setProgress("声種一覧", "失敗", `既定の声種を使います: ${error.message}`, 1);
         }
       }
+
+      $("recordingVoiceLanguage")?.addEventListener("change", (event) => {
+        loadTtsVoices(event.target.value);
+      });
 
       function readJsonFile(file) {
         return new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-from app.services.tts_voices import filter_sokqa_voices
+from app.services.tts_voices import filter_sokqa_voices, linked_voice_for_language
 
 
 def test_filter_sokqa_voices_returns_adopted_voices_with_labels_in_order() -> None:
@@ -60,3 +60,9 @@ def test_filter_sokqa_voices_omits_missing_adopted_voices_without_error() -> Non
 
     assert [voice["name"] for voice in voices] == ["ja-JP-Chirp3-HD-Charon"]
     assert voices[0]["label"] == "朗読向け（男性）Charon"
+
+
+def test_linked_voice_for_language_preserves_adopted_speaker() -> None:
+    assert linked_voice_for_language("ja-JP-Chirp3-HD-Aoede", "en-US") == "en-US-Chirp3-HD-Aoede"
+    assert linked_voice_for_language("en-US-Chirp3-HD-Charon", "ja-JP") == "ja-JP-Chirp3-HD-Charon"
+    assert linked_voice_for_language("ja-JP-Neural2-B", "en-US") is None

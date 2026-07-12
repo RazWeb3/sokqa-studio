@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from app.config import get_settings
 from app.schemas.sokqa import SokqaDocumentItem, SokqaDocumentPack, SokqaQuestion, SokqaQuizPack
+from app.services.tts_language_tags import speech_character_count
 
 RecordingTextSource = Literal["raw", "corrected"]
 
@@ -196,7 +197,7 @@ def extract_recording_units_from_quiz_pack(
             RecordingUnit(
                 item_id=f"q_{q_id}_question",
                 text=q_text,
-                char_count=len(q_text),
+                char_count=speech_character_count(q_text),
                 pack_id=pack.id,
                 pack_type="quiz",
                 kind="question",
@@ -216,7 +217,7 @@ def extract_recording_units_from_quiz_pack(
                 RecordingUnit(
                     item_id=f"q_{q_id}_choice_{i}",
                     text=choice_text,
-                    char_count=len(choice_text),
+                char_count=speech_character_count(choice_text),
                     pack_id=pack.id,
                     pack_type="quiz",
                     kind="choice",
@@ -235,7 +236,7 @@ def extract_recording_units_from_quiz_pack(
             RecordingUnit(
                 item_id=f"q_{q_id}_explanation",
                 text=exp_text,
-                char_count=len(exp_text),
+                char_count=speech_character_count(exp_text),
                 pack_id=pack.id,
                 pack_type="quiz",
                 kind="explanation",
@@ -264,7 +265,7 @@ def extract_recording_units_from_document_pack(
             RecordingUnit(
                 item_id=f"doc_{item.id}",
                 text=text,
-                char_count=len(text),
+                char_count=speech_character_count(text),
                 pack_id=pack.id,
                 pack_type="document",
                 kind="document",

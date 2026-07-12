@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import BaseModel
+
 from app.config import get_settings
 from app.services.llm_json import LlmJsonParseContext, parse_llm_json_or_raise
 
@@ -148,6 +150,7 @@ class GeminiClient:
         model: str | None = None,
         temperature: float | None = None,
         parse_context: LlmJsonParseContext | None = None,
+        response_schema: type[BaseModel] | dict[str, Any] | None = None,
     ) -> Any:
         if self.settings.gemini_provider == "mock":
             raise RuntimeError("GEMINI_PROVIDER=mock; use deterministic local generators.")
@@ -171,9 +174,18 @@ class GeminiClient:
         request: dict[str, Any] = {
             "model": resolved_model,
             "contents": prompt,
+            # All callers of this adapter expect JSON.  This asks Gemini to
+            # produce JSON at the API boundary rather than relying only on a
+            # natural-language instruction in each individual prompt.
+            "config": {"response_mime_type": "application/json"},
         }
+        if response_schema is not None:
+            # Reuse the Pydantic model that validates the response after
+            # normalization, so the API schema cannot drift from the domain
+            # model maintained by the application.
+            request["config"]["response_schema"] = response_schema
         if temperature is not None:
-            request["config"] = {"temperature": temperature}
+            request["config"]["temperature"] = temperature
 
         _record_prompt_from_context(prompt, resolved_model, parse_context)
 

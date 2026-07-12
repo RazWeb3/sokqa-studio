@@ -1,9 +1,15 @@
 import json
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from app.config import get_settings
+from app.schemas.sokqa import CoursePlan, PlanDocument, SokqaDocumentPack
+from app.services.document_generator import generate_document_pack
 from app.services.gemini_client import (
     DebugPromptRecord,
+    GeminiClient,
     parse_json_response,
     pop_debug_prompts,
     record_debug_prompt,
@@ -110,3 +116,78 @@ def test_pop_debug_prompts_clears_buffer(monkeypatch) -> None:
     record_debug_prompt("doc", "doc_01", "m", "p")
     assert len(pop_debug_prompts()) == 1
     assert pop_debug_prompts() == []
+
+
+def _install_fake_genai(monkeypatch, response_text: str):
+    requests: list[dict] = []
+
+    class FakeModels:
+        def generate_content(self, **request):
+            requests.append(request)
+            return SimpleNamespace(text=response_text, candidates=[])
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.models = FakeModels()
+
+    fake_google = ModuleType("google")
+    fake_google.genai = SimpleNamespace(Client=FakeClient)
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    return requests
+
+
+def test_generate_json_requests_json_mime_type_for_every_json_call(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "gemini_provider", "gemini")
+    requests = _install_fake_genai(monkeypatch, '{"ok": true}')
+
+    assert GeminiClient().generate_json("Return JSON.", temperature=0.2) == {"ok": True}
+
+    assert requests[0]["config"] == {
+        "response_mime_type": "application/json",
+        "temperature": 0.2,
+    }
+
+
+def test_document_generation_uses_domain_schema_and_preserves_quoted_english_at_35_sections(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "gemini_provider", "gemini")
+    sections = [
+        {"id": f"untrusted-{index}", "text": f'Use "gate {index}" when speaking to staff.'}
+        for index in range(1, 36)
+    ]
+    response_text = json.dumps(
+        {
+            "id": "untrusted-id",
+            "type": "document",
+            "schemaVersion": 1,
+            "title": "Untrusted title",
+            "documents": sections,
+        },
+        ensure_ascii=False,
+    )
+    requests = _install_fake_genai(monkeypatch, response_text)
+    plan = CoursePlan(
+        id="travel-english",
+        title="Travel English",
+        description="Useful English for travel.",
+        targetUser="travelers",
+        difficulty="advanced",
+        language="ja",
+        documents=[],
+        quizPacks=[],
+    )
+    document = PlanDocument(
+        id="doc_01",
+        title="At the airport",
+        goal="Communicate at the airport.",
+        keyPoints=["boarding", "gate", "passport"],
+        targetSectionCount=35,
+    )
+
+    pack = generate_document_pack(plan, document, model="gemini-test")
+
+    assert isinstance(pack, SokqaDocumentPack)
+    assert len(pack.documents) == 35
+    assert pack.documents[0].text == 'Use "gate 1" when speaking to staff.'
+    assert [item.id for item in pack.documents] == [f"doc-{index}" for index in range(1, 36)]
+    assert requests[0]["config"]["response_mime_type"] == "application/json"
+    assert requests[0]["config"]["response_schema"] is SokqaDocumentPack

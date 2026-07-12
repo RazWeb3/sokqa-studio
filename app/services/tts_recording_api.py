@@ -30,6 +30,7 @@ from app.services.pack_paths import (
 from app.services.revision_store import persist_revision_commit
 from app.services.storage_client import StorageClient
 from app.services.tts_estimation import RecordingTextSource, RecordingUnit, extract_recording_units
+from app.services.tts_language_tags import speech_segment_count
 from app.services.tts_recorder import RecordingSummary, Synthesizer, clear_pack_audio_urls, record_generated_file_audio
 
 
@@ -397,6 +398,8 @@ def _estimate_response(
     text_source: RecordingTextSource,
 ) -> dict:
     total_chars = sum(unit.char_count for unit in billable_units)
+    default_language_code = get_settings().cloud_tts_language_code
+    synthesis_request_count = sum(speech_segment_count(unit.text, default_language_code) for unit in billable_units)
     rate = get_settings().tts_credit_per_char
     return {
         "packId": loaded.pack.id,
@@ -407,6 +410,7 @@ def _estimate_response(
         "unitCount": len(units),
         "billableUnitCount": len(billable_units),
         "totalChars": total_chars,
+        "synthesisRequestCount": synthesis_request_count,
         "estimatedCredits": total_chars * rate,
         "units": [_unit_to_dict(unit) for unit in units],
     }

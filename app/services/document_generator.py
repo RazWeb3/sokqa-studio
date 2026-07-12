@@ -185,6 +185,7 @@ def _generate_document_json_with_retry(
             result = GeminiClient().generate_json(
                 attempt_prompt,
                 model=model,
+                response_schema=SokqaDocumentPack,
                 parse_context=LlmJsonParseContext(
                     generation_unit="doc",
                     model=model,

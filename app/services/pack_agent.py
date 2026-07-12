@@ -31,6 +31,8 @@ from app.services.planner import create_course_plan
 from app.services.quiz_generator import generate_quiz_pack
 from app.services.content_validator import validate_english_spans
 from app.services.quality_fixer import apply_auto_quality_fixes
+from app.services.generation.strategy import resolve_generation_strategy
+from app.services.quality.context import QualityContext
 from app.services.repairer import repair_files
 from app.services.revision_commit import build_revision_commit
 from app.services.revision_store import persist_revision_commit
@@ -479,8 +481,9 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
             validate_english_spans(file.content, file.name)
 
     logs.append("Applying auto quality fixes")
+    quality_context = QualityContext(resolve_generation_strategy(request))
     for file in files:
-        updated_content, applied = apply_auto_quality_fixes(file.content, file.name)
+        updated_content, applied = apply_auto_quality_fixes(file.content, file.name, context=quality_context)
         if applied:
             file.content = updated_content
             for fix in applied:

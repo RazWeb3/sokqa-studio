@@ -36,6 +36,12 @@ from app.services.llm_json import LlmJsonParseContext
 from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.pack_paths import pack_root_prefix
 from app.services.generation.language_learning.quality import deterministic_tts_issues
+from app.services.generation.strategy import resolve_generation_strategy
+from app.services.quality.context import QualityContext
+from app.services.quality.language_learning import (
+    is_local_katakana_to_tagged_latin_reversal,
+    language_learning_text_fix_policy,
+)
 from app.services.quality_checker import _generate_json_with_retry
 from app.services.revision_store import persist_revision_commit
 from app.services.storage_client import StorageClient
@@ -108,9 +114,10 @@ def generate_tts_fix(target: TtsRecordingTarget, issues: list[QualityIssue], max
     during generation.  A caller must still explicitly save this preview.
     """
     loaded = load_target_pack(target)
+    context = _quality_context_for_target(target)
     allow_language_tags = _allow_multilingual_tts_tags(loaded.file.content)
     return _generate_tts_fix_without_llm(
-        target, [issue for issue in issues if issue.category in AUTO_CATEGORIES], max_fixes, allow_language_tags=allow_language_tags
+        target, [issue for issue in issues if issue.category in AUTO_CATEGORIES], max_fixes, allow_language_tags=allow_language_tags, context=context
     )
 
 
@@ -124,6 +131,7 @@ def generate_text_fix(target: TtsRecordingTarget, issues: list[QualityIssue], ma
 
 def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue], max_fixes: int, *, mode: str) -> QualityFixResponse:
     loaded = load_target_pack(target)
+    context = _quality_context_for_target(target)
     if mode == "tts":
         _validate_tts_fix_input(loaded.file.content)
         issues = [_normalize_tts_issue_location(issue) for issue in issues]
@@ -135,7 +143,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
     if settings.gemini_provider == "mock":
         return _mock_fix_response(loaded.file.name, loaded.file.content, limited_issues, model, len(issues) > max_fixes)
 
-    prompt, input_truncated = _fix_prompt(loaded.file.name, loaded.file.content, limited_issues, max_fixes, mode=mode)
+    prompt, input_truncated = _fix_prompt(loaded.file.name, loaded.file.content, limited_issues, max_fixes, mode=mode, is_language_learning=context.is_language_learning)
     llm_start = time.perf_counter()
     llm_attempts = {"count": 0}
 
@@ -174,6 +182,7 @@ def _generate_quality_fix(target: TtsRecordingTarget, issues: list[QualityIssue]
             max_fixes=max_fixes,
             input_truncated=input_truncated or len(issues) > max_fixes,
             allow_language_tags=allow_language_tags,
+            is_language_learning=context.is_language_learning,
         )
         _validate_pack_json(loaded.file.name, response.updatedJson)
         return _evaluate_fix_preview(loaded.file.name, loaded.file.content, response, limited_issues)
@@ -187,6 +196,7 @@ def _generate_tts_fix_without_llm(
     max_fixes: int,
     *,
     allow_language_tags: bool = False,
+    context: QualityContext | None = None,
 ) -> QualityFixResponse:
     started = time.perf_counter()
     loaded = load_target_pack(target)
@@ -283,6 +293,11 @@ def _generate_tts_fix_without_llm(
                     reason="suggestion が空、または適用可能な修正後テキストではありません。",
                 )
             )
+            continue
+        if context and context.is_language_learning and is_local_katakana_to_tagged_latin_reversal(
+            before, replacement, _get_raw_field(updated_json, location)
+        ):
+            unapplied.append(_unapplied_fix(issue, updated_json, index, reason="local katakana reading must not be reversed to a newly tagged display spelling"))
             continue
         after = _apply_partial_tts_replacement(before, issue.excerpt, replacement)
         if after is None:
@@ -388,7 +403,9 @@ def _generate_tts_fix_without_llm(
     ), limited_issues)
 
 
-def apply_auto_quality_fixes(content: dict[str, Any], file_name: str) -> tuple[dict[str, Any], list[AppliedFix]]:
+def apply_auto_quality_fixes(
+    content: dict[str, Any], file_name: str, *, context: QualityContext | None = None
+) -> tuple[dict[str, Any], list[AppliedFix]]:
     """生成パイプライン用: content を直接受け取り、検出されたTTS問題のうち、
     表示本文との一致とタグ構造を決定論的に証明できるものだけを自動適用する。
 
@@ -396,11 +413,15 @@ def apply_auto_quality_fixes(content: dict[str, Any], file_name: str) -> tuple[d
     内部ロジックを直接呼び出す。PENDINGカテゴリ（factual/style/leak）は対象外。
     """
     updated_json = copy.deepcopy(content)
+    # Content alone is never used to classify a pack.  Legacy callers retain
+    # the Standard behavior; generation passes its resolved strategy.
+    if not context or not context.is_language_learning:
+        return updated_json, []
     issues = deterministic_tts_issues(file_name, updated_json)
     auto_issues = [issue for issue in issues if issue.category in AUTO_CATEGORIES]
     if not auto_issues:
         return updated_json, []
-    applied = _apply_auto_issues_without_llm(updated_json, auto_issues, file_name)
+    applied = _apply_auto_issues_without_llm(updated_json, auto_issues, file_name, context=context)
     return updated_json, applied
 
 
@@ -408,6 +429,8 @@ def _apply_auto_issues_without_llm(
     updated_json: dict[str, Any],
     issues: list[QualityIssue],
     file_name: str,
+    *,
+    context: QualityContext | None = None,
 ) -> list[AppliedFix]:
     """_generate_tts_fix_without_llm の content 直接版（ストレージアクセスなし）。"""
     applied: list[AppliedFix] = []
@@ -438,6 +461,10 @@ def _apply_auto_issues_without_llm(
             if after is None:
                 continue
             if _is_clear_vocabulary_rewrite(issue.excerpt, replacement):
+                continue
+            if context and context.is_language_learning and is_local_katakana_to_tagged_latin_reversal(
+                before, replacement, _get_raw_field(updated_json, location)
+            ):
                 continue
             allow_language_tags = _allow_multilingual_tts_tags(updated_json)
             if allow_language_tags and _is_invalid_multilingual_tts_fix(issue.excerpt, replacement):
@@ -750,6 +777,7 @@ def _fix_response_from_data(
     max_fixes: int,
     input_truncated: bool,
     allow_language_tags: bool = False,
+    is_language_learning: bool = False,
 ) -> QualityFixResponse:
     data = data if isinstance(data, dict) else {}
     raw_applied = data.get("appliedFixes", [])
@@ -768,12 +796,39 @@ def _fix_response_from_data(
         for fix in (_normalize_pending_fix(item, original_json, file_name, index) for index, item in enumerate(raw_pending, start=1))
         if fix is not None
     ]
+    unapplied: list[UnappliedFix] = []
+    if is_language_learning:
+        retained: list[PendingFix] = []
+        for fix in pending:
+            before = fix.before or ""
+            after = fix.suggestedAfter
+            # Do not let a text repair remove an explicit learning expression,
+            # quoted expression, or its visible explanation.  This guard is
+            # LL-only: Standard pending fixes keep their historic behavior.
+            before_terms = re.findall(r"[A-Za-z][A-Za-z0-9' -]*|[\u3040-\u30ff\u3400-\u9fff]+", before)
+            missing = [term for term in before_terms if len(term.strip()) >= 2 and term not in after]
+            if not after.strip():
+                reason = "replacement is empty"
+            elif missing:
+                reason = "learning-language term would be removed"
+            elif _CLOSING_LANGUAGE_TAG_RE.search(after):
+                reason = "language-tag boundaries would become invalid"
+            else:
+                retained.append(fix)
+                continue
+            unapplied.append(UnappliedFix(
+                id=f"unapplied-{fix.id}", category="notation", location=fix.location,
+                field=fix.field, before=before, suggestion=after, reason=reason,
+                sourceIssue=fix.sourceIssue,
+            ))
+        pending = retained
     truncated = bool(data.get("truncated")) or input_truncated or len(applied) + len(pending) > max_fixes
     return QualityFixResponse(
         fileName=str(data.get("fileName") or file_name),
         model=model,
         appliedFixes=applied[:max_fixes],
         pendingFixes=pending[:max_fixes],
+        unappliedFixes=unapplied[:max_fixes],
         reRecordNeededUnits=[
             ReRecordNeededUnit(
                 fileName=fix.location.fileName,
@@ -1277,7 +1332,10 @@ def _choice_field_has_explicit_index(field: str | None) -> bool:
     return bool(field and re.search(r"\d+", field))
 
 
-def _fix_prompt(file_name: str, content: dict[str, Any], issues: list[QualityIssue], max_fixes: int, *, mode: str) -> tuple[str, bool]:
+def _fix_prompt(
+    file_name: str, content: dict[str, Any], issues: list[QualityIssue], max_fixes: int, *, mode: str,
+    is_language_learning: bool = False,
+) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     issues_json = json.dumps([issue.model_dump() for issue in issues], ensure_ascii=False, indent=2)
     text = f"Source JSON:\n{source_json}\n\nQuality issues:\n{issues_json}"
@@ -1301,6 +1359,7 @@ Policy:
 - Do not change tts/audio fields here; the server will reset them only after human approval.
 """.strip()
 
+    language_learning_policy = language_learning_text_fix_policy() if is_language_learning and mode == "text" else ""
     return f"""
 Return strict JSON only. Do not use markdown fences.
 
@@ -1308,6 +1367,7 @@ You are a Sokqa quality fix agent. Produce one conservative fix pass for the exa
 Do not regenerate the whole file. Only touch locations pointed to by the given issues.
 
 {policy}
+{language_learning_policy}
 - Preserve all unrelated fields and item order.
 - Return at most {max_fixes} fixes.
 
@@ -1352,6 +1412,19 @@ Return this JSON shape:
 
 {text}
 """.strip(), truncated
+
+
+def _quality_context_for_target(target: TtsRecordingTarget) -> QualityContext:
+    """Use the temporary generation's exact plan; never infer from pack JSON."""
+    if target.temporaryGenerationId:
+        from app.schemas.request import GeneratePackRequest
+        from app.services.temporary_generation_store import get_temporary_generation
+
+        temporary = get_temporary_generation(target.temporaryGenerationId, str(target.creatorId))
+        return QualityContext(resolve_generation_strategy(GeneratePackRequest(plan=temporary.plan, persist=False)))
+    from app.services.generation.strategies.standard import StandardStrategy
+
+    return QualityContext(StandardStrategy())
 
 
 def _mock_fix_response(file_name: str, content: dict[str, Any], issues: list[QualityIssue], model: str, truncated: bool) -> QualityFixResponse:

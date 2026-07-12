@@ -545,7 +545,7 @@ def _guard_llm_quiz_tts(
                 choice_texts[index] = question.choices[index] if index < len(question.choices) else ""
         if not any(choice_texts):
             choice_texts = None
-    if not question_text and not explanation_text and not choice_texts:
+    if not question_text and not explanation_text and not choice_texts and not tts.choicesLanguage:
         return None
     return QuizTts(
         questionText=question_text,
@@ -1222,18 +1222,18 @@ def _quiz_tts_from_readings(
             deterministic_choices.append(text)
         choice_readings = deterministic_choices
     choice_mode, selected_language = _choice_language_mode(language_settings, language)
-    # choiceLanguageMode=learning かつ multilingual（allow_language_tags）のとき、選択肢は学習言語で
-    # そのまま読めるため choiceTexts は原則冗長。ただし学習言語が仮名/ルビ補正を要するスクリプト
-    # （japanese/cjk/hangul: 漢字・ハングル読み）の場合は choiceTexts が必要なため削除しない。
-    # Phase 10: 冗長判定を model が返した choicesLanguage の有無に依存させず、構造（言語ベース相違）と
-    # 読み補正要否（スクリプト種別）で決定する。ラテン・キリル・アラビア等は補正不要で省略可。
-    learn_script = language_script(learning_language) if learning_language else ""
+    # choiceTexts is a common TTS storage optimisation, not a Language
+    # Learning rule.  When choicesLanguage supplies the only difference
+    # (switch tags / speech locale), choices can be read directly.  Any
+    # per-choice reading correction keeps the sparse array.
     choices_language_redundant = (
-        choice_language_mode == "learning"
-        and allow_language_tags
-        and bool(learning_language)
-        and _base_language(learning_language) != _base_language(language)
-        and learn_script not in ("japanese", "cjk", "hangul")
+        bool(choices_language)
+        and len(choice_readings) >= len(question.choices)
+        and all(
+            normalize_tts_text(strip_choice_separator(_strip_language_tags(choice_readings[index] or choice)))
+            == normalize_tts_text(strip_choice_separator(choice))
+            for index, choice in enumerate(question.choices)
+        )
     )
     if choices_language_redundant:
         choice_texts_output = None
@@ -1242,9 +1242,13 @@ def _quiz_tts_from_readings(
             choice_mode == "mixed"
             or (choice_mode == "select" and selected_language and _base_language(selected_language) != _base_language(language))
         )
-        choice_texts_output = _sparse_choice_texts(question, choice_readings, keep_all=keep_all_choices)
+        choice_texts_output = _sparse_choice_texts(
+            question,
+            choice_readings,
+            keep_all=keep_all_choices and not bool(choices_language),
+        )
     explanation_text_output = _optional_speech_text(question.explanation, explanation_text, rules, language)
-    if not question_text_output and not choice_texts_output and not explanation_text_output:
+    if not question_text_output and not choice_texts_output and not explanation_text_output and not choices_language:
         return None
     return QuizTts(
         questionText=question_text_output,

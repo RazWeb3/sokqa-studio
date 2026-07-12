@@ -19,6 +19,9 @@ from app.services.language_detection import leading_script
 from app.services.llm_json import LlmJsonParseContext
 from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services.tts_recording_api import load_target_pack
+from app.services.generation.strategy import resolve_generation_strategy
+from app.services.quality.context import QualityContext
+from app.services.quality.dispatcher import check_quality
 
 
 MAX_QUALITY_INPUT_CHARS = 30000
@@ -100,16 +103,30 @@ def check_tts_quality(target: TtsRecordingTarget, max_issues: int = 50) -> Quali
 
 def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: str) -> QualityCheckResponse:
     loaded = load_target_pack(target)
+    context = _quality_context_for_target(target)
     settings = get_settings()
     model = settings.quality_model
 
     multilingual_status = detect_multilingual(loaded.file.content)
     allow_language_tags = multilingual_status == MultilingualStatus.MULTILINGUAL
-    deterministic_issues = _deterministic_tts_issues(loaded.file.name, loaded.file.content) if mode == "tts" else []
-    if mode == "text":
-        deterministic_issues = deterministic_issues + _deterministic_ll_structure_issues(
-            loaded.file.name, loaded.file.content, allow_language_tags=allow_language_tags
+    def _standard_content_issues(_: dict[str, Any]) -> list[QualityIssue]:
+        return []
+
+    def _language_learning_content_issues(content: dict[str, Any]) -> list[QualityIssue]:
+        if mode == "tts":
+            return _deterministic_tts_issues(loaded.file.name, content)
+        return _deterministic_ll_structure_issues(
+            loaded.file.name, content, allow_language_tags=allow_language_tags
         )
+
+    deterministic_issues = check_quality(
+        context,
+        loaded.file.name,
+        loaded.file.content,
+        mode=mode,
+        standard_check=_standard_content_issues,
+        language_learning_check=_language_learning_content_issues,
+    )
 
     if settings.gemini_provider == "mock":
         response = _mock_quality_response(loaded.file.name, model, max_issues, mode=mode)
@@ -124,6 +141,7 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         max_issues,
         mode=mode,
         multilingual=allow_language_tags,
+        is_language_learning=context.is_language_learning,
     )
     quality_unit = "quality_text" if mode == "text" else "quality_tts"
     try:
@@ -163,6 +181,23 @@ def _check_pack_quality(target: TtsRecordingTarget, max_issues: int, *, mode: st
         raise QualityCheckError(f"quality check response validation failed: {exc}") from exc
     except Exception as exc:
         raise QualityCheckError(f"quality check unexpected error: {exc}") from exc
+
+
+def _quality_context_for_target(target: TtsRecordingTarget) -> QualityContext:
+    """Use an already available temporary generation plan, never file heuristics.
+
+    Persisted/legacy quality API callers do not carry a plan.  They retain the
+    historical Standard branch rather than guessing from incomplete JSON.
+    """
+    if target.temporaryGenerationId:
+        from app.schemas.request import GeneratePackRequest
+        from app.services.temporary_generation_store import get_temporary_generation
+
+        temporary = get_temporary_generation(target.temporaryGenerationId, str(target.creatorId))
+        return QualityContext(resolve_generation_strategy(GeneratePackRequest(plan=temporary.plan, persist=False)))
+    from app.services.generation.strategies.standard import StandardStrategy
+
+    return QualityContext(StandardStrategy())
 
 
 def _generate_json_with_retry(
@@ -846,6 +881,7 @@ def _quality_prompt(
     *,
     mode: str,
     multilingual: bool = True,
+    is_language_learning: bool = False,
 ) -> tuple[str, bool]:
     source_json = json.dumps(content, ensure_ascii=False, indent=2)
     truncated = len(source_json) > MAX_QUALITY_INPUT_CHARS
@@ -1047,6 +1083,8 @@ Return this JSON shape:
 Source file JSON:
 {source_json}
 """.strip()
+    if is_language_learning and mode == "text":
+        prompt += "\n\nLanguage Learning rules:\n- Quiz questions must assess a concrete learning-language expression: meaning, usage, situation appropriateness, nuance, response, or correction of misuse.\n- Never ask about material structure, learning objectives, chapter titles, introductory explanations, or lesson goals.\n- Keep the learning-language expression and its pack-language explanation paired; do not suggest deleting either."
     return prompt, truncated
 
 

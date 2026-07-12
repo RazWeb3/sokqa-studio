@@ -56,6 +56,12 @@ class GenerationStrategy(ABC):
     def generate(self, request: GeneratePackRequest) -> GeneratePackResponse:
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def is_language_learning(self) -> bool:
+        """Whether quality processing must use the Language Learning branch."""
+        raise NotImplementedError
+
 
 def resolve_generation_strategy(request: GeneratePackRequest) -> GenerationStrategy:
     """リクエストから生成戦略を決定する。

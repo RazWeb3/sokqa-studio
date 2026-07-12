@@ -12,6 +12,8 @@ from app.schemas.request import TtsRecordingTarget
 from app.schemas.sokqa import GeneratedFile
 from app.services.multilingual_detection import MultilingualStatus, detect_multilingual
 from app.services import quality_checker
+from app.services.generation.strategies.language_learning import LanguageLearningStrategy
+from app.services.quality.context import QualityContext
 from app.services.quality_checker import (
     TEXT_QUALITY_CATEGORIES,
     TTS_QUALITY_CATEGORIES,
@@ -562,6 +564,7 @@ def test_quality_checker_rounds_unknown_multilingual_to_normal_for_prompt(monkey
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
 
     monkeypatch.setattr(quality_checker, "detect_multilingual", lambda _data: MultilingualStatus.UNKNOWN)
 
@@ -652,6 +655,7 @@ def test_tts_quality_check_detects_missing_learning_language_choice_texts(monkey
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
 
     response = client.post(
         "/quality/tts-check",
@@ -708,6 +712,7 @@ def test_tts_quality_check_detects_choice_language_mode_violation_and_mixed_choi
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
 
     response = client.post(
         "/quality/tts-check",
@@ -759,6 +764,7 @@ def test_tts_quality_check_detects_choice_text_length_mismatch(monkeypatch) -> N
         "load_target_pack",
         lambda _target: SimpleNamespace(file=file),
     )
+    monkeypatch.setattr(quality_checker, "_quality_context_for_target", lambda _target: QualityContext(LanguageLearningStrategy()))
 
     response = client.post(
         "/quality/tts-check",
@@ -880,6 +886,7 @@ def test_tts_quality_check_wraps_unexpected_errors_as_502(tmp_path, monkeypatch)
     def raise_attribute_error(*args, **kwargs):
         raise AttributeError("boom")
 
+    monkeypatch.setattr(GeminiClient, "generate_json", lambda *_args, **_kwargs: {"issues": []})
     monkeypatch.setattr(quality_checker, "_quality_response_from_data", raise_attribute_error)
 
     response = client.post("/quality/tts-check", json={"target": target})

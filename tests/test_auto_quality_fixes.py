@@ -6,6 +6,8 @@ C（AUTOカテゴリ自動適用）: 生成パイプライン内で決定論的T
 
 from app.schemas.quality import QualityLocation
 from app.services.quality_fixer import _is_safe_auto_tts_repair, apply_auto_quality_fixes
+from app.services.generation.strategies.language_learning import LanguageLearningStrategy
+from app.services.quality.context import QualityContext
 
 
 def _quiz_content(questions: list[dict]) -> dict:
@@ -32,7 +34,9 @@ def test_fixes_mismatched_choice_texts_length() -> None:
             }
         ]
     )
-    updated, applied = apply_auto_quality_fixes(content, "quiz.json")
+    updated, applied = apply_auto_quality_fixes(
+        content, "quiz.json", context=QualityContext(LanguageLearningStrategy())
+    )
     assert len(applied) >= 1
     q = updated["questions"][0]
     assert len(q["tts"]["choiceTexts"]) == len(q["choices"])

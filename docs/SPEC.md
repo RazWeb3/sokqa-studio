@@ -615,6 +615,8 @@ display text は元のまま:
 
 `choiceTexts` は各選択肢ごとに判定する。
 
+品質チェックは、生成時に解決済みの Strategy を受け取って dispatcher で分岐する。共通構造検証は全教材で実行し、内容品質チェックと修正候補は Standard または Language Learning のどちらか一方だけを実行する。保存済みファイルの `language` / `learningLanguage` から Language Learning を推測しない。
+
 - 読み補正（かな等）が必要な選択肢は `choiceTexts` に保持する。
 - 読み補正が不要な選択肢は `null` または省略相当（空文字等）としてよい。
 - 発音言語のみ異なる場合は `choicesLanguage` により指定する。
@@ -646,6 +648,8 @@ display text は元のまま:
 判定基準は「learningLanguage の有無」ではなく「各選択肢ごとの読み補正要否」である。
 学習言語が仮名/ルビ補正を要するスクリプト（japanese/cjk/hangul: 漢字・ハングル読み等）の場合は
 choiceTexts を保持する。ラテン・キリル・アラビア等は補正不要で省略可。
+
+この省略判断は全教材共通の TTS optimizer の責務である。`choicesLanguage` があり、言語タグを除いた `choiceTexts` が `choices` と一致し、個別の読み補正がない場合だけ `choiceTexts` を省略する。1件でも個別補正または表示差があれば保持する。
 
 ## Quality Checker仕様
 

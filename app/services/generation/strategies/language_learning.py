@@ -15,5 +15,9 @@ from app.services.pack_agent import generate_pack
 
 
 class LanguageLearningStrategy(GenerationStrategy):
+    @property
+    def is_language_learning(self) -> bool:
+        return True
+
     def generate(self, request: GeneratePackRequest) -> GeneratePackResponse:
         return generate_pack(request)

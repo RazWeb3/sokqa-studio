@@ -1424,10 +1424,10 @@ def test_learning_language_tags_and_keeps_source_equal_choice_texts(monkeypatch)
     monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
     files, _ = optimize_generated_files_with_report([file], [], mode="multilingual")
 
-    # 問題③修正: learning モードかつ multilingual の場合、choiceLanguageMode=learning で
-    # 選択肢は学習言語(en)でそのまま読めるため choiceTexts は構造的に冗長となり省略される。
+    # choiceTexts is retained because no choicesLanguage is present: switch
+    # tags alone do not make the common fallback locale explicit.
     tts = files[0].content["questions"][0]["tts"]
-    assert "choiceTexts" not in tts
+    assert "choiceTexts" in tts
 
 
 def test_learning_mode_omits_choice_texts_when_choices_language_present(monkeypatch) -> None:
@@ -2478,13 +2478,7 @@ def test_omitted_choice_texts_fallback_to_choices(monkeypatch) -> None:
     files, _ = optimize_generated_files_with_report([_english_choices_quiz_file()], [], mode="multilingual")
     tts = files[0].content["questions"][0]["tts"]
 
-    # フォールバック先 choices を en-US として読み上げるため、各 choice に [en-US] タグが付与される
-    assert tts["choiceTexts"] == [
-        "[en-US]It's a pleasure to finally meet you.",
-        "[en-US]Happy to meet you.",
-        "[en-US]Pleased to meet you.",
-        "[en-US]How do you do?",
-    ]
+    assert "choiceTexts" not in tts
     # choicesLanguage は保持される
     assert tts.get("choicesLanguage") == "en-US"
 
@@ -2517,14 +2511,7 @@ def test_null_empty_whitespace_choice_texts_fallback_to_choices(monkeypatch) -> 
     files, _ = optimize_generated_files_with_report([_english_choices_quiz_file()], [], mode="multilingual")
     tts = files[0].content["questions"][0]["tts"]
 
-    # null/""/空白は choices[i] にフォールバックし、choicesLanguage(en-US) の [en-US] タグとして保持される。
-    # 要素3 のみ実テキスト入力だが原文と同一のため同様にタグ付きで保持される。
-    choice_texts = tts.get("choiceTexts")
-    assert choice_texts is not None
-    assert choice_texts[0] == "[en-US]It's a pleasure to finally meet you."
-    assert choice_texts[1] == "[en-US]Happy to meet you."
-    assert choice_texts[2] == "[en-US]Pleased to meet you."
-    assert choice_texts[3] == "[en-US]How do you do?"
+    assert "choiceTexts" not in tts
     assert tts.get("choicesLanguage") == "en-US"
 
 
@@ -2564,14 +2551,7 @@ def test_choices_language_applied_to_fallback_choices(monkeypatch) -> None:
 
     # フォールバック先 choices を en-US で読み上げるための choicesLanguage が保持される
     assert tts.get("choicesLanguage") == "en-US"
-    choice_texts = tts.get("choiceTexts")
-    # 要素0-2 は原文と同一のため [en-US] タグ付きで保持（フォールバック）。
-    # 要素3 は実テキスト（[en-US]How do you do?）が優先されて保持される。
-    assert choice_texts is not None
-    assert choice_texts[0] == "[en-US]It's a pleasure to finally meet you."
-    assert choice_texts[1] == "[en-US]Happy to meet you."
-    assert choice_texts[2] == "[en-US]Pleased to meet you."
-    assert choice_texts[3] == "[en-US]How do you do?"
+    assert "choiceTexts" not in tts
 
 
 def test_choice_texts_real_text_takes_priority_over_fallback(monkeypatch) -> None:

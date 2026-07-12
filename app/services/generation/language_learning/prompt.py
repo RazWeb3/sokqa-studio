@@ -14,11 +14,16 @@ from app.services.tagging import document_global_tags, quiz_global_tags
 
 
 def language_learning_document_generation_prompt(plan: CoursePlan, document: PlanDocument) -> str:
-    """Build Language Learning documents without Standard teaching policy."""
+    """Build Language Learning documents with shared learner-facing teaching standards."""
     # Import lazily: prompts.py dispatches to this module for language-learning
     # plans, while these audience/difficulty contracts must remain shared across
     # every generation strategy.
-    from app.services.prompts import _audience_learning_profile_block, _difficulty_learning_profile_block
+    from app.services.prompts import (
+        _audience_learning_profile_block,
+        _difficulty_learning_profile_block,
+        _learner_facing_role_block,
+        self_check_block,
+    )
 
     pack_language = plan.language
     learning_language = plan.learningLanguage or "not specified"
@@ -30,6 +35,11 @@ def language_learning_document_generation_prompt(plan: CoursePlan, document: Pla
     custom_block = f"\nUser-provided constraints:\n{custom_instructions}" if custom_instructions else ""
     audience_profile = _audience_learning_profile_block(plan)
     difficulty_profile = _difficulty_learning_profile_block(plan)
+    listening_completion_rule = (
+        "- This is listening material. Never leave a blank or an unresolved detail in a phrase; complete it as natural spoken language. Use a general noun when no proper noun is needed, or a context-appropriate concrete example when one is needed."
+        if plan.structurePolicy == "listening"
+        else ""
+    )
     return f"""Create one Language Learning Sokqa document JSON.
 
 # Language Learning document design
@@ -38,11 +48,14 @@ def language_learning_document_generation_prompt(plan: CoursePlan, document: Pla
 - Present the learning-language phrase in the first sentence or immediately after one short scene-setting sentence. Do not lead with a long pack-language explanation.
 - Use the pack language ({pack_language}) to explain meaning, situation, register, nuance, substitutions, and likely responses.
 - Keep concrete names and locations when they make an example useful; explain that they can be replaced with the learner's own detail.
+{listening_completion_rule}
 - Prefer additional usable language content—substitutions, polite alternatives, natural replies, or misuse notes—over generic summaries or travel advice.
 - Do not put language tags such as [en-US] or [ja-JP] in document text. TTS is generated later.
 
 {audience_profile}
 {difficulty_profile}
+
+{_learner_facing_role_block()}
 
 # Output contract
 - Return strict JSON only. Do not output Markdown, commentary, tts fields, or item tags.
@@ -75,6 +88,8 @@ Required JSON shape:
   ]
 }}
 {source_section}
+
+{self_check_block()}
 """.strip()
 
 
@@ -85,12 +100,17 @@ def language_learning_quiz_generation_prompt(
 ) -> str:
     """Build the complete Language Learning quiz prompt without Standard quiz policy.
 
-    The Standard prompt is intentionally not composed into this function.
-    Only transport/schema requirements are shared through imported utilities;
-    teaching design, question forms, language contracts, and source grounding
-    are owned here.
+    Language-specific teaching design, question forms, language contracts, and
+    source grounding are owned here.  Shared learner-facing teacher standards
+    are composed explicitly so this path cannot bypass them.
     """
-    from app.services.prompts import _audience_learning_profile_block, _difficulty_learning_profile_block
+    from app.services.prompts import (
+        _audience_learning_profile_block,
+        _difficulty_learning_profile_block,
+        _learner_facing_role_block,
+        _quiz_teacher_role_block,
+        self_check_block,
+    )
 
     learning_language = plan.learningLanguage or "not specified"
     pack_language = plan.language
@@ -148,6 +168,10 @@ def language_learning_quiz_generation_prompt(
 
 {difficulty}
 
+{_quiz_teacher_role_block()}
+
+{_learner_facing_role_block()}
+
 # Output contract
 - Return strict JSON only. Do not output Markdown, commentary, or tts fields.
 - type must be "quiz" and schemaVersion must be 1.
@@ -189,6 +213,8 @@ Required JSON shape:
     }}
   ]
 }}
+
+{self_check_block()}
 """.strip()
 
 

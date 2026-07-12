@@ -188,6 +188,14 @@ def test_blank_placeholders_are_silenced_in_japanese_and_english() -> None:
     assert "_____" not in en_text
 
 
+def test_any_labeled_placeholder_is_silenced_inside_a_multilingual_tts_span() -> None:
+    text = _speech_text("[en-US]I am here to study at [駅名].[ja-JP] と伝えます。", [])
+
+    assert text == "[en-US]I am here to study at  .[ja-JP] と伝えます。"
+    assert "[駅名]" not in text
+    assert "[en-US]" in text and "[ja-JP]" in text
+
+
 def test_json_casing_rules_are_separate() -> None:
     rules = load_configured_tts_rules()
     text = _speech_text("JSON と config.json と json を確認します", rules)

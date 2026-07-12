@@ -198,6 +198,7 @@ def _compose_generation_purpose(plan: CoursePlan, *, language: str = "ja") -> st
     if structure_policy == "listening":
         purpose_lines = [
             "この教材は音声で連続して聞き流される用途であることを前提に執筆すること。",
+            "聞き流しでは穴埋めや未確定の項目を残さず、文脈に合う完成文にすること。例示に固有名詞が不要なら一般名詞で自然に完結させ、必要な場合だけ自然な具体例を用いること。",
             *completion_lines,
             f"{target_user}({difficulty_label})に合った表現水準で書くこと。",
         ]
@@ -267,6 +268,7 @@ def self_check_block() -> str:
     return """
 Self-check (出力前最終確認):
 - 本文全体を見直し、生成後そのまま録音・公開できる完成教材として仕上がっているか確認すること。
+- 学習者向けの本文・設問・選択肢・解説をすべて見直し、資料・本文・第三者の発言を紹介する伝聞調や引用調が残っていないことを確認する。残っていれば、教師が学習者へ直接説明する文に書き直すこと。
 - 伏せ字、テンプレート表現、記入例、未完成な記述、TODO/FIXME等の作業メモ、「後述します」のような未完結表現が残っていないことを確認する。
 - これは生成後の最終確認であり、事前の執筆指示とは別の位置づけである。
 """.strip()
@@ -453,7 +455,8 @@ def _document_teaching_guidance_rules_block(plan: CoursePlan) -> str:
     )
     listening_rule = (
         "- For structurePolicy listening, avoid starting sections with a term name followed by its definition; write as an ongoing explanation with context and transitions.\n"
-        "- この本文は音声で聞き流される。あなたは書き手ではなく話し手・語り手として、耳で聞いて理解できるように、自分の言葉で直接語ること。"
+        "- この本文は音声で聞き流される。あなたは書き手ではなく話し手・語り手として、耳で聞いて理解できるように、自分の言葉で直接語ること。\n"
+        "- 聞き流しでは穴埋めや未確定の項目を残さず、文脈に合う完成文にすること。例示に固有名詞が不要なら一般名詞で自然に完結させ、必要な場合だけ自然な具体例を用いること。"
         if plan.structurePolicy == "listening"
         else ""
     )

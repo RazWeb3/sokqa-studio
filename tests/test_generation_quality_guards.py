@@ -252,6 +252,7 @@ def test_listening_document_prompt_forbids_glossary_style_and_requires_flow() ->
     assert "avoid starting sections with a term name followed by its definition" in prompt
     assert "Ruby policy: none" in prompt
     assert "3 to 6 sentences in the pack language" in prompt
+    assert "聞き流しでは穴埋めや未確定の項目を残さず" in prompt
 
 
 def test_summary_document_prompt_keeps_compact_structure_and_has_no_ruby() -> None:
@@ -1948,6 +1949,32 @@ def test_validator_reports_unresolved_placeholder_without_auto_replacement() -> 
     assert issue.classification == "quality"
 
 
+def test_validator_detects_unknown_bracketed_labels_but_allows_tts_language_tags() -> None:
+    file = GeneratedFile(
+        name="travel_quiz.json",
+        kind="quiz",
+        content={
+            "id": "travel_quiz",
+            "title": "旅行英語",
+            "questions": [
+                {
+                    "id": "q-1",
+                    "question": "[駅名]までの行き方を尋ねる表現はどれですか？",
+                    "choices": ["A", "B", "C", "D"],
+                    "answerIndex": 0,
+                    "explanation": "[en-US] is a TTS control tag, not a display placeholder.",
+                }
+            ],
+        },
+    )
+
+    result = validate_files([file])
+    placeholder_issues = [issue for issue in result.errors if "unresolved learner-facing placeholder" in issue.message]
+
+    assert len(placeholder_issues) == 1
+    assert placeholder_issues[0].message.endswith("[駅名]")
+
+
 def test_validator_reports_duplicate_questions_and_choices_as_quality_issues() -> None:
     quiz_file = GeneratedFile(
         name="duplicate_quiz.json",
@@ -2129,7 +2156,9 @@ def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples
     assert "All four choices are written in the pack language (ja)" in prompt
     assert "Do not use four learning-language answer candidates in this mode" in prompt
     assert "Pack-language purity (strict):" not in prompt
-    assert "# 出題者の役割（quiz 固有）" not in prompt
+    # 語学専用の出題設計は維持しつつ、完成教材としての共通教師ロールは必ず適用する。
+    assert _quiz_teacher_role_block() in prompt
+    assert _learner_facing_role_block() in prompt
 
 
 def test_quiz_prompt_learning_mode_includes_question_structure_and_good_bad_examples() -> None:
@@ -2184,7 +2213,7 @@ def test_standard_quiz_prompt_excludes_language_learning_grounding_rules() -> No
     assert "learners can answer without understanding the learning-language content" not in prompt
 
 
-def test_language_learning_document_prompt_is_separate_from_standard_teaching_policy() -> None:
+def test_language_learning_document_prompt_keeps_its_own_design_and_includes_shared_teacher_role() -> None:
     plan = _plan()
     plan.learningLanguage = "en"
 
@@ -2197,9 +2226,45 @@ def test_language_learning_document_prompt_is_separate_from_standard_teaching_po
     assert "Create one Language Learning Sokqa document JSON." in prompt
     assert "# Language Learning document design" in prompt
     assert "Present the learning-language phrase in the first sentence" in prompt
-    assert "# 話者の姿勢（学習者向けロール）" not in prompt
+    assert _learner_facing_role_block() in prompt
+    assert prompt.count(_learner_facing_role_block()) == 1
+    assert self_check_block() in prompt
     assert "Structure policy:" not in prompt
     assert "Pack-language purity (strict):" not in prompt
+
+
+def test_language_learning_listening_prompt_requires_completed_spoken_examples() -> None:
+    plan = _plan()
+    plan.learningLanguage = "en"
+    plan.structurePolicy = "listening"
+
+    prompt = document_generation_prompt(
+        plan,
+        plan.documents[0],
+        context=_language_learning_context(plan),
+    )
+
+    assert "This is listening material. Never leave a blank or an unresolved detail" in prompt
+    assert "Use a general noun when no proper noun is needed" in prompt
+
+
+def test_language_learning_quiz_prompt_includes_shared_teacher_roles_and_self_check() -> None:
+    """語学専用経路も教師ロールを迂回せず、直接説明する完成教材として生成する。"""
+    plan = _plan()
+    plan.learningLanguage = "en"
+
+    prompt = quiz_generation_prompt(
+        plan,
+        _quiz_pack_with_mode("learning"),
+        [_source_pack()],
+        context=_language_learning_context(plan, "learning"),
+    )
+
+    assert _quiz_teacher_role_block() in prompt
+    assert _learner_facing_role_block() in prompt
+    assert prompt.count(_learner_facing_role_block()) == 1
+    assert "伝聞・引用調の代表語彙" in prompt
+    assert self_check_block() in prompt
 
 
 def test_advanced_language_learning_quiz_prompt_avoids_meaning_question_bias_and_varies_forms() -> None:

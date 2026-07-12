@@ -44,10 +44,12 @@ QUIZ_CITATION_STYLE_PHRASES = (
     "過言ではないとされています",
 )
 
-# Learner-facing square-bracket labels are unfinished authoring placeholders.
-# TTS language tags are stored in tts fields and are deliberately not inspected here.
+# Learner-facing square-bracket tokens are unfinished authoring placeholders.
+# A Sokqa language-switch tag is the only bracketed form that is allowed.  It
+# normally appears only in TTS fields, but keeping the exception here makes the
+# rule future-proof for every validation caller.
 _UNRESOLVED_PLACEHOLDER_RE = re.compile(
-    r"\[(?:国名|都市名|数量|品物|もの|氏名|飲み物|番号|国|名前|目的地|交通手段|商品名|サイズ|ブランド名|特性|Name|Place|Company Name|destination|name|number|country|city|item)\]"
+    r"\[(?![A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*\])[^\]\r\n]+\]"
     r"|(?:〇〇|◯◯|○○|△△|××|□□|\b(?:TODO|FIXME|TBD)\b)",
     re.IGNORECASE,
 )

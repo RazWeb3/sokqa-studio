@@ -34,6 +34,12 @@ _KATAKANA_WORD_RE = re.compile(r"^[ァ-ヶー・]{2,}$")
 _DUP_SEPARATORS = set(" \t\r\n　、。，．,.")
 _BLANK_PLACEHOLDER_RE = re.compile(r"\s*[_＿]{3,}\s*")
 _JAPANESE_CIRCLE_PLACEHOLDER_RE = re.compile(r"[◯○]{2,}")
+# Square brackets are reserved for Sokqa language-switch tags. Silence every
+# other bracketed token as a final TTS safety net, including labels that do not
+# exist yet (for example [駅名]).
+_LABELED_PLACEHOLDER_RE = re.compile(
+    r"\s*\[(?![A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*\])[^\]\r\n]+\]\s*"
+)
 _TTS_SILENT_BLANK = "  "
 _SOURCE_KANJI_RE = re.compile(r"[一-龥々〆ヵヶ]")
 _SOURCE_KANJI_LOSS_MIN_COUNT = 4
@@ -210,7 +216,8 @@ def _apply_rule_replacements(value: str, rules: list[TtsRule]) -> str:
 
 
 def _apply_blank_placeholder_silence(value: str) -> str:
-    return _BLANK_PLACEHOLDER_RE.sub(_TTS_SILENT_BLANK, value)
+    result = _LABELED_PLACEHOLDER_RE.sub(_TTS_SILENT_BLANK, value)
+    return _BLANK_PLACEHOLDER_RE.sub(_TTS_SILENT_BLANK, result)
 
 
 def _apply_japanese_placeholder_readings(value: str) -> str:
@@ -259,6 +266,9 @@ def _merge_language_tag_spans(value: str, rules: list[TtsRule], language: str | 
 
 
 def _speech_text(value: str, rules: list[TtsRule], language: str | None = "ja") -> str:
+    # Apply the TTS-only silence fallback before interpreting tags, so a legacy
+    # label inside an [en-US] span cannot be sent to the English voice.
+    value = _apply_blank_placeholder_silence(value)
     # 第2層: 言語タグ境界ガード。非デフォルト言語スパンには rule 適用を及ぼさない。
     if LANGUAGE_TAG_RE.search(value):
         return normalize_tts_text(_merge_language_tag_spans(value, rules, language))
@@ -586,7 +596,11 @@ def _has_rule_match(text: str, rules: list[TtsRule]) -> bool:
 def _needs_tts_locally(text: str, rules: list[TtsRule]) -> bool:
     if _has_rule_match(text, rules):
         return True
-    if _BLANK_PLACEHOLDER_RE.search(text) or _JAPANESE_CIRCLE_PLACEHOLDER_RE.search(text):
+    if (
+        _BLANK_PLACEHOLDER_RE.search(text)
+        or _JAPANESE_CIRCLE_PLACEHOLDER_RE.search(text)
+        or _LABELED_PLACEHOLDER_RE.search(text)
+    ):
         return True
     risky_markers = ["API", "AI", "UI", "UX", "SQL", "JSON", "CPU", "PC", "URL"]
     if any(marker in text for marker in risky_markers):

@@ -206,12 +206,18 @@ def generate_mock_quiz_pack(
 
 
 def normalize_quiz_content(
-    content: dict,
+    content: dict | list,
     plan: CoursePlan,
     quiz_plan: PlanQuizPack,
     seed: int | str | bytes | bytearray | None = None,
 ) -> dict:
-    normalized = dict(content)
+    """Normalize either an object response or a bare question array."""
+    if isinstance(content, list):
+        normalized = {"questions": content}
+    elif isinstance(content, dict):
+        normalized = dict(content)
+    else:
+        raise ValueError("quiz response must be a JSON object or a questions array")
     normalized["id"] = quiz_pack_id(plan, quiz_plan)
     normalized.setdefault("type", "quiz")
     normalized.setdefault("schemaVersion", 1)
@@ -229,25 +235,32 @@ def normalize_quiz_content(
             continue
         fixed = dict(item)
         fixed["id"] = fixed.get("id") or f"q-{index}"
+        # Do not invent learner-facing fallback text.  A missing required
+        # field must remain visible to structural validation instead of being
+        # persisted as a plausible-looking template sentence.
         fixed["question"] = sanitize_learner_facing_text(
-            str(fixed.get("question") or fixed.get("prompt") or f"{quiz_plan.title} {index}")
+            str(fixed.get("question") or fixed.get("prompt") or "")
         )
         fixed["choices"] = [
             sanitize_learner_facing_text(normalize_choice(choice))
             for choice in list(fixed.get("choices") or [])
         ]
-        while len(fixed["choices"]) < 4:
-            fixed["choices"].append(f"補足選択肢{len(fixed['choices']) + 1}")
-        fixed["choices"] = fixed["choices"][:4]
-        fixed["answerIndex"] = normalize_answer_index(fixed.get("answerIndex", 0))
-        fixed["explanation"] = sanitize_learner_facing_text(
-            str(fixed.get("explanation") or "生成済みドキュメント本文に基づく解説です。")
-        )
+        if "answerIndex" in fixed and fixed["answerIndex"] is not None:
+            fixed["answerIndex"] = normalize_answer_index(fixed["answerIndex"])
+        fixed["explanation"] = sanitize_learner_facing_text(str(fixed.get("explanation") or ""))
         fixed.pop("tts", None)
         fixed.pop("tags", None)
         fixed_questions.append(fixed)
 
-    if plan.answerPositionMode == "balanced":
+    can_balance = all(
+        isinstance(question.get("choices"), list)
+        and len(question["choices"]) == 4
+        and isinstance(question.get("answerIndex"), int)
+        and not isinstance(question.get("answerIndex"), bool)
+        and 0 <= question["answerIndex"] < 4
+        for question in fixed_questions
+    )
+    if plan.answerPositionMode == "balanced" and can_balance:
         _balance_answer_positions(fixed_questions, seed=seed)
     normalized["questions"] = fixed_questions
 
@@ -433,9 +446,13 @@ def _repair_answer_explanation_inconsistencies(
     except Exception as exc:
         logger.warning("quiz_generator.consistency_repair_failed quiz=%s error=%r", quiz_plan.id, exc)
         return content
+    repaired_payload = {"questions": repaired} if isinstance(repaired, list) else repaired
+    if not isinstance(repaired_payload, dict):
+        logger.warning("quiz_generator.consistency_repair_invalid_shape quiz=%s type=%s", quiz_plan.id, type(repaired).__name__)
+        return content
     repaired_by_id = {
         str(item.get("id") or ""): item
-        for item in repaired.get("questions") or []
+        for item in repaired_payload.get("questions") or []
         if isinstance(item, dict) and str(item.get("id") or "") in target_ids
     }
     if not repaired_by_id:
@@ -502,8 +519,12 @@ def _supplement_quiz_questions(
         )
         return content
 
+    supplemented_payload = {"questions": supplemented} if isinstance(supplemented, list) else supplemented
+    if not isinstance(supplemented_payload, dict):
+        logger.warning("quiz_generator.supplement_invalid_shape quiz=%s type=%s", quiz_plan.id, type(supplemented).__name__)
+        return content
     new_questions = [
-        item for item in supplemented.get("questions") or [] if isinstance(item, dict)
+        item for item in supplemented_payload.get("questions") or [] if isinstance(item, dict)
     ]
     if not new_questions:
         return content
@@ -593,12 +614,14 @@ def normalize_choice(choice) -> str:
     return str(choice)
 
 
-def normalize_answer_index(value) -> int:
+def normalize_answer_index(value):
+    """Coerce explicit numeric values without inventing a correct answer."""
+    if isinstance(value, bool):
+        return value
     try:
-        answer_index = int(value)
+        return int(value)
     except (TypeError, ValueError):
-        answer_index = 0
-    return min(3, max(0, answer_index))
+        return value
 
 
 # 生成直後の中間物を追跡可能にするため、ユニット単位で fingerprint を記録する。

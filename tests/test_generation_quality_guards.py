@@ -1641,8 +1641,8 @@ def test_quiz_generation_log_records_unit_id_and_fingerprints(caplog) -> None:
     assert "explanation_fingerprint=" in caplog.text
 
 
-def test_repairer_preserves_natural_language_and_repairs_structure(caplog) -> None:
-    """repair_files は自然文を書き換えず、構造修復だけを行うことを検証。"""
+def test_repairer_preserves_natural_language_without_inventing_structure(caplog) -> None:
+    """repair_files は不足選択肢や正解を捏造せず、構造エラーを保存前に残す。"""
     caplog.set_level("INFO", logger="app.services.repairer")
     from app.schemas.sokqa import GeneratedFile
     from app.services.repairer import repair_files
@@ -1673,13 +1673,13 @@ def test_repairer_preserves_natural_language_and_repairs_structure(caplog) -> No
     question = repaired[0].content["questions"][0]
     assert question["question"] == "有効だと記載されていますか？"
     assert question["explanation"] == "資料によると推奨されています。"
-    assert question["choices"] == ["a", "b", "補足選択肢3", "補足選択肢4"]
-    assert question["answerIndex"] == 0
+    assert question["choices"] == ["a", "b"]
+    assert question["answerIndex"] == 9
     assert "repair.citation_style_rewritten" not in caplog.text
 
 
-def test_repairer_never_rewrites_natural_language_fields() -> None:
-    """repairer は自然文を変更せず、必要な構造修復だけを行う。"""
+def test_repairer_never_rewrites_natural_language_or_fabricates_fields() -> None:
+    """repairer は自然文・不足選択肢・正解を捏造しない。"""
     intact_quiz = GeneratedFile(
         name="quiz_repair_intact.json",
         kind="quiz",
@@ -1732,8 +1732,8 @@ def test_repairer_never_rewrites_natural_language_fields() -> None:
     broken_question = repaired_broken.content["questions"][0]
     assert broken_question["question"] == "有効だと記載されていますか？"
     assert broken_question["explanation"] == "資料には有効だと記載されています。"
-    assert broken_question["choices"] == ["A", "B", "C", "補足選択肢4"]
-    assert broken_question["answerIndex"] == 0
+    assert broken_question["choices"] == ["A", "B", "C"]
+    assert broken_question["answerIndex"] == 9
 
 
 def _quiz_pack_with_mode(mode: str) -> PlanQuizPack:
@@ -1936,6 +1936,52 @@ def test_generation_completes_with_diagnostics_when_placeholder_remains_after_re
     assert result.qualityIssues
     assert any("unresolved learner-facing placeholder" in error.message for error in result.validation.errors)
     assert any("continuing with reviewable output" in log for log in result.logs)
+
+
+def test_normalizers_accept_bare_llm_collections() -> None:
+    """Bare arrays are normalized into safe pack objects, never treated as ``.get`` failures."""
+    plan = _plan()
+    document = normalize_document_content([{"text": "本文です。"}], plan, plan.documents[0])
+    quiz = normalize_quiz_content(
+        [{"question": "問題です", "choices": ["A", "B", "C", "D"], "answerIndex": 0, "explanation": "解説です"}],
+        plan,
+        plan.quizPacks[0],
+    )
+
+    assert document["documents"][0]["text"] == "本文です。"
+    assert len(quiz["questions"]) == 1
+
+
+def test_quiz_normalizer_never_invents_learner_facing_fallbacks() -> None:
+    plan = _plan()
+
+    normalized = normalize_quiz_content([{"question": "問題です", "choices": ["A", "B"]}], plan, plan.quizPacks[0])
+
+    question = normalized["questions"][0]
+    assert question["choices"] == ["A", "B"]
+    assert question["explanation"] == ""
+    assert "answerIndex" not in question
+
+
+def test_persistability_gate_rejects_only_structurally_invalid_pack() -> None:
+    """A manifest preview prevents saving malformed content, without conflating it with quality warnings."""
+    plan = _plan()
+    malformed = GeneratedFile(
+        name="broken.json",
+        kind="document",
+        content={"type": "document", "documents": "not-an-array"},
+    )
+
+    with pytest.raises(pack_agent.PackPersistenceError) as exc_info:
+        pack_agent._ensure_initial_pack_is_persistable(
+            plan,
+            pack_agent.build_pack_metadata(plan),
+            [malformed],
+            "blocked",
+        )
+
+    assert exc_info.value.blockingErrors
+    assert all(error.classification == "technical" for error in exc_info.value.blockingErrors)
 
 
 def test_quiz_prompt_pack_mode_includes_question_structure_and_good_bad_examples() -> None:

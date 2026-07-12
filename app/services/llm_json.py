@@ -54,7 +54,7 @@ class LlmJsonParseError(ValueError):
         self.saved_prefix = saved_prefix
 
 
-def parse_llm_json_or_raise(raw_text: str, context: LlmJsonParseContext | None = None) -> tuple[dict[str, Any], str]:
+def parse_llm_json_or_raise(raw_text: str, context: LlmJsonParseContext | None = None) -> tuple[Any, str]:
     context = context or LlmJsonParseContext()
     attempts: list[dict[str, str]] = []
 

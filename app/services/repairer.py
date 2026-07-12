@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.schemas.sokqa import GeneratedFile, SokqaDocumentPack, SokqaQuizPack
 
 
@@ -20,13 +22,19 @@ Repair quiz JSON conservatively.
 def repair_files(files: list[GeneratedFile]) -> list[GeneratedFile]:
     repaired: list[GeneratedFile] = []
     for file in files:
-        if file.kind == "quiz":
-            pack = SokqaQuizPack.model_validate(_normalize_quiz_content_for_repair(file.content))
-            file.content = pack.model_dump(exclude_none=True)
-        elif file.kind == "document":
-            pack = SokqaDocumentPack.model_validate(file.content)
-            pack.documents = [item for item in pack.documents if item.text.strip()]
-            file.content = pack.model_dump(exclude_none=True)
+        try:
+            if file.kind == "quiz":
+                pack = SokqaQuizPack.model_validate(_normalize_quiz_content_for_repair(file.content))
+                file.content = pack.model_dump(exclude_none=True)
+            elif file.kind == "document":
+                pack = SokqaDocumentPack.model_validate(file.content)
+                pack.documents = [item for item in pack.documents if item.text.strip()]
+                file.content = pack.model_dump(exclude_none=True)
+        except ValidationError:
+            # Never turn a malformed response into a superficially valid quiz
+            # with fabricated choices or answers.  The original content stays
+            # intact for the pack-level structural gate.
+            logger.warning("repair skipped structurally invalid file=%s", file.name)
         repaired.append(file)
     return repaired
 
@@ -47,13 +55,13 @@ def _normalize_quiz_content_for_repair(content: Any) -> Any:
         question = dict(raw_question)
         choices = question.get("choices")
         if isinstance(choices, list):
-            normalized_choices = list(choices[:4])
-            while len(normalized_choices) < 4:
-                normalized_choices.append(f"補足選択肢{len(normalized_choices) + 1}")
-            question["choices"] = normalized_choices
+            question["choices"] = list(choices)
         answer_index = question.get("answerIndex")
-        if not isinstance(answer_index, int) or answer_index < 0 or answer_index > 3:
-            question["answerIndex"] = 0
+        if isinstance(answer_index, bool) or not isinstance(answer_index, int) or answer_index < 0 or answer_index >= len(question.get("choices") or []):
+            # A correct answer cannot be inferred safely.  Keep the malformed
+            # value so the pack-level persistence gate can reject it instead
+            # of manufacturing a learner-visible answer.
+            question["answerIndex"] = answer_index
         normalized_questions.append(question)
     normalized["questions"] = normalized_questions
     return normalized

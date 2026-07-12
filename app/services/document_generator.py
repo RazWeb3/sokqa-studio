@@ -277,8 +277,19 @@ def generate_mock_document_pack(plan: CoursePlan, document: PlanDocument) -> Sok
     )
 
 
-def normalize_document_content(content: dict, plan: CoursePlan, document: PlanDocument) -> dict:
-    normalized = dict(content)
+def normalize_document_content(content: dict | list, plan: CoursePlan, document: PlanDocument) -> dict:
+    """Normalize either an object response or a bare document-unit array.
+
+    Some models return the requested collection directly.  That is valid JSON
+    content, so preserve it by assigning it to ``documents`` rather than
+    treating the response as a parser failure.
+    """
+    if isinstance(content, list):
+        normalized = {"documents": content}
+    elif isinstance(content, dict):
+        normalized = dict(content)
+    else:
+        raise ValueError("document response must be a JSON object or a documents array")
     normalized["id"] = document_pack_id(plan, document)
     normalized.setdefault("type", "document")
     normalized.setdefault("schemaVersion", 1)

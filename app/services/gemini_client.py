@@ -148,7 +148,7 @@ class GeminiClient:
         model: str | None = None,
         temperature: float | None = None,
         parse_context: LlmJsonParseContext | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         if self.settings.gemini_provider == "mock":
             raise RuntimeError("GEMINI_PROVIDER=mock; use deterministic local generators.")
 

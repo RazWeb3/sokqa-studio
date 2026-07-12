@@ -82,6 +82,18 @@ def test_batch_consistency_allows_applied_or_paraphrase_question(monkeypatch) ->
     assert batch_quiz_answer_explanation_issues(plan, plan.quizPacks[0], content) == []
 
 
+def test_batch_consistency_accepts_bare_issue_array(monkeypatch) -> None:
+    """A usable list response must not fail with ``list.get``."""
+    plan = _consistency_plan()
+    content = {"id": "quiz-1", "questions": [{"id": "q-1", "question": "朝の挨拶は？", "choices": ["Good morning", "Good night", "Thank you", "Sorry"], "answerIndex": 0, "explanation": "Good night は夜に使う挨拶です。"}]}
+    monkeypatch.setattr(GeminiClient, "generate_json", lambda *_args, **_kwargs: [{"id": "q-1", "reason": "Explanation explicitly supports choice 1."}])
+
+    issues = batch_quiz_answer_explanation_issues(plan, plan.quizPacks[0], content)
+
+    assert len(issues) == 1
+    assert issues[0].classification == "quality"
+
+
 def test_batch_consistency_reviews_all_questions_with_one_llm_call(monkeypatch) -> None:
     plan = _consistency_plan()
     content = {"id": "quiz-1", "questions": [

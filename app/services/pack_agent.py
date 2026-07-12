@@ -48,6 +48,15 @@ from app.utils.ids import new_job_id
 logger = logging.getLogger(__name__)
 
 
+class PackPersistenceError(RuntimeError):
+    """Raised only when no complete, structurally usable pack can be saved."""
+
+    def __init__(self, errors) -> None:
+        self.blockingErrors = list(errors)
+        summary = "; ".join(f"{error.file} {error.path}: {error.message}" for error in self.blockingErrors)
+        super().__init__(f"generated pack cannot be safely saved: {summary}")
+
+
 def _regeneration_candidate_errors(validation) -> list:
     """Errors worth one best-effort regeneration pass.
 
@@ -214,6 +223,24 @@ def _persist_initial_revision(plan, metadata, files: list[GeneratedFile], operat
     if persist:
         return persist_revision_commit(storage, None, request)
     return build_revision_commit(None, request)
+
+
+def _ensure_initial_pack_is_persistable(plan, metadata, files: list[GeneratedFile], quality_status: str) -> None:
+    """Reject only a pack that remains structurally unsafe after normalization.
+
+    The preview uses the same manifest builder as persistence, but does not
+    write anything.  Quality warnings deliberately pass through; only the
+    technical validation set (malformed content or unresolved references) can
+    stop the subsequent write.
+    """
+    preview = build_revision_commit(
+        None,
+        _initial_commit_request(plan, metadata, files, "initial_generate", quality_status),
+    )
+    preview_validation = validate_files(_files_from_revision_result(preview), preview.manifest)
+    errors = blocking_errors(preview_validation)
+    if errors:
+        raise PackPersistenceError(errors)
 
 
 def _persist_changed_revision(
@@ -497,6 +524,8 @@ def generate_pack(request: GeneratePackRequest) -> GeneratePackResponse:
     append_validation_logs(logs, validation)
     quality_status = file_validation_status(validation)
     persisted = bool(request.persist)
+
+    _ensure_initial_pack_is_persistable(plan, metadata, files, quality_status)
 
     logs.append("Persisting generated files" if persisted else "Building review manifest without persistence")
     commit_result = _persist_initial_revision(plan, metadata, files, "initial_generate", persisted, quality_status)

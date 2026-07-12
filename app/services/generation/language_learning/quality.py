@@ -91,7 +91,13 @@ def batch_quiz_answer_explanation_issues(
     )
     by_id = {str(question.get("id") or ""): index for index, question in enumerate(questions)}
     issues: list[ValidationErrorItem] = []
-    for item in data.get("issues") or []:
+    # The review prompt asks for an object, but a bare issue array is also a
+    # semantically usable response.  Normalize it instead of calling .get()
+    # on a list and discarding an otherwise successful pack generation.
+    raw_issues = data if isinstance(data, list) else data.get("issues") if isinstance(data, dict) else []
+    if not isinstance(raw_issues, list):
+        return []
+    for item in raw_issues:
         if not isinstance(item, dict):
             continue
         question_id = str(item.get("id") or "")

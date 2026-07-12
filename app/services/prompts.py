@@ -642,6 +642,14 @@ def quiz_generation_prompt(
             f"- Choose either the pack language ({plan.language}) or learning language ({learning_language}) per question. "
             "All four choices within one question must use the same chosen language. Never mix languages inside one four-choice set."
         )
+    language_learning_grounding_rule = ""
+    if is_language_learning:
+        language_learning_grounding_rule = """
+- Language Learning quiz grounding (strict): reuse concrete learning-language phrases, expressions, sentences, dialogue turns, or language-use distinctions from the referenced quiz-context documents.
+- Every question must assess understanding or use of the learning language. Do not create general knowledge, etiquette, safety, procedural, travel, or factual questions that learners can answer without understanding the learning-language content.
+- The correct answer and its explanation must be supported by the referenced quiz-context document content. Distractors may be newly written, but must remain plausible language alternatives.
+- The pack language may be used for instructions, scenario descriptions, meanings, and explanations. Do not require every question to be written entirely in the learning language.
+""".strip()
     generation_instruction = f"""
 - Return strict JSON only.
 - type must be "quiz".
@@ -658,6 +666,7 @@ def quiz_generation_prompt(
 - Each choices array must contain 4 meaningful strings, not objects.
 - packLanguage is "{plan.language}" and learningLanguage is "{learning_language}".
 {choice_language_rule}
+{language_learning_grounding_rule}
 - Each explanation must be specific to that question. Do not repeat the same explanation for all questions.
 - The choice at answerIndex must be the single correct answer. The explanation must explain that exact correct choice, and must not explain a different choice.
 - Do not generate only meaning questions. Use the requested difficulty when designing questions.

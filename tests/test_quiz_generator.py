@@ -1,12 +1,16 @@
 import pytest
 from app.config import get_settings
-from app.schemas.sokqa import CoursePlan, PlanDocument, PlanQuizPack, SokqaDocumentPack
+from app.schemas.sokqa import CoursePlan, GeneratedFile, PlanDocument, PlanQuizPack, SokqaDocumentPack
 from app.services.gemini_client import GeminiClient
+from app.services.generation.context import GenerationContext
+from app.services.generation_status import pop_generation_events
 from app.services.quiz_generator import (
     _pack_language_violations,
     _repair_pack_language_violations,
     _supplement_quiz_questions,
+    generate_quiz_pack,
 )
+from app.services.validator import validate_files
 
 
 def _plan(choice_language_mode: str = "pack", learning_language: str = "en") -> CoursePlan:
@@ -207,6 +211,118 @@ def test_repair_pack_language_violations_returns_original_on_failure(monkeypatch
 
     # 元の英語 choices が保持される（部分修正されていない）
     assert repaired["questions"][0]["choices"][0] == "I am visiting my friend, Kaito Tanaka."
+
+
+def test_repair_pack_language_violations_accepts_bare_question_array(monkeypatch) -> None:
+    plan = _plan()
+    content = _pack_violation_content()
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> list[dict]:
+        return [_repaired_question()]
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    repaired = _repair_pack_language_violations(content, plan, _quiz_pack(plan))
+
+    assert repaired["questions"][0]["choices"] == _repaired_question()["choices"]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"questions": "not a list"},
+        {"questions": ["not an object"]},
+    ],
+)
+def test_repair_pack_language_violations_keeps_original_for_invalid_response_shape(monkeypatch, response) -> None:
+    plan = _plan()
+    content = _pack_violation_content()
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs):
+        return response
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    assert _repair_pack_language_violations(content, plan, _quiz_pack(plan)) == content
+
+
+def test_repair_pack_language_violations_keeps_original_when_replacement_raises(monkeypatch) -> None:
+    plan = _plan()
+    content = _pack_violation_content()
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {"questions": [_repaired_question()]}
+
+    def fail_sanitization(value: str) -> str:
+        raise RuntimeError("display sanitation failed")
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    monkeypatch.setattr("app.services.quiz_generator.sanitize_learner_facing_text", fail_sanitization)
+
+    assert _repair_pack_language_violations(content, plan, _quiz_pack(plan)) == content
+
+
+def test_unresolved_pack_language_violation_is_returned_as_quality_warning(monkeypatch, caplog) -> None:
+    plan = _plan()
+    content = _pack_violation_content()
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs):
+        return {"questions": "not a list"}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+    retained = _repair_pack_language_violations(content, plan, _quiz_pack(plan))
+    validation = validate_files(
+        [GeneratedFile(name="quiz.json", kind="quiz", content={**retained, "id": "quiz", "type": "quiz", "title": "確認", "language": "ja", "learningLanguage": "en", "choiceLanguageMode": "pack", "questions": retained["questions"]})],
+        context=GenerationContext("language_learning", "ja", "en", "pack", "multilingual"),
+    )
+
+    assert retained == content
+    assert any("pack_language_repair.failed" in message for message in caplog.messages)
+    assert any(issue.classification == "quality" and "pack choice language mode" in issue.message for issue in validation.errors)
+    events = pop_generation_events()
+    assert any("pack_language_repair.failed" in event.message for event in events)
+
+
+def test_initial_quiz_generation_invalid_structure_still_raises(monkeypatch) -> None:
+    plan = _plan()
+    monkeypatch.setattr(get_settings(), "gemini_provider", "gemini")
+
+    def fake_generate_json(self, prompt: str, model: str | None = None, **kwargs) -> dict:
+        return {"questions": [{"id": "q-1", "question": "", "choices": ["A"], "answerIndex": 9, "explanation": ""}]}
+
+    monkeypatch.setattr(GeminiClient, "generate_json", fake_generate_json)
+
+    with pytest.raises(RuntimeError, match="クイズ生成に失敗"):
+        generate_quiz_pack(plan, _quiz_pack(plan), [], model="test")
+
+
+def _pack_violation_content() -> dict:
+    return {
+        "questions": [
+            {
+                "id": "q-6",
+                "question": "観光目的はどれですか。",
+                "choices": ["I am visiting a friend.", "I am here for tourism.", "I am here for business.", "I do not know my purpose."],
+                "answerIndex": 1,
+                "explanation": "正解です。",
+            },
+            {
+                "id": "q-1",
+                "question": "意味はどれですか。",
+                "choices": ["〜を尋ねる", "〜を議論する", "〜を調査する", "〜を求める"],
+                "answerIndex": 0,
+                "explanation": "正解です。",
+            },
+        ]
+    }
+
+
+def _repaired_question(*, choices: list[str] | None = None) -> dict:
+    return {
+        "id": "q-6",
+        "choices": choices or ["友人を訪ねます。", "観光が目的です。", "仕事が目的です。", "目的がわかりません。"],
+        "answerIndex": 1,
+    }
 
 
 def test_supplement_quiz_questions_appends_missing_count_without_duplicates(monkeypatch) -> None:

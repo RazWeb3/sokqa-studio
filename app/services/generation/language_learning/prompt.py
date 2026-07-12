@@ -77,7 +77,8 @@ def quiz_difficulty_block(plan: CoursePlan) -> str:
     elif difficulty == "advanced":
         guidance = """
 - Difficulty (advanced): design questions requiring nuanced judgment, not surface recognition.
-  - Ask about nuance differences, correction of clear misuse, formal versus casual register, naturalness judgment, or selecting the optimal expression for a given situation.
+  - Prefer nuance differences, correction of clear misuse, formal versus casual register, naturalness judgment, or selecting the optimal expression for a given situation.
+  - Do not let the quiz pack become dominated by simple meaning-comprehension questions. Meaning questions remain allowed when they support the learning goal.
   - Every question must be grounded in a concrete learning-language phrase/expression; do not ask about chapter explanation or material meta-information only.
 """.rstrip()
     elif difficulty == "standard":
@@ -94,6 +95,7 @@ def quiz_difficulty_block(plan: CoursePlan) -> str:
     return f"""
 Language-learning quiz difficulty guidance (phase 10):
 {guidance}
+- Across a quiz pack, vary question forms where the source material and question count allow it. Mix meaning, situation appropriateness, naturalness, politeness/register, dialogue response, misuse correction, and nuance instead of repeating one form excessively. Do not require every form when the pack is short or the source does not support it.
 """.strip()
 
 

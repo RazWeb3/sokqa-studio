@@ -2043,6 +2043,55 @@ def test_quiz_prompt_choice_language_instruction_preserved_across_modes() -> Non
     assert "Write all four choices in each question in the learning language (en)" in learning_prompt
 
 
+@pytest.mark.parametrize("mode", ["pack", "learning", "auto"])
+def test_language_learning_quiz_prompt_requires_document_grounding_without_changing_choice_mode(mode: str) -> None:
+    plan = _plan()
+    plan.learningLanguage = "en"
+
+    prompt = quiz_generation_prompt(
+        plan,
+        _quiz_pack_with_mode(mode),
+        [_source_pack()],
+        context=_language_learning_context(plan, mode),
+    )
+
+    assert "Language Learning quiz grounding (strict):" in prompt
+    assert "reuse concrete learning-language phrases" in prompt
+    assert "referenced quiz-context documents" in prompt
+    assert "learners can answer without understanding the learning-language content" in prompt
+    assert "correct answer and its explanation must be supported" in prompt
+    assert "Do not require every question to be written entirely in the learning language." in prompt
+    assert f'"choiceLanguageMode": "{mode}"' in prompt
+
+
+def test_standard_quiz_prompt_excludes_language_learning_grounding_rules() -> None:
+    plan = _plan()
+    plan.learningLanguage = "en"
+
+    prompt = quiz_generation_prompt(plan, _quiz_pack_with_mode("pack"), [_source_pack()])
+
+    assert "Language Learning quiz grounding (strict):" not in prompt
+    assert "learners can answer without understanding the learning-language content" not in prompt
+
+
+def test_advanced_language_learning_quiz_prompt_avoids_meaning_question_bias_and_varies_forms() -> None:
+    plan = _plan()
+    plan.learningLanguage = "en"
+    plan.difficulty = "advanced"
+
+    prompt = quiz_generation_prompt(
+        plan,
+        _quiz_pack_with_mode("learning"),
+        [_source_pack()],
+        context=_language_learning_context(plan, "learning"),
+    )
+
+    assert "Prefer nuance differences, correction of clear misuse" in prompt
+    assert "Do not let the quiz pack become dominated by simple meaning-comprehension questions." in prompt
+    assert "Meaning questions remain allowed" in prompt
+    assert "vary question forms where the source material and question count allow it" in prompt
+
+
 def test_quiz_prompt_auto_mode_text_unchanged_and_no_structure_template() -> None:
     """auto モードは既存文言が維持され、構造テンプレート・Good/Bad 例が追加されていないこと（要件3-4）。"""
     plan = _plan()

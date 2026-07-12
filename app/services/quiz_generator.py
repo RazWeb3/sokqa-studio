@@ -305,7 +305,8 @@ def _repair_pack_language_violations(
     """packモード違反の問題のみを、厳格プロンプトで再生成して pack言語へ是正する。
 
     検知された違反問題の id をキーに、再生成結果で choices を置換する。
-    再生成に失敗した場合は元の content をそのまま返す（部分適用しない）。
+    これは任意の品質後処理であり、応答形式・置換のいずれかに問題があれば
+    元の content をそのまま返す（部分適用しない）。初回生成の構造検証は緩和しない。
     """
     violations = _pack_language_violations(content, plan, quiz_plan)
     if not violations:
@@ -341,53 +342,69 @@ def _repair_pack_language_violations(
                 scale=plan.scale,
             ),
         )
-    except Exception as exc:
-        logger.warning(
-            "quiz_generator.pack_violation_repair_failed quiz=%s error=%s",
-            quiz_plan.id,
-            repr(exc),
-        )
-        logger.warning("quiz_generator.pack_language_violations.remaining quiz=%s count=%s", quiz_plan.id, len(violations))
-        return content
+        repaired_payload = {"questions": repaired} if isinstance(repaired, list) else repaired
+        if not isinstance(repaired_payload, dict):
+            raise ValueError(f"repair response must be a JSON object or question array, got {type(repaired).__name__}")
+        repaired_questions = repaired_payload.get("questions")
+        if not isinstance(repaired_questions, list):
+            raise ValueError("repair response questions must be a list")
+        if any(not isinstance(item, dict) for item in repaired_questions):
+            raise ValueError("repair response questions must contain only objects")
 
-    repaired_by_id = {
-        item.get("id"): item
-        for item in repaired.get("questions") or []
-        if isinstance(item, dict) and item.get("id") in violation_ids
-    }
-    if not repaired_by_id:
-        logger.warning("quiz_generator.pack_language_violations.remaining quiz=%s count=%s", quiz_plan.id, len(violations))
-        return content
+        repaired_by_id = {
+            item.get("id"): item
+            for item in repaired_questions
+            if item.get("id") in violation_ids
+        }
+        if set(repaired_by_id) != violation_ids:
+            raise ValueError("repair response must include exactly every violated question id")
+        for question_id, repaired_item in repaired_by_id.items():
+            choices = repaired_item.get("choices")
+            answer_index = repaired_item.get("answerIndex")
+            if not isinstance(choices, list) or len(choices) != 4 or any(not isinstance(choice, str) or not choice.strip() for choice in choices):
+                raise ValueError(f"repair response for {question_id} must contain exactly four non-empty string choices")
+            if isinstance(answer_index, bool) or not isinstance(answer_index, int) or not 0 <= answer_index <= 3:
+                raise ValueError(f"repair response for {question_id} must contain an integer answerIndex from 0 to 3")
 
-    fixed_questions = []
-    for question in content.get("questions") or []:
-        if not isinstance(question, dict):
-            fixed_questions.append(question)
-            continue
-        if question.get("id") in repaired_by_id:
+        fixed_questions = []
+        for question in content.get("questions") or []:
+            if not isinstance(question, dict):
+                fixed_questions.append(question)
+                continue
+            repaired_item = repaired_by_id.get(question.get("id"))
+            if repaired_item is None:
+                fixed_questions.append(question)
+                continue
             fixed = dict(question)
-            repaired_item = repaired_by_id[question["id"]]
             fixed["choices"] = [
                 sanitize_learner_facing_text(normalize_choice(choice))
-                for choice in list(repaired_item.get("choices") or [])
+                for choice in repaired_item["choices"]
             ]
-            while len(fixed["choices"]) < 4:
-                fixed["choices"].append(f"support choice {len(fixed['choices']) + 1}")
-            fixed["choices"] = fixed["choices"][:4]
-            fixed["answerIndex"] = normalize_answer_index(repaired_item.get("answerIndex", fixed.get("answerIndex", 0)))
+            if any(not choice for choice in fixed["choices"]):
+                raise ValueError(f"repair response for {question.get('id')} produced an empty display choice")
+            fixed["answerIndex"] = repaired_item["answerIndex"]
             fixed_questions.append(fixed)
-        else:
-            fixed_questions.append(question)
-    content = dict(content)
-    content["questions"] = fixed_questions
-    remaining = _pack_language_violations(content, plan, quiz_plan)
-    logger.info(
-        "quiz_generator.pack_language_violations.repair_completed quiz=%s repaired_count=%s remaining_count=%s",
-        quiz_plan.id, len(violations) - len(remaining), len(remaining),
-    )
-    if remaining:
-        logger.warning("quiz_generator.pack_language_violations.remaining quiz=%s count=%s", quiz_plan.id, len(remaining))
-    return content
+
+        merged = dict(content)
+        merged["questions"] = fixed_questions
+        remaining = _pack_language_violations(merged, plan, quiz_plan)
+        logger.info(
+            "quiz_generator.pack_language_violations.repair_completed quiz=%s repaired_count=%s remaining_count=%s",
+            quiz_plan.id, len(violations) - len(remaining), len(remaining),
+        )
+        if remaining:
+            raise ValueError(f"repair left {len(remaining)} pack-language violations")
+        return merged
+    except Exception as exc:
+        logger.warning(
+            "quiz_generator.pack_language_repair.failed quiz=%s remaining_count=%s error=%r",
+            quiz_plan.id, len(violations), exc,
+        )
+        record_generation_source(
+            "gemini",
+            f"Quiz {quiz_plan.id} pack_language_repair.failed; retained original quiz with {len(violations)} unresolved pack-language warnings.",
+        )
+        return content
 
 
 def _repair_answer_explanation_inconsistencies(

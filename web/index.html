@@ -667,7 +667,15 @@
             </div>
           </div>
           <div class="top-actions">
-            <label style="min-width:180px">creatorId<input id="packCreatorId" value="creator_default" maxlength="120" /></label>
+            <label style="min-width:220px">保存先
+              <select id="creatorProfile" aria-label="パックの保存先">
+                <option value="review">審査用（既存データ）</option>
+                <option value="official">Sokqa Official（永続公開用）</option>
+                <option value="development" selected>Sokqa Studio Dev（開発・検証用）</option>
+              </select>
+            </label>
+            <input id="packCreatorId" type="hidden" value="sokqa_hackathon_dev" />
+            <input id="packCreatorDisplayName" type="hidden" value="Sokqa Studio Dev" />
             <button class="secondary" id="openPackTop" type="button">パック切り替え</button>
           </div>
         </div>
@@ -1102,6 +1110,11 @@
         ["pt", "Português / pt"],
         ["id", "Bahasa Indonesia / id"],
       ];
+      const CREATOR_PROFILES = {
+        review: { creatorId: "creator_default", displayName: "Sokqa Review" },
+        official: { creatorId: "sokqa_official", displayName: "Sokqa Official" },
+        development: { creatorId: "sokqa_hackathon_dev", displayName: "Sokqa Studio Dev" }
+      };
       const LEARNING_LANGUAGE_OPTIONS = PACK_LANGUAGE_OPTIONS.filter(([value]) => value !== "pack");
       const DEFAULT_TTS_LANGUAGE_SETTINGS = {
         documentTextLanguageMode: "mixed",
@@ -4359,6 +4372,8 @@
             customInstructions,
             includeTts: isTtsEnabled(),
             enableTtsOptimize: isTtsEnabled(),
+            creatorId: $("packCreatorId").value,
+            creatorDisplayName: $("packCreatorDisplayName").value,
             ...generationControlsPayload(),
             ...ttsPayload(),
             ...sourcePayload()
@@ -4398,6 +4413,8 @@
             plan,
             outputMode: "manifest",
             persist: true,
+            creatorId: $("packCreatorId").value,
+            creatorDisplayName: $("packCreatorDisplayName").value,
             customInstructions: $("customInstructions").value.trim(),
             ...generationControlsPayload(),
             ...ttsPayload(),
@@ -4515,6 +4532,31 @@
         $("sourceMode").disabled = !$("sourceText").value.trim();
       }
 
+      function activeCreatorProfile() {
+        return CREATOR_PROFILES[$("creatorProfile").value] || CREATOR_PROFILES.development;
+      }
+
+      function syncCreatorProfile() {
+        const profile = activeCreatorProfile();
+        $("packCreatorId").value = profile.creatorId;
+        $("packCreatorDisplayName").value = profile.displayName;
+        return profile;
+      }
+
+      async function switchCreatorProfile() {
+        const profile = syncCreatorProfile();
+        const plan = currentPlanFromJson();
+        if (plan) {
+          plan.creatorId = profile.creatorId;
+          plan.creatorDisplayName = profile.displayName;
+          setPlanJson(plan);
+          renderPlanPreview(plan);
+        }
+        clearSelectedPack();
+        await loadPacks({ keepSelection: false, forceRefresh: true });
+        setStatusMessage(`${profile.displayName} の保存先に切り替えました。`);
+      }
+
       document.addEventListener("click", async (event) => {
         const packButton = event.target.closest("[data-pack-key]");
         if (packButton) {
@@ -4591,6 +4633,9 @@
         handleGenerationControlChange();
       }));
       $("language").addEventListener("change", syncPackLanguageUi);
+      $("creatorProfile").addEventListener("change", () => {
+        switchCreatorProfile().catch((error) => setProgress("保存先切替", "失敗", error.message, 1));
+      });
       $("ttsReadingMode").addEventListener("change", syncTtsModeUi);
       $("learningLanguage").addEventListener("change", () => {
         let plan;
@@ -4791,6 +4836,7 @@
       updateGlobalStatus();
       updateStatusBadges();
       updateQualityWorkflowUI();
+      syncCreatorProfile();
       loadTtsVoices();
       loadPacks().catch((error) => setProgress("パック一覧", "失敗", error.message, 1));
     </script>

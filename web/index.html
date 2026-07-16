@@ -1062,6 +1062,13 @@
       </div>
     </div>
 
+    <div class="modal" id="jsonEditorModal" aria-hidden="true">
+      <div class="dialog">
+        <div class="panel-head"><div><h3 id="jsonEditorTitle">ファイルを編集</h3><p class="hint">JSONを検証してから、新しいリビジョンとして保存します。</p></div><button class="ghost" id="closeJsonEditor" type="button">閉じる</button></div>
+        <div class="panel-body stack"><textarea id="jsonEditorText" rows="22" spellcheck="false"></textarea><p id="jsonEditorStatus" class="muted"></p><div class="actions"><button class="secondary" id="formatJsonEditor" type="button">整形</button><button class="secondary" id="validateJsonEditor" type="button">検証</button><button id="saveJsonEditor" type="button" disabled>新しいリビジョンとして保存</button></div></div>
+      </div>
+    </div>
+
     <div class="modal" id="versionModal" aria-hidden="true">
       <div class="dialog">
         <div class="panel-head"><div><h3>マニフェスト / バージョン情報</h3><p class="hint">現在対象にしているリビジョンのmanifestを読み込み、変更内容を表示します。</p></div><button class="ghost" id="closeVersionInfo" type="button">閉じる</button></div>
@@ -2989,10 +2996,82 @@
       let packEditorItems = [];
       let packEditorRemovedIds = new Set();
       let packEditorTarget = null;
+      let editingPackFile = null;
+      let jsonEditorValidated = false;
+
+      function setJsonEditorStatus(message, error = false) {
+        $("jsonEditorStatus").textContent = message;
+        $("jsonEditorStatus").classList.toggle("error", error);
+      }
+
+      async function openJsonEditor(index) {
+        const item = packEditorItems[index];
+        if (!item || !packEditorTarget) return;
+        try {
+          const query = new URLSearchParams({ creatorId: packEditorTarget.creatorId, contentId: packEditorTarget.contentId, versionId: packEditorTarget.versionId, logicalId: item.logicalId });
+          const content = await requestGet(`/packs/file?${query.toString()}`, { noStore: true });
+          editingPackFile = { ...item, content };
+          $("jsonEditorTitle").textContent = `${item.title || item.packName} を編集`;
+          $("jsonEditorText").value = JSON.stringify(content, null, 2);
+          jsonEditorValidated = false;
+          $("saveJsonEditor").disabled = true;
+          setJsonEditorStatus("編集後に検証してください。");
+          openModal("jsonEditorModal");
+        } catch (error) {
+          setStatusMessage(`JSONを読み込めませんでした: ${error.message}`, { error: true });
+        }
+      }
+
+      function closeJsonEditor() {
+        closeModal("jsonEditorModal");
+        editingPackFile = null;
+        jsonEditorValidated = false;
+      }
+
+      function parsedJsonEditorContent() {
+        return JSON.parse($("jsonEditorText").value);
+      }
+
+      async function validateJsonEditor() {
+        if (!editingPackFile) return;
+        try {
+          const content = parsedJsonEditorContent();
+          if (content.type !== editingPackFile.kind) throw new Error(`type は ${editingPackFile.kind} のままにしてください。`);
+          const result = await requestJson("/debug/validate-pack", { files: [{ name: editingPackFile.packName, kind: editingPackFile.kind, content }] });
+          if (!result.valid) throw new Error((result.errors || []).map((issue) => issue.message).join(" / ") || "検証に失敗しました。");
+          jsonEditorValidated = true;
+          $("saveJsonEditor").disabled = false;
+          setJsonEditorStatus("構文・スキーマ・品質検証に通過しました。");
+        } catch (error) {
+          jsonEditorValidated = false;
+          $("saveJsonEditor").disabled = true;
+          setJsonEditorStatus(error.message || "JSONを検証できませんでした。", true);
+        }
+      }
+
+      async function saveJsonEditor() {
+        if (!editingPackFile || !jsonEditorValidated || !packEditorTarget) return;
+        try {
+          const content = parsedJsonEditorContent();
+          const data = await requestJson("/quality/save-version", {
+            target: { creatorId: packEditorTarget.creatorId, contentId: packEditorTarget.contentId, versionId: packEditorTarget.versionId, packName: editingPackFile.packName, kind: editingPackFile.kind },
+            files: [{ name: editingPackFile.packName, kind: editingPackFile.kind, content }],
+            appliedFixes: []
+          });
+          await loadPacks({ keepSelection: false, forceRefresh: true });
+          const next = currentPacks.find((pack) => pack.contentId === packEditorTarget.contentId && pack.versionId === data.newVersionId) || currentPacks.find((pack) => pack.contentId === packEditorTarget.contentId);
+          if (next) await selectPack(next);
+          closeJsonEditor();
+          closePackEditor();
+          finishProgress("JSON編集", "新しいリビジョンを保存しました。");
+        } catch (error) {
+          setJsonEditorStatus(error.message, true);
+        }
+      }
 
       function renderPackEditor() {
         $("packEditorItems").innerHTML = packEditorItems.length
-          ? packEditorItems.map((item, index) => `<div class="import-order-item"><div><strong>${escapeHtml(item.title || item.packName)}</strong><small>${escapeHtml(item.kind)} · ${escapeHtml(item.packName)}</small></div><div class="import-order-actions"><button type="button" class="secondary" data-editor-move="up" data-editor-index="${index}" ${index === 0 ? "disabled" : ""} aria-label="上へ移動">↑</button><button type="button" class="secondary" data-editor-move="down" data-editor-index="${index}" ${index === packEditorItems.length - 1 ? "disabled" : ""} aria-label="下へ移動">↓</button><button type="button" class="danger-btn" data-editor-remove="${index}">削除</button></div></div>`).join("")
+          ? packEditorItems.map((item, index) => `<div class="import-order-item"><div><strong>${escapeHtml(item.title || item.packName)}</strong><small>${escapeHtml(item.kind)} · ${escapeHtml(item.packName)}</small></div><div class="import-order-actions"><button type="button" class="secondary" data-editor-json="${index}">編集</button><button type="button" class="secondary" data-editor-move="up" data-editor-index="${index}" ${index === 0 ? "disabled" : ""} aria-label="上へ移動">↑</button><button type="button" class="secondary" data-editor-move="down" data-editor-index="${index}" ${index === packEditorItems.length - 1 ? "disabled" : ""} aria-label="下へ移動">↓</button><button type="button" class="danger-btn" data-editor-remove="${index}">削除</button></div></div>`).join("")
           : '<p class="muted">すべてのファイルを削除することはできません。</p>';
       }
 
@@ -4799,6 +4878,7 @@
       document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
         if ($("dictionaryRulesModal").classList.contains("open")) closeDictionaryRulesModal();
+        else if ($("jsonEditorModal").classList.contains("open")) closeJsonEditor();
         else if ($("packEditorModal").classList.contains("open")) closePackEditor();
         else if ($("importQrModal").classList.contains("open")) closeImportQrModal();
         else if ($("versionModal").classList.contains("open")) closeVersionModal();
@@ -4926,6 +5006,11 @@
       $("packEditorModal").addEventListener("click", (event) => { if (event.target.id === "packEditorModal") closePackEditor(); });
       $("savePackEditor").addEventListener("click", savePackEditor);
       $("packEditorItems").addEventListener("click", (event) => {
+        const edit = event.target.closest("[data-editor-json]");
+        if (edit) {
+          openJsonEditor(Number(edit.dataset.editorJson));
+          return;
+        }
         const move = event.target.closest("[data-editor-move]");
         if (move) {
           const index = Number(move.dataset.editorIndex);
@@ -4947,6 +5032,20 @@
         packEditorItems.splice(index, 1);
         renderPackEditor();
       });
+      $("closeJsonEditor").addEventListener("click", closeJsonEditor);
+      $("jsonEditorModal").addEventListener("click", (event) => { if (event.target.id === "jsonEditorModal") closeJsonEditor(); });
+      $("jsonEditorText").addEventListener("input", () => {
+        jsonEditorValidated = false;
+        $("saveJsonEditor").disabled = true;
+        try { parsedJsonEditorContent(); setJsonEditorStatus("JSON構文は有効です。スキーマ検証を実行してください。"); }
+        catch (error) { setJsonEditorStatus(error.message, true); }
+      });
+      $("formatJsonEditor").addEventListener("click", () => {
+        try { $("jsonEditorText").value = JSON.stringify(parsedJsonEditorContent(), null, 2); $("jsonEditorText").dispatchEvent(new Event("input")); }
+        catch (error) { setJsonEditorStatus(error.message, true); }
+      });
+      $("validateJsonEditor").addEventListener("click", validateJsonEditor);
+      $("saveJsonEditor").addEventListener("click", saveJsonEditor);
       $("openPackTop").addEventListener("click", openPackModal);
       $("openPackFromRecord")?.addEventListener("click", openPackModal);
       $("closePack").addEventListener("click", closePackModal);

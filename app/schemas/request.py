@@ -408,11 +408,21 @@ class ImportPackInputFile(BaseModel):
 
 class ImportPackRequest(BaseModel):
     files: list[ImportPackInputFile] = Field(..., min_length=1)
+    destination: Literal["new", "existing"] = "new"
+    targetContentId: str | None = Field(default=None, min_length=1, max_length=160)
+    conflictStrategy: Literal["rename", "replace", "skip"] = "replace"
+    itemOrder: list[str] = Field(default_factory=list)
     creatorId: str | None = Field(default=None, min_length=1, max_length=120)
     creatorDisplayName: str | None = Field(default=None, min_length=1, max_length=120)
     contentId: str | None = Field(default=None, min_length=1, max_length=160)
     slug: str | None = Field(default=None, min_length=1, max_length=160)
     title: str | None = Field(default=None, min_length=1, max_length=160)
+
+    @model_validator(mode="after")
+    def existing_destination_requires_target(self):
+        if self.destination == "existing" and not self.targetContentId:
+            raise ValueError("targetContentId is required when destination is existing")
+        return self
 
 
 class ImportPackResponse(BaseModel):
@@ -421,6 +431,19 @@ class ImportPackResponse(BaseModel):
     manifest: PackManifestV2
     validation: ValidationResult
     logs: list[str] = Field(default_factory=list)
+
+
+class EditPackManifestRequest(BaseModel):
+    creatorId: str = Field(..., min_length=1, max_length=120)
+    contentId: str = Field(..., min_length=1, max_length=160)
+    versionId: str = Field(..., min_length=1, max_length=80)
+    itemOrder: list[str] = Field(default_factory=list)
+    removedLogicalIds: list[str] = Field(default_factory=list)
+
+
+class EditPackManifestResponse(BaseModel):
+    status: Literal["revised"] = "revised"
+    manifest: PackManifestV2
 
 
 class DeletePackRequest(BaseModel):

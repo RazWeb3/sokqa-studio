@@ -475,6 +475,13 @@
       .record-delete-buttons .danger-btn { min-width: 126px; }
       .pack-import-fields { display: none; gap: 12px; }
       .pack-import-fields.active { display: grid; }
+      .import-preview { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
+      .import-order-list { display: grid; gap: 6px; }
+      .import-order-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+      .import-order-item small { color: var(--muted); }
+      .import-order-actions { display: flex; gap: 5px; }
+      .import-order-actions button { min-width: 32px; min-height: 32px; padding: 0 8px; }
+      .import-new-fields[hidden], .import-existing-fields[hidden] { display: none; }
       .credit-ui[hidden] { display: none !important; }
       .source-summary { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
       .step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: white; }
@@ -701,6 +708,7 @@
             </div>
             <div class="pack-actions">
               <button class="secondary" id="openVersionInfo" type="button">バージョン情報</button>
+              <button class="secondary" id="openPackEditor" type="button">パック編集</button>
               <button class="secondary" id="openPack" type="button">別のパックに切り替え</button>
               <button class="ghost" id="clearPack" type="button">未選択にする</button>
             </div>
@@ -1028,13 +1036,28 @@
         <div class="panel-body stack">
           <div class="actions"><button id="refreshPacksBtn" type="button">一覧更新</button><button class="secondary" id="importPackBtn" type="button">インポート</button></div>
           <div class="pack-import-fields" id="packImportFields">
-            <label>インポートJSON<input id="importFiles" type="file" accept="application/json,.json" multiple /></label>
-            <div class="field-grid"><label>title<input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" /></label><label>contentId<input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" /></label></div>
-            <label>slug<input id="importSlug" maxlength="160" placeholder="任意" /></label>
+            <label>インポートJSON（複数選択可）<input id="importFiles" type="file" accept="application/json,.json" multiple /></label>
+            <div id="importPreview" class="import-preview"><p class="muted">JSONファイルを選択すると内容を確認できます。</p></div>
+            <label>保存方法<select id="importDestination"><option value="new">新しいマニフェストとして作成</option><option value="existing">既存マニフェストへ追加</option></select></label>
+            <div id="importExistingFields" class="import-existing-fields" hidden><label>追加先マニフェスト<select id="importTargetContentId"></select></label></div>
+            <div id="importNewFields" class="import-new-fields"><div class="field-grid"><label>title<input id="importTitle" maxlength="160" placeholder="未指定ならJSONから推定" /></label><label>contentId<input id="importContentId" maxlength="160" placeholder="未指定なら自動生成" /></label></div><label>slug<input id="importSlug" maxlength="160" placeholder="任意" /></label></div>
+            <label>同じIDのファイル<select id="importConflictStrategy"><option value="replace" selected>既存ファイルを置換</option><option value="rename">別名で追加</option><option value="skip">追加しない</option></select></label>
+            <div><p class="hint">保存後の順番</p><div id="importOrder" class="import-order-list"><p class="muted">ファイルを選択してください。</p></div></div>
             <div class="actions"><button class="secondary" id="importPackSubmitBtn" type="button">この内容で取り込む</button></div>
             <p id="importStatus" class="muted"></p>
           </div>
           <div id="packList" class="stack"><p class="muted">一覧を取得してください。</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="packEditorModal" aria-hidden="true">
+      <div class="dialog">
+        <div class="panel-head"><div><h3>パック編集</h3><p class="hint">並び替えと削除は、新しいリビジョンとして保存されます。</p></div><button class="ghost" id="closePackEditor" type="button">閉じる</button></div>
+        <div class="panel-body stack">
+          <div id="packEditorItems" class="import-order-list"></div>
+          <div class="actions"><button class="secondary" id="savePackEditor" type="button">新しいリビジョンとして保存</button></div>
+          <p id="packEditorStatus" class="muted"></p>
         </div>
       </div>
     </div>
@@ -2222,6 +2245,7 @@
           if ($("openShareInfoBtn")) $("openShareInfoBtn").disabled = true;
           if ($("openShareInfoHint")) $("openShareInfoHint").textContent = "対象パックを選択するとURL・QRを表示できます。";
           $("openVersionInfo").disabled = true;
+          $("openPackEditor").disabled = true;
           if ($("openImportQr")) $("openImportQr").disabled = true;
           $("exportJsonZipBtn").disabled = true;
           $("openSelectedJsonBtn").disabled = true;
@@ -2238,6 +2262,7 @@
         if ($("openShareInfoBtn")) $("openShareInfoBtn").disabled = !selectedPack.manifestUrl;
         if ($("openShareInfoHint")) $("openShareInfoHint").textContent = selectedPack.manifestUrl ? "現在のリビジョンのURL・QRを表示します。" : "manifestUrl がないためURL・QRを表示できません。";
         $("openVersionInfo").disabled = !selectedPack.manifestUrl;
+        $("openPackEditor").disabled = !selectedPack.manifestUrl;
         if ($("openImportQr")) $("openImportQr").disabled = !selectedPack.manifestUrl;
         $("exportJsonZipBtn").disabled = !selectedPack.manifestUrl && !(selectedPack.creatorId && selectedPack.contentId);
         $("openSelectedJsonBtn").disabled = !selectedFileJsonUrl(selectedPack);
@@ -2337,6 +2362,7 @@
         const next = force ?? !$("packImportFields").classList.contains("active");
         $("packImportFields").classList.toggle("active", next);
         $("importPackBtn").textContent = next ? "インポートを閉じる" : "インポート";
+        if (next) updateImportDestinationUi();
       }
 
       function updateQualityActionBar() {
@@ -2958,6 +2984,62 @@
           groups.get(key).packs.push(pack);
         });
         return Array.from(groups.values());
+      }
+
+      let packEditorItems = [];
+      let packEditorRemovedIds = new Set();
+      let packEditorTarget = null;
+
+      function renderPackEditor() {
+        $("packEditorItems").innerHTML = packEditorItems.length
+          ? packEditorItems.map((item, index) => `<div class="import-order-item"><div><strong>${escapeHtml(item.title || item.packName)}</strong><small>${escapeHtml(item.kind)} · ${escapeHtml(item.packName)}</small></div><div class="import-order-actions"><button type="button" class="secondary" data-editor-move="up" data-editor-index="${index}" ${index === 0 ? "disabled" : ""} aria-label="上へ移動">↑</button><button type="button" class="secondary" data-editor-move="down" data-editor-index="${index}" ${index === packEditorItems.length - 1 ? "disabled" : ""} aria-label="下へ移動">↓</button><button type="button" class="danger-btn" data-editor-remove="${index}">削除</button></div></div>`).join("")
+          : '<p class="muted">すべてのファイルを削除することはできません。</p>';
+      }
+
+      function openPackEditor() {
+        if (!selectedPack) return;
+        const group = groupPacks(currentPacks).find((candidate) => candidate.contentId === selectedPack.contentId && candidate.versionId === selectedPack.versionId);
+        if (!group) {
+          setStatusMessage("対象パックを最新状態に更新してから編集してください。", { error: true });
+          return;
+        }
+        packEditorTarget = group;
+        packEditorItems = group.packs.map((pack) => ({ ...pack }));
+        packEditorRemovedIds = new Set();
+        $("packEditorStatus").textContent = "";
+        renderPackEditor();
+        openModal("packEditorModal");
+      }
+
+      function closePackEditor() {
+        closeModal("packEditorModal");
+        packEditorTarget = null;
+        packEditorItems = [];
+        packEditorRemovedIds = new Set();
+      }
+
+      async function savePackEditor() {
+        if (!packEditorTarget || !packEditorItems.length) return;
+        setBusy(true);
+        try {
+          const data = await requestJson("/packs/edit-manifest", {
+            creatorId: packEditorTarget.creatorId,
+            contentId: packEditorTarget.contentId,
+            versionId: packEditorTarget.versionId,
+            itemOrder: packEditorItems.map((item) => item.logicalId),
+            removedLogicalIds: Array.from(packEditorRemovedIds)
+          });
+          await loadPacks({ keepSelection: false, forceRefresh: true });
+          const next = currentPacks.find((pack) => pack.contentId === data.manifest.contentId);
+          if (next) await selectPack(next);
+          closePackEditor();
+          finishProgress("パック編集", "新しいリビジョンを保存しました。");
+        } catch (error) {
+          $("packEditorStatus").textContent = error.message;
+          $("packEditorStatus").classList.add("error");
+        } finally {
+          setBusy(false);
+        }
       }
 
       function packKindDisplayName(kind) {
@@ -4175,6 +4257,102 @@
         }
       }
 
+      let pendingImportFiles = [];
+      let importOrderEntries = [];
+
+      function importLogicalId(name) {
+        return String(name || "pack.json").replace(/\.json$/i, "");
+      }
+
+      function deduplicateImportFileNames(files) {
+        const used = new Set();
+        return files.map((file) => {
+          const originalId = importLogicalId(file.name);
+          let logicalId = originalId;
+          let suffix = 2;
+          while (used.has(logicalId)) logicalId = `${originalId}_${suffix++}`;
+          used.add(logicalId);
+          return logicalId === originalId ? file : { ...file, name: `${logicalId}.json` };
+        });
+      }
+
+      function selectedImportGroup() {
+        return groupPacks(currentPacks).find((group) => group.contentId === $("importTargetContentId").value) || null;
+      }
+
+      function refreshImportTargetOptions() {
+        const groups = groupPacks(currentPacks);
+        const select = $("importTargetContentId");
+        const previous = select.value;
+        select.innerHTML = groups.length
+          ? groups.map((group) => `<option value="${escapeHtml(group.contentId)}">${escapeHtml(group.title)} (${escapeHtml(group.contentId)})</option>`).join("")
+          : '<option value="">追加できるマニフェストがありません</option>';
+        if (groups.some((group) => group.contentId === previous)) select.value = previous;
+      }
+
+      function importEntriesForCurrentSettings() {
+        const destination = $("importDestination").value;
+        const strategy = $("importConflictStrategy").value;
+        const existing = destination === "existing" ? (selectedImportGroup()?.packs || []) : [];
+        const entries = existing.map((pack) => ({
+          logicalId: pack.logicalId || importLogicalId(pack.packName),
+          name: pack.packName,
+          kind: pack.kind,
+          title: pack.title || pack.packName,
+          source: "existing"
+        }));
+        const usedIds = new Set(entries.map((entry) => entry.logicalId));
+        pendingImportFiles.forEach((file) => {
+          const originalId = importLogicalId(file.name);
+          const existingIndex = entries.findIndex((entry) => entry.logicalId === originalId);
+          if (existingIndex >= 0 && strategy === "skip") return;
+          if (existingIndex >= 0 && strategy === "replace") {
+            entries[existingIndex] = { logicalId: originalId, name: file.name, kind: file.content?.type || "json", title: file.content?.title || file.name, source: "import" };
+            return;
+          }
+          let logicalId = originalId;
+          let suffix = 2;
+          while (usedIds.has(logicalId)) logicalId = `${originalId}_${suffix++}`;
+          usedIds.add(logicalId);
+          entries.push({ logicalId, name: logicalId === originalId ? file.name : `${logicalId}.json`, kind: file.content?.type || "json", title: file.content?.title || file.name, source: "import" });
+        });
+        return entries;
+      }
+
+      function renderImportOrder() {
+        importOrderEntries = importEntriesForCurrentSettings();
+        $("importOrder").innerHTML = importOrderEntries.length
+          ? importOrderEntries.map((entry, index) => `
+              <div class="import-order-item">
+                <div><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.kind)} · ${entry.source === "existing" ? "既存" : "追加"}</small></div>
+                <div class="import-order-actions"><button type="button" class="secondary" data-import-order="up" data-import-index="${index}" ${index === 0 ? "disabled" : ""} aria-label="上へ移動">↑</button><button type="button" class="secondary" data-import-order="down" data-import-index="${index}" ${index === importOrderEntries.length - 1 ? "disabled" : ""} aria-label="下へ移動">↓</button></div>
+              </div>`).join("")
+          : '<p class="muted">追加するJSONまたは追加先マニフェストを選択してください。</p>';
+      }
+
+      function updateImportDestinationUi() {
+        const existing = $("importDestination").value === "existing";
+        $("importExistingFields").hidden = !existing;
+        $("importNewFields").hidden = existing;
+        refreshImportTargetOptions();
+        renderImportOrder();
+      }
+
+      async function previewImportFiles() {
+        const files = Array.from($("importFiles").files || []);
+        try {
+          pendingImportFiles = deduplicateImportFileNames(await Promise.all(files.map(readJsonFile)));
+          $("importPreview").innerHTML = pendingImportFiles.length
+            ? `<strong>${pendingImportFiles.length}ファイルを読み込みました</strong><p class="muted">${pendingImportFiles.map((file) => escapeHtml(file.name)).join(" / ")}</p>`
+            : '<p class="muted">JSONファイルを選択すると内容を確認できます。</p>';
+          renderImportOrder();
+        } catch (error) {
+          pendingImportFiles = [];
+          $("importPreview").innerHTML = `<p class="error">${escapeHtml(error.message || "JSONを読み込めませんでした")}</p>`;
+          renderImportOrder();
+        }
+      }
+
       function readJsonFile(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -4188,15 +4366,26 @@
       }
 
       async function importSelectedJsonFiles() {
-        const files = Array.from($("importFiles").files || []);
-        if (!files.length) return;
+        if (!pendingImportFiles.length) await previewImportFiles();
+        if (!pendingImportFiles.length) return;
+        const destination = $("importDestination").value;
+        const targetContentId = $("importTargetContentId").value;
+        if (destination === "existing" && !targetContentId) {
+          $("importStatus").textContent = "追加先マニフェストを選択してください。";
+          $("importStatus").classList.add("error");
+          return;
+        }
         setBusy(true);
-        setProgress("インポート", "読込中", `${files.length}件のJSONを読み込んでいます。`);
+        setProgress("インポート", "保存中", `${pendingImportFiles.length}件のJSONを保存しています。`);
         try {
-          const importedFiles = await Promise.all(files.map(readJsonFile));
           const payload = {
-            files: importedFiles,
+            files: pendingImportFiles,
+            destination,
+            targetContentId: destination === "existing" ? targetContentId : undefined,
+            conflictStrategy: $("importConflictStrategy").value,
+            itemOrder: importOrderEntries.map((entry) => entry.logicalId),
             creatorId: $("packCreatorId").value.trim() || undefined,
+            creatorDisplayName: $("packCreatorDisplayName").value.trim() || undefined,
             title: $("importTitle").value.trim() || undefined,
             contentId: $("importContentId").value.trim() || undefined,
             slug: $("importSlug").value.trim() || undefined
@@ -4610,6 +4799,7 @@
       document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
         if ($("dictionaryRulesModal").classList.contains("open")) closeDictionaryRulesModal();
+        else if ($("packEditorModal").classList.contains("open")) closePackEditor();
         else if ($("importQrModal").classList.contains("open")) closeImportQrModal();
         else if ($("versionModal").classList.contains("open")) closeVersionModal();
         else if ($("packModal").classList.contains("open")) closePackModal();
@@ -4731,6 +4921,32 @@
         }
       });
       $("openPack").addEventListener("click", openPackModal);
+      $("openPackEditor").addEventListener("click", openPackEditor);
+      $("closePackEditor").addEventListener("click", closePackEditor);
+      $("packEditorModal").addEventListener("click", (event) => { if (event.target.id === "packEditorModal") closePackEditor(); });
+      $("savePackEditor").addEventListener("click", savePackEditor);
+      $("packEditorItems").addEventListener("click", (event) => {
+        const move = event.target.closest("[data-editor-move]");
+        if (move) {
+          const index = Number(move.dataset.editorIndex);
+          const nextIndex = move.dataset.editorMove === "up" ? index - 1 : index + 1;
+          if (nextIndex >= 0 && nextIndex < packEditorItems.length) [packEditorItems[index], packEditorItems[nextIndex]] = [packEditorItems[nextIndex], packEditorItems[index]];
+          renderPackEditor();
+          return;
+        }
+        const remove = event.target.closest("[data-editor-remove]");
+        if (!remove) return;
+        const index = Number(remove.dataset.editorRemove);
+        const item = packEditorItems[index];
+        if (!item || packEditorItems.length <= 1) {
+          $("packEditorStatus").textContent = "マニフェストには少なくとも1ファイル必要です。";
+          return;
+        }
+        if (!window.confirm(`${item.title || item.packName} をこのマニフェストから削除します。保存するまで変更は反映されません。`)) return;
+        packEditorRemovedIds.add(item.logicalId);
+        packEditorItems.splice(index, 1);
+        renderPackEditor();
+      });
       $("openPackTop").addEventListener("click", openPackModal);
       $("openPackFromRecord")?.addEventListener("click", openPackModal);
       $("closePack").addEventListener("click", closePackModal);
@@ -4756,6 +4972,20 @@
       $("refreshPacksBtn").addEventListener("click", () => loadPacks());
       $("importPackBtn").addEventListener("click", () => togglePackImportFields());
       $("importPackSubmitBtn").addEventListener("click", importSelectedJsonFiles);
+      $("importFiles").addEventListener("change", () => previewImportFiles());
+      $("importDestination").addEventListener("change", updateImportDestinationUi);
+      $("importTargetContentId").addEventListener("change", renderImportOrder);
+      $("importConflictStrategy").addEventListener("change", renderImportOrder);
+      $("importOrder").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-import-order]");
+        if (!button) return;
+        const index = Number(button.dataset.importIndex);
+        const nextIndex = button.dataset.importOrder === "up" ? index - 1 : index + 1;
+        if (!Number.isInteger(index) || nextIndex < 0 || nextIndex >= importOrderEntries.length) return;
+        [importOrderEntries[index], importOrderEntries[nextIndex]] = [importOrderEntries[nextIndex], importOrderEntries[index]];
+        $("importOrder").innerHTML = importOrderEntries.map((entry, itemIndex) => `
+          <div class="import-order-item"><div><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(entry.kind)} · ${entry.source === "existing" ? "既存" : "追加"}</small></div><div class="import-order-actions"><button type="button" class="secondary" data-import-order="up" data-import-index="${itemIndex}" ${itemIndex === 0 ? "disabled" : ""} aria-label="上へ移動">↑</button><button type="button" class="secondary" data-import-order="down" data-import-index="${itemIndex}" ${itemIndex === importOrderEntries.length - 1 ? "disabled" : ""} aria-label="下へ移動">↓</button></div></div>`).join("");
+      });
       $("textCheckBtn").addEventListener("click", runTextCheck);
       $("textFixBtn").addEventListener("click", runTextFix);
       $("applyTextFixBtn").addEventListener("click", applyTextFixes);

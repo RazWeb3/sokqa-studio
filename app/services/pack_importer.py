@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import PurePath
 
-from app.schemas.pack_v2 import AddedPackFile, CommitPackRevisionInput, PackManifestV2, RevisionTarget
+from app.schemas.pack_v2 import AddedPackFile, ChangedPackFile, CommitPackRevisionInput, PackLatestV2, PackManifestV2, RevisionTarget
 from app.schemas.request import ImportPackRequest, ImportPackResponse
 from app.schemas.sokqa import (
     CoursePlan,
@@ -11,6 +11,7 @@ from app.schemas.sokqa import (
     SokqaQuizPack,
 )
 from app.services.pack_metadata import build_pack_metadata
+from app.services.pack_paths import pack_root_prefix
 from app.services.revision_store import persist_revision_commit
 from app.services.storage_client import StorageClient
 from app.services.validator import validate_files
@@ -46,15 +47,21 @@ def import_pack_files(request: ImportPackRequest) -> ImportPackResponse:
         raise ValueError("import requires at least one document or quiz JSON")
 
     files = _deduplicate_file_names(files)
+    storage = StorageClient()
+    current_manifest = _load_destination_manifest(storage, request)
+    files, added_files, changed_files, item_order = _prepare_import_operations(files, current_manifest, request)
+    if not files:
+        raise ValueError("all imported files were skipped because they conflict with the destination")
     title = _resolve_title(request, imported_manifest, files)
-    plan_id = request.contentId or (imported_manifest.contentId if imported_manifest else None) or str(files[0].content.get("id", "imported-pack"))
+    target_content_id = request.targetContentId if request.destination == "existing" else request.contentId
+    plan_id = target_content_id or (imported_manifest.contentId if imported_manifest else None) or str(files[0].content.get("id", "imported-pack"))
     plan = CoursePlan(
         id=plan_id,
-        creatorId=request.creatorId or (imported_manifest.creator.id if imported_manifest and imported_manifest.creator else None),
+        creatorId=request.creatorId or (current_manifest.creator.id if current_manifest else None) or (imported_manifest.creator.id if imported_manifest and imported_manifest.creator else None),
         creatorDisplayName=request.creatorDisplayName
         if request.creatorDisplayName is not None
         else (imported_manifest.creator.displayName if imported_manifest and imported_manifest.creator else None),
-        contentId=request.contentId or (imported_manifest.contentId if imported_manifest else None),
+        contentId=target_content_id or (imported_manifest.contentId if imported_manifest else None),
         slug=request.slug or (imported_manifest.slug if imported_manifest else None),
         title=title,
         description=(imported_manifest.description if imported_manifest else "") or "",
@@ -70,14 +77,14 @@ def import_pack_files(request: ImportPackRequest) -> ImportPackResponse:
         plan,
         creator_id=request.creatorId,
         creator_display_name=request.creatorDisplayName,
-        content_id=request.contentId,
+        content_id=target_content_id,
         slug=request.slug,
     )
     commit_result = persist_revision_commit(
-        StorageClient(),
-        None,
+        storage,
+        current_manifest,
         CommitPackRevisionInput(
-            target=RevisionTarget(creatorId=metadata.creator_id, contentId=metadata.content_id),
+            target=RevisionTarget(creatorId=metadata.creator_id, contentId=metadata.content_id, versionId=current_manifest.versionId if current_manifest else None),
             operation="import",
             slug=metadata.slug,
             title=title,
@@ -87,13 +94,67 @@ def import_pack_files(request: ImportPackRequest) -> ImportPackResponse:
             scale=plan.scale,
             globalTags=getattr(imported_manifest, "globalTags", []) if imported_manifest else [],
             creatorDisplayName=metadata.creator_display_name,
-            addedFiles=[_added_file(file) for file in files],
+            changedFiles=changed_files,
+            addedFiles=added_files,
+            itemOrder=item_order,
         ),
     )
     manifest = commit_result.manifest
     saved_files = _files_from_revision_result(commit_result)
     validation = validate_files(saved_files, manifest)
     return ImportPackResponse(files=saved_files, manifest=manifest, validation=validation, logs=logs)
+
+
+def _load_destination_manifest(storage: StorageClient, request: ImportPackRequest) -> PackManifestV2 | None:
+    if request.destination == "new":
+        return None
+    if not request.creatorId or not request.targetContentId:
+        raise ValueError("creatorId and targetContentId are required when importing into an existing manifest")
+    latest = storage.read_latest(pack_root_prefix(request.creatorId, request.targetContentId))
+    if latest is None:
+        raise ValueError("destination manifest was not found")
+    latest_record = PackLatestV2.model_validate(latest)
+    return PackManifestV2.model_validate(storage.read_manifest(pack_root_prefix(request.creatorId, request.targetContentId), latest_record.versionId))
+
+
+def _prepare_import_operations(
+    files: list[GeneratedFile], current_manifest: PackManifestV2 | None, request: ImportPackRequest
+) -> tuple[list[GeneratedFile], list[AddedPackFile], list[ChangedPackFile], list[str]]:
+    existing = {item.logicalId: item for item in current_manifest.items} if current_manifest else {}
+    used_ids = set(existing)
+    accepted: list[GeneratedFile] = []
+    added: list[AddedPackFile] = []
+    changed: list[ChangedPackFile] = []
+    renamed: dict[str, str] = {}
+    for file in files:
+        logical_id = _logical_id_for_file(file.name)
+        previous = existing.get(logical_id)
+        if previous and request.conflictStrategy == "skip":
+            continue
+        if previous and request.conflictStrategy == "replace":
+            accepted.append(file)
+            changed.append(ChangedPackFile(name=file.name, kind=file.kind, logicalId=logical_id, previousFileVersionId=previous.fileVersionId, content=file.content))
+            continue
+        if logical_id in used_ids:
+            original_id = logical_id
+            file = _renamed_file(file, used_ids)
+            logical_id = _logical_id_for_file(file.name)
+            renamed[original_id] = logical_id
+        used_ids.add(logical_id)
+        accepted.append(file)
+        added.append(_added_file(file))
+    requested_order = [renamed.get(logical_id, logical_id) for logical_id in request.itemOrder]
+    return accepted, added, changed, requested_order
+
+
+def _renamed_file(file: GeneratedFile, used_ids: set[str]) -> GeneratedFile:
+    stem = _logical_id_for_file(file.name)
+    suffix = 2
+    candidate = f"{stem}_{suffix}"
+    while candidate in used_ids:
+        suffix += 1
+        candidate = f"{stem}_{suffix}"
+    return file.model_copy(update={"name": f"{candidate}.json"})
 
 
 def _added_file(file: GeneratedFile) -> AddedPackFile:

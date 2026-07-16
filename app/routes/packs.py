@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, Response
 
-from app.schemas.request import DeletePackRequest, DeletePackResponse, ImportPackRequest, ImportPackResponse, RevisePackTtsRequest, TtsRecordingTarget
+from app.schemas.request import DeletePackRequest, DeletePackResponse, EditPackManifestRequest, EditPackManifestResponse, ImportPackRequest, ImportPackResponse, RevisePackTtsRequest, TtsRecordingTarget
 from app.schemas.sokqa import PackRevisionResponse
 from app.services.pack_deletion import delete_pack_version
 from app.services.pack_importer import import_pack_files
+from app.services.pack_manifest_editor import edit_pack_manifest
 from app.services.pack_listing import list_generated_packs
 from app.services.pack_revision_tools import export_pack_json_zip, revise_pack_tts
 
@@ -24,6 +25,16 @@ def list_packs(response: Response, creatorId: str | None = None) -> dict:
 def import_packs(request: ImportPackRequest) -> ImportPackResponse:
     try:
         return import_pack_files(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/packs/edit-manifest", response_model=EditPackManifestResponse)
+def edit_manifest(request: EditPackManifestRequest) -> EditPackManifestResponse:
+    try:
+        return edit_pack_manifest(request)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

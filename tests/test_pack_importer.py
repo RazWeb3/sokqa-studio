@@ -135,3 +135,65 @@ def test_import_without_audio_urls_still_succeeds(tmp_path, monkeypatch) -> None
     assert response.json()["validation"]["valid"] is True
     assert response.json()["manifest"]["schemaVersion"] == 1
     assert response.json()["manifest"]["change"]["operation"] == "import"
+
+
+def test_import_into_existing_manifest_creates_revision_and_honors_order(tmp_path, monkeypatch) -> None:
+    _configure_local_storage(tmp_path, monkeypatch)
+    first_document = {
+        "id": "doc-first", "type": "document", "schemaVersion": 1, "title": "First",
+        "documents": [{"id": "first-1", "text": "最初の本文です。"}],
+    }
+    second_document = {
+        "id": "doc-second", "type": "document", "schemaVersion": 1, "title": "Second",
+        "documents": [{"id": "second-1", "text": "次の本文です。"}],
+    }
+    created = client.post(
+        "/packs/import",
+        json={"creatorId": "creator_import", "contentId": "cnt_existing", "files": [{"name": "first.json", "content": first_document}]},
+    )
+    assert created.status_code == 200
+
+    appended = client.post(
+        "/packs/import",
+        json={
+            "creatorId": "creator_import",
+            "destination": "existing",
+            "targetContentId": "cnt_existing",
+            "itemOrder": ["second", "first"],
+            "files": [{"name": "second.json", "content": second_document}],
+        },
+    )
+
+    assert appended.status_code == 200
+    manifest = appended.json()["manifest"]
+    assert manifest["revision"] == 2
+    assert [item["logicalId"] for item in manifest["items"]] == ["second", "first"]
+
+
+def test_edit_manifest_reorders_and_removes_file_without_deleting_history(tmp_path, monkeypatch) -> None:
+    _configure_local_storage(tmp_path, monkeypatch)
+    document = lambda name: {
+        "id": name, "type": "document", "schemaVersion": 1, "title": name,
+        "documents": [{"id": f"{name}-1", "text": "本文です。"}],
+    }
+    created = client.post(
+        "/packs/import",
+        json={
+            "creatorId": "creator_editor", "contentId": "cnt_editor",
+            "files": [{"name": "first.json", "content": document("first")}, {"name": "second.json", "content": document("second")}],
+        },
+    ).json()["manifest"]
+
+    edited = client.post(
+        "/packs/edit-manifest",
+        json={
+            "creatorId": "creator_editor", "contentId": "cnt_editor", "versionId": created["versionId"],
+            "itemOrder": ["second"], "removedLogicalIds": ["first"],
+        },
+    )
+
+    assert edited.status_code == 200
+    manifest = edited.json()["manifest"]
+    assert manifest["revision"] == 2
+    assert [item["logicalId"] for item in manifest["items"]] == ["second"]
+    assert manifest["change"]["removedFiles"] == ["first.json"]

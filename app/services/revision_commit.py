@@ -94,7 +94,7 @@ def build_revision_commit(
     version_id = generate_version_id(now)
     build_id = generate_build_id(version_id)
     generated_at = (now or datetime.now(timezone(timedelta(hours=9)))).isoformat(timespec="seconds")
-    item_list = _ordered_items(current_manifest.items if current_manifest else [], items, request.addedFiles)
+    item_list = _ordered_items(current_manifest.items if current_manifest else [], items, request.addedFiles, request.itemOrder)
     change = ManifestChange(
         operation=request.operation,
         changedFiles=[file.name for file in request.changedFiles],
@@ -258,7 +258,17 @@ def _ordered_items(
     previous_items: list[ManifestItemV2],
     current_items: dict[str, ManifestItemV2],
     added_files: list[AddedPackFile],
+    requested_order: list[str] | None = None,
 ) -> list[ManifestItemV2]:
+    if requested_order:
+        if len(requested_order) != len(set(requested_order)):
+            raise RevisionCommitError("itemOrder must not contain duplicate logicalIds")
+        unknown_ids = set(requested_order) - set(current_items)
+        if unknown_ids:
+            raise RevisionCommitError(f"itemOrder contains unknown logicalIds: {', '.join(sorted(unknown_ids))}")
+        ordered = [current_items[logical_id] for logical_id in requested_order]
+        remaining = _ordered_items(previous_items, current_items, added_files)
+        return [*ordered, *(item for item in remaining if item.logicalId not in set(requested_order))]
     ordered: list[ManifestItemV2] = []
     seen: set[str] = set()
     for item in previous_items:

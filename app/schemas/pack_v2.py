@@ -186,6 +186,7 @@ class CommitPackRevisionInput(BaseModel):
     newAudioObjects: list[AudioObject] = Field(default_factory=list)
     removedAudioRefs: list[RemovedAudioRef] = Field(default_factory=list)
     reRecordNeededUnits: list[ReRecordNeededUnit] = Field(default_factory=list)
+    itemOrder: list[str] = Field(default_factory=list)
     note: str | None = None
 
     @field_validator("changedFiles", "addedFiles", "removedFiles")

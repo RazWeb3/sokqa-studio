@@ -13,6 +13,7 @@ from app.services.pack_paths import resolve_asset_url
 from app.services.storage_client import StorageClient
 from app.services.tts_estimation import RecordingUnit
 from app.services.tts_language_tags import parse_tts_language_segments
+from app.services.tts_sentence_policy import is_sentence_too_long_error
 from app.services.tts_synthesizer import synthesize_text_to_mp3
 from app.services.tts_voices import default_linked_voice_for_language, linked_voice_for_language
 
@@ -28,6 +29,9 @@ class RecordingResult:
     audio_path: str | None = None
     audio_data: bytes | None = field(default=None, repr=False)
     error: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    error_suggestion: str | None = None
     used_text_source: str = "raw"
 
 
@@ -148,10 +152,14 @@ def record_pack_audio(
                 used_text_source=unit.used_text_source,
             )
         except Exception as exc:
+            error_code, error_message, error_suggestion = _recording_error_details(exc)
             return RecordingResult(
                 unit_id=unit.item_id,
                 success=False,
                 error=str(exc),
+                error_code=error_code,
+                error_message=error_message,
+                error_suggestion=error_suggestion,
                 used_text_source=unit.used_text_source,
             )
 
@@ -188,6 +196,7 @@ def _synthesize_audio(
     pitch: float | None = None,
 ) -> bytes:
     default_language = language_code or get_settings().cloud_tts_language_code
+    selected_voice_name = voice_name or get_settings().cloud_tts_voice
     segments = parse_tts_language_segments(text, default_language)
     if not segments:
         raise ValueError("TTS text is empty after language tags are removed")
@@ -196,7 +205,7 @@ def _synthesize_audio(
             synthesize_fn,
             segments[0].text,
             language_code=language_code,
-            voice_name=voice_name,
+            voice_name=selected_voice_name,
             speaking_rate=speaking_rate,
             pitch=pitch,
         )
@@ -247,6 +256,20 @@ def _synthesize_single_audio(
             pitch=pitch,
         )
     return synthesize_fn(text)
+
+
+def _recording_error_details(exc: Exception) -> tuple[str, str, str]:
+    if is_sentence_too_long_error(exc):
+        return (
+            "sentence_too_long",
+            "1文が長すぎるため、選択中の音声で録音できません。",
+            "句点で文を分けるか、標準音声を選択してください。",
+        )
+    return (
+        "recording_failed",
+        "音声の生成または保存に失敗しました。",
+        "詳細を確認してから、もう一度録音してください。",
+    )
 
 
 def _max_concurrency(value: int | None = None) -> int:

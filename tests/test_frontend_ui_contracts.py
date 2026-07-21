@@ -801,6 +801,17 @@ def test_recording_sync_uses_returned_version_id_and_saved_version_flow() -> Non
     assert 'await loadPacks({ keepSelection: false });' not in record_html
 
 
+def test_recording_result_shows_structured_failure_details() -> None:
+    html = _html()
+    start = html.index("function renderRecordingResult(")
+    end = html.index("function applyPlaybackRate(", start)
+    recording_html = html[start:end]
+
+    assert "summary.results" in recording_html
+    assert "errorMessage" in recording_html
+    assert "errorSuggestion" in recording_html
+
+
 def test_recording_reset_sync_uses_returned_version_id_and_saved_version_flow() -> None:
     html = _html()
     start = html.index("async function resetRecordingState(")

@@ -366,6 +366,26 @@ def test_one_synthesis_failure_does_not_stop_other_units() -> None:
     assert pack.questions[0].tts.choiceAudioPaths[1] is None
 
 
+def test_sentence_too_long_failure_has_a_user_facing_error_category() -> None:
+    pack = _quiz_pack()
+    explanation = next(unit for unit in extract_recording_units_from_quiz_pack(pack) if unit.kind == "explanation")
+
+    summary = record_pack_audio(
+        pack,
+        [explanation],
+        "sokqa/creators/creator/packs/content/versions/v1",
+        storage_client=FakeStorageClient(),
+        synthesize_fn=lambda _text: (_ for _ in ()).throw(
+            RuntimeError("400 This request contains sentences that are too long")
+        ),
+        voice_name="ja-JP-Neural2-B",
+    )
+
+    result = summary.results[0]
+    assert result.error_code == "sentence_too_long"
+    assert result.error_message == "1文が長すぎるため、選択中の音声で録音できません。"
+
+
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [

@@ -18,6 +18,7 @@ from app.services.generation.context import GenerationContext
 from app.services.language_detection import choice_set_language_state, language_script, leading_script
 from app.services.llm_json import LlmJsonParseContext
 from app.services.tts_text import collapse_duplicate_katakana_parentheticals, normalize_tts_text, strip_choice_separator
+from app.services.tts_sentence_policy import find_long_sentences
 from app.services.tts_rules import load_system_tts_rules, load_user_tts_rules, merge_tts_rules
 
 
@@ -1747,26 +1748,54 @@ def validate_tts_file(file: GeneratedFile) -> list[TtsReportItem]:
         for item in pack.documents:
             if item.tts and item.tts.text:
                 issues.extend(_field_issues(file.name, item.id, "text", item.text, item.tts.text))
+            issues.extend(_long_sentence_issues(file.name, item.id, "text", item.tts.text if item.tts and item.tts.text else item.text))
     elif file.kind == "quiz":
         pack = SokqaQuizPack.model_validate(file.content)
         for question in pack.questions:
-            if not question.tts:
-                continue
             source_fields = {
                 "questionText": question.question,
                 "answerText": question.choices[question.answerIndex] if 0 <= question.answerIndex < len(question.choices) else "",
                 "explanationText": question.explanation,
             }
-            for field_name in ["questionText", "answerText", "explanationText"]:
-                value = getattr(question.tts, field_name)
-                if value:
-                    issues.extend(_field_issues(file.name, question.id, field_name, source_fields[field_name], value))
-            if question.tts.choiceTexts:
+            if question.tts:
+                for field_name in ["questionText", "answerText", "explanationText"]:
+                    value = getattr(question.tts, field_name)
+                    if value:
+                        issues.extend(_field_issues(file.name, question.id, field_name, source_fields[field_name], value))
+            effective_fields = {
+                "questionText": question.tts.questionText if question.tts and question.tts.questionText else question.question,
+                "explanationText": question.tts.explanationText if question.tts and question.tts.explanationText else question.explanation,
+            }
+            for field_name, value in effective_fields.items():
+                issues.extend(_long_sentence_issues(file.name, question.id, field_name, value))
+            if question.tts and question.tts.choiceTexts:
                 for index, value in enumerate(question.tts.choiceTexts):
                     if value:
                         source_choice = question.choices[index] if index < len(question.choices) else ""
                         issues.extend(_field_issues(file.name, question.id, f"choiceTexts.{index}", source_choice, value))
+            for index, choice in enumerate(question.choices):
+                effective_choice = (
+                    question.tts.choiceTexts[index]
+                    if question.tts and question.tts.choiceTexts and index < len(question.tts.choiceTexts) and question.tts.choiceTexts[index]
+                    else choice
+                )
+                issues.extend(_long_sentence_issues(file.name, question.id, f"choiceTexts.{index}", effective_choice))
     return issues
+
+
+def _long_sentence_issues(file_name: str, item_id: str, field: str, text: str) -> list[TtsReportItem]:
+    return [
+        TtsReportItem(
+            file=file_name,
+            itemId=item_id,
+            field=field,
+            issueType="sentence_too_long",
+            snippet=sentence[:80],
+            recommendation="Chirp 3 HDでは長い1文が録音できない場合があります。句点で自然な短文に分けるか、標準音声を選択してください。",
+            suggestedRuleSource=None,
+        )
+        for sentence in find_long_sentences(text)
+    ]
 
 
 def validate_tts_files(files: list[GeneratedFile], mode: TtsReadingMode, llm_ids: list[str] | None = None) -> TtsReport:

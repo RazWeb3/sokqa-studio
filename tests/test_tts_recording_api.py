@@ -491,7 +491,14 @@ def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatc
                     audio_path=kwargs["audio_path_factory"](units[0]),
                     audio_data=b"mp3",
                 ),
-                RecordingResult(unit_id="q_q-1_choice_1", success=False, error="synthetic failure"),
+                RecordingResult(
+                    unit_id="q_q-1_choice_1",
+                    success=False,
+                    error="synthetic failure",
+                    error_code="sentence_too_long",
+                    error_message="1文が長すぎるため、選択中の音声で録音できません。",
+                    error_suggestion="句点で文を分けるか、標準音声を選択してください。",
+                ),
             ],
         )
 
@@ -512,6 +519,8 @@ def test_recording_endpoint_returns_partial_failure_summary(tmp_path, monkeypatc
     assert data["summary"]["failureCount"] == 1
     assert data["summary"]["failedUnitIds"] == ["q_q-1_choice_1"]
     assert data["summary"]["results"][1]["error"] == "synthetic failure"
+    assert data["summary"]["results"][1]["errorCode"] == "sentence_too_long"
+    assert data["summary"]["results"][1]["errorMessage"] == "1文が長すぎるため、選択中の音声で録音できません。"
     manifest_path = tmp_path / "generated" / data["storagePrefix"] / "versions" / data["versionId"] / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["revision"] == 2

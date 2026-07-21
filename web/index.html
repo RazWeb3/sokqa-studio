@@ -4216,10 +4216,12 @@
 
       function renderRecordingResult(data) {
         const summary = data.summary || {};
+        const failedUnitIds = new Set(summary.failedUnitIds || []);
+        const failures = (summary.results || []).filter((result) => failedUnitIds.has(result.unitId));
         $("recordingResult").innerHTML = `
           <strong>録音結果</strong>
           <span>success=${summary.successCount || 0}, failure=${summary.failureCount || 0}, skipped=${summary.skippedUnits || 0}</span>
-          ${(summary.failedUnitIds || []).length ? `<span class="error">失敗: ${escapeHtml(summary.failedUnitIds.join(", "))}</span>` : ""}
+          ${failures.length ? `<ul class="logs">${failures.map((result) => `<li class="error"><strong>${escapeHtml(result.unitId)}</strong>: ${escapeHtml(result.errorMessage || "録音に失敗しました。")}${result.errorSuggestion ? `<br><span>${escapeHtml(result.errorSuggestion)}</span>` : ""}${result.error ? `<details><summary>詳細</summary><span>${escapeHtml(result.error)}</span></details>` : ""}</li>`).join("")}</ul>` : ""}
           <ul class="logs">${(data.audioUrls || []).map((item) => {
             const url = item.audioUrl || audioUrlFromPath(item.audioPath, selectedPack);
             return `<li>${escapeHtml(item.unitId)} ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">mp3</a>` : escapeHtml(item.audioPath || "")}</li>`;

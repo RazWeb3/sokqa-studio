@@ -295,6 +295,7 @@ class TtsReportItem(BaseModel):
         "source_kanji_loss",
         "particle_sequence_edit",
         "foreign_span_katakana",
+        "sentence_too_long",
     ]
     snippet: str
     recommendation: str

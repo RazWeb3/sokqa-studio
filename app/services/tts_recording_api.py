@@ -494,6 +494,9 @@ def _summary_to_dict(summary: RecordingSummary) -> dict:
                 "audioUrl": result.audio_url,
                 "audioPath": result.audio_path,
                 "error": result.error,
+                "errorCode": result.error_code,
+                "errorMessage": result.error_message,
+                "errorSuggestion": result.error_suggestion,
                 "usedTextSource": result.used_text_source,
             }
             for result in summary.results

@@ -1,9 +1,14 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, call
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from app.schemas.request import DeletePackRequest
+from app.services import pack_deletion
 from app.services.pack_paths import pack_root_prefix
 from main import app
 
@@ -118,3 +123,47 @@ def test_delete_pack_rejects_unsafe_prefix(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 400
     assert "single pack root" in response.json()["detail"]
+
+
+def test_delete_pack_keeps_gcs_listing_and_deletion(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "storage_backend", "gcs")
+    monkeypatch.setattr(settings, "gcs_bucket", "test-gcs-bucket")
+    monkeypatch.setattr(settings, "gcs_prefix", "tenant/gcs")
+    monkeypatch.setattr(settings, "r2_prefix", "unused/r2")
+    prefix = "tenant/gcs/creators/creator_demo/packs/cnt_demo"
+    keys = [f"{prefix}/latest.json", f"{prefix}/objects/doc/fv_1.json"]
+    bucket = Mock()
+    bucket.list_blobs.return_value = [SimpleNamespace(name=key) for key in reversed(keys)]
+    blobs = {key: Mock() for key in keys}
+    bucket.blob.side_effect = blobs.__getitem__
+    client_factory = Mock()
+    client_factory.return_value.bucket.return_value = bucket
+    monkeypatch.setattr(pack_deletion.storage, "Client", client_factory)
+    local_delete = Mock(side_effect=AssertionError("must not delete local objects"))
+    monkeypatch.setattr(pack_deletion, "_delete_local_objects", local_delete)
+
+    response = pack_deletion.delete_pack_version(DeletePackRequest(creatorId="creator_demo", contentId="cnt_demo"))
+
+    assert response.objectNames == keys
+    assert response.objectCount == response.deletedCount == 2
+    bucket.list_blobs.assert_called_once_with(prefix=f"{prefix}/")
+    assert bucket.blob.call_args_list == [call(key) for key in keys]
+    for blob in blobs.values():
+        blob.delete.assert_called_once_with()
+    assert client_factory.return_value.bucket.call_args_list == [call("test-gcs-bucket")] * 2
+    local_delete.assert_not_called()
+
+
+@pytest.mark.parametrize("operation", ["list", "delete"])
+def test_gcs_requires_bucket_without_local_fallback(monkeypatch, operation) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "storage_backend", "gcs")
+    monkeypatch.setattr(settings, "gcs_bucket", "")
+    prefix = "sokqa/creators/creator_demo/packs/cnt_demo"
+
+    with pytest.raises(ValueError, match="GCS_BUCKET"):
+        if operation == "list":
+            pack_deletion.list_storage_objects(prefix)
+        else:
+            pack_deletion.delete_storage_objects([f"{prefix}/latest.json"])

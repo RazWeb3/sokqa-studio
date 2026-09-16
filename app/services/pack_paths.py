@@ -48,7 +48,9 @@ def generate_audio_version_id(stem: str, now: datetime | None = None) -> str:
 
 
 def storage_base_prefix() -> str:
-    base = get_settings().gcs_prefix.strip("/") or "sokqa"
+    settings = get_settings()
+    configured_prefix = settings.r2_prefix if settings.storage_backend == "r2" else settings.gcs_prefix
+    base = configured_prefix.strip("/") or "sokqa"
     if base == "sokqa/packs":
         base = "sokqa"
     validate_relative_path(base)

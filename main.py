@@ -2,9 +2,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from app.routes import debug, generate, health, jobs, packs, plan, quality_agents, tts_recording
+from app.services.generated_files import GeneratedFiles
 from app.startup import log_runtime_settings
 
 
@@ -31,7 +31,7 @@ app.include_router(debug.router)
 BASE_DIR = Path(__file__).resolve().parent
 generated_dir = BASE_DIR / "generated"
 generated_dir.mkdir(exist_ok=True)
-app.mount("/generated", StaticFiles(directory=generated_dir), name="generated")
+app.mount("/generated", GeneratedFiles(directory=generated_dir), name="generated")
 
 
 @app.get("/", include_in_schema=False)

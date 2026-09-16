@@ -7,9 +7,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 from app.config import get_settings
 from app.schemas.pack_v2 import PackLatestV2, PackManifestV2
-from app.services.pack_paths import pack_root_prefix, validate_safe_token
+from app.services.pack_paths import pack_root_prefix, storage_base_prefix, validate_safe_token
 from app.services.storage_client import StorageClient
 
 logger = logging.getLogger(__name__)
@@ -20,10 +22,7 @@ def list_generated_packs(creator_id: str | None = None) -> list[dict[str, Any]]:
 
 
 def _storage_base_prefix() -> str:
-    base = get_settings().gcs_prefix.strip("/") or "sokqa"
-    if base == "sokqa/packs":
-        base = "sokqa"
-    return base
+    return storage_base_prefix()
 
 
 def _local_storage_root() -> Path:
@@ -133,6 +132,8 @@ def _list_latest_items_for_content(storage: StorageClient, creator_id: str, cont
         if latest_data is None:
             return []
         latest = PackLatestV2.model_validate(latest_data)
+    except (BotoCoreError, ClientError):
+        raise
     except Exception:
         return []
     return [_pack_item_from_latest_item(latest, item, creator_id, content_id, prefix) for item in latest.items]
@@ -176,6 +177,8 @@ def _list_v2_items_for_content(
             if manifest_data.get("schemaVersion") != 1:
                 continue
             manifest = PackManifestV2.model_validate(manifest_data)
+        except (BotoCoreError, ClientError):
+            raise
         except Exception:
             continue
         if backfill_latest:

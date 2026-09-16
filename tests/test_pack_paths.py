@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.config import get_settings
+from app.schemas.request import DeletePackRequest
+from app.services import pack_deletion, pack_listing, pack_metadata
 from app.services.pack_paths import (
     UnsafePathError,
     allocate_logical_id,
@@ -17,6 +20,7 @@ from app.services.pack_paths import (
     generate_version_id,
     pack_root_prefix,
     resolve_asset_url,
+    storage_base_prefix,
     validate_relative_path,
     validate_safe_token,
 )
@@ -106,3 +110,64 @@ def test_allocate_logical_id_uses_suffixes_and_rejects_unsafe_values() -> None:
 
     with pytest.raises(UnsafePathError):
         allocate_logical_id("../doc_03", existing)
+
+
+@pytest.mark.parametrize("backend", ["local", "gcs", "r2"])
+@pytest.mark.parametrize(
+    ("configured_prefix", "expected_base"),
+    [
+        ("tenant/media/published", "tenant/media/published"),
+        ("/tenant/media/published/", "tenant/media/published"),
+        ("", "sokqa"),
+        ("/", "sokqa"),
+        ("sokqa/packs", "sokqa"),
+        ("/sokqa/packs/", "sokqa"),
+    ],
+)
+def test_backend_prefix_is_shared_by_paths_metadata_listing_deletion_and_urls(
+    monkeypatch, backend, configured_prefix, expected_base
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "storage_backend", backend)
+    # The unused backend's prefix must not affect any consumer.
+    monkeypatch.setattr(settings, "gcs_prefix", "unused/gcs" if backend == "r2" else configured_prefix)
+    monkeypatch.setattr(settings, "r2_prefix", configured_prefix if backend == "r2" else "unused/r2")
+    monkeypatch.setattr(settings, "public_base_url", "https://cdn.example.com/assets")
+    expected_root = f"{expected_base}/creators/creator_demo/packs/cnt_demo"
+    version_id = generate_version_id(FIXED_NOW)
+    version_prefix = f"{expected_root}/versions/{version_id}"
+    manifest_url = f"{settings.public_base_url}/{version_prefix}/manifest.json"
+
+    assert storage_base_prefix() == expected_base
+    assert pack_deletion._storage_base_prefix() == expected_base
+    assert pack_listing._storage_base_prefix() == expected_base
+    assert pack_root_prefix("creator_demo", "cnt_demo") == expected_root
+    assert pack_metadata.pack_storage_prefix("creator_demo", "cnt_demo", version_id) == version_prefix
+    assert pack_metadata.build_pack_version_metadata(
+        "creator_demo", "cnt_demo", now=FIXED_NOW
+    ).storage_prefix == version_prefix
+    assert pack_listing._identity_from_pack_prefix(expected_root) == ("creator_demo", "cnt_demo")
+    assert pack_listing._identity_from_pack_prefix("unused/creators/creator_demo/packs/cnt_demo") is None
+    assert asset_base_url(settings.public_base_url, "creator_demo", "cnt_demo") == (
+        f"{settings.public_base_url}/{expected_root}"
+    )
+    for request in (
+        DeletePackRequest(creatorId="creator_demo", contentId="cnt_demo"),
+        DeletePackRequest(storagePrefix=expected_root),
+        DeletePackRequest(manifestUrl=manifest_url),
+    ):
+        assert pack_deletion.resolve_delete_storage_prefix(request) == expected_root
+
+
+@pytest.mark.parametrize("backend", ["local", "gcs", "r2"])
+@pytest.mark.parametrize("prefix", ["../outside", "tenant/%2e%2e/outside", "tenant//media", "bad\\prefix"])
+def test_selected_storage_prefix_is_validated(monkeypatch, backend, prefix) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "storage_backend", backend)
+    monkeypatch.setattr(settings, "r2_prefix" if backend == "r2" else "gcs_prefix", prefix)
+
+    for helper in (storage_base_prefix, pack_deletion._storage_base_prefix, pack_listing._storage_base_prefix):
+        with pytest.raises(UnsafePathError):
+            helper()
+    with pytest.raises(UnsafePathError):
+        pack_metadata.pack_storage_prefix("creator_demo", "cnt_demo", "v1")

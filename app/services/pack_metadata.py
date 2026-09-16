@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.config import get_settings
 from app.schemas.sokqa import CoursePlan
+from app.services.pack_paths import pack_root_prefix, validate_safe_token
 from app.utils.ids import new_opaque_id, path_token, slugify
 
 _LAST_TIMESTAMP: datetime | None = None
@@ -100,7 +101,4 @@ def build_pack_version_metadata(creator_id: str, content_id: str, *, now: dateti
 
 
 def pack_storage_prefix(creator_id: str, content_id: str, version_id: str) -> str:
-    base = get_settings().gcs_prefix.strip("/") or "sokqa"
-    if base == "sokqa/packs":
-        base = "sokqa"
-    return f"{base}/creators/{creator_id}/packs/{content_id}/versions/{version_id}"
+    return f"{pack_root_prefix(creator_id, content_id)}/versions/{validate_safe_token(version_id)}"

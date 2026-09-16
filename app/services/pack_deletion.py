@@ -7,7 +7,8 @@ from google.cloud import storage
 
 from app.config import get_settings
 from app.schemas.request import DeletePackRequest, DeletePackResponse
-from app.services.pack_paths import pack_root_prefix
+from app.services.pack_paths import pack_root_prefix, storage_base_prefix, validate_relative_path
+from app.services.storage_client import StorageClient
 from app.services.storage_status import record_storage_event
 
 
@@ -55,6 +56,8 @@ def list_storage_objects(storage_prefix: str) -> list[str]:
     settings = get_settings()
     if settings.storage_backend == "gcs":
         return _list_gcs_objects(storage_prefix)
+    if settings.storage_backend == "r2":
+        return _list_r2_objects(storage_prefix)
     return _list_local_objects(storage_prefix)
 
 
@@ -64,14 +67,13 @@ def delete_storage_objects(object_names: list[str]) -> int:
     settings = get_settings()
     if settings.storage_backend == "gcs":
         return _delete_gcs_objects(object_names)
+    if settings.storage_backend == "r2":
+        return _delete_r2_objects(object_names)
     return _delete_local_objects(object_names)
 
 
 def _storage_base_prefix() -> str:
-    base = get_settings().gcs_prefix.strip("/") or "sokqa"
-    if base == "sokqa/packs":
-        base = "sokqa"
-    return base
+    return storage_base_prefix()
 
 
 def _local_storage_root() -> Path:
@@ -162,6 +164,36 @@ def _delete_gcs_objects(object_names: list[str]) -> int:
         bucket.blob(object_name).delete()
         deleted += 1
         record_storage_event(f"gcs deleted: {object_name}")
+    return deleted
+
+
+def _list_r2_objects(storage_prefix: str) -> list[str]:
+    prefix = validate_pack_root_prefix(storage_prefix)
+    validate_relative_path(prefix)
+    storage_client = StorageClient()
+    client = storage_client._r2_client()
+    pages = client.get_paginator("list_objects_v2").paginate(
+        Bucket=storage_client.settings.r2_bucket_name,
+        Prefix=f"{prefix}/",
+    )
+    return sorted(obj["Key"] for page in pages for obj in page.get("Contents", []))
+
+
+def _delete_r2_objects(object_names: list[str]) -> int:
+    base = f"{_storage_base_prefix()}/"
+    # Validate the entire batch before deleting anything. Keep the original S3
+    # keys intact, including trailing slashes used by directory marker objects.
+    for object_name in object_names:
+        validate_relative_path(object_name.removesuffix("/"))
+        if not object_name.startswith(base):
+            raise ValueError("R2 object key is outside the configured sokqa base prefix")
+    storage_client = StorageClient()
+    client = storage_client._r2_client()
+    deleted = 0
+    for object_name in object_names:
+        client.delete_object(Bucket=storage_client.settings.r2_bucket_name, Key=object_name)
+        deleted += 1
+        record_storage_event(f"r2 deleted: {object_name}")
     return deleted
 
 

@@ -9,6 +9,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
 from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
@@ -35,6 +38,8 @@ class StorageClient:
     def save_files(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
         if self.settings.storage_backend == "gcs":
             return self._save_gcs(pack_id, files, storage_prefix)
+        if self.settings.storage_backend == "r2":
+            return self._save_r2(pack_id, files, storage_prefix)
         return self._save_local(pack_id, files, storage_prefix)
 
     def save_bytes(
@@ -47,11 +52,15 @@ class StorageClient:
     ) -> str:
         if self.settings.storage_backend == "gcs":
             return self._save_gcs_bytes(pack_id, object_name, data, content_type, storage_prefix)
+        if self.settings.storage_backend == "r2":
+            return self._save_r2_bytes(pack_id, object_name, data, content_type, storage_prefix)
         return self._save_local_bytes(pack_id, object_name, data, content_type, storage_prefix)
 
     def load_json_file(self, pack_id: str, file_name: str, storage_prefix: str | None = None) -> dict:
         if self.settings.storage_backend == "gcs":
             return self._load_gcs_json(pack_id, file_name, storage_prefix)
+        if self.settings.storage_backend == "r2":
+            return self._load_r2_json(pack_id, file_name, storage_prefix)
         return self._load_local_json(pack_id, file_name, storage_prefix)
 
     def public_url_for_prefix(self, storage_prefix: str) -> str:
@@ -60,6 +69,8 @@ class StorageClient:
     def copy_prefix(self, source_prefix: str, target_prefix: str) -> list[str]:
         if self.settings.storage_backend == "gcs":
             return self._copy_gcs_prefix(source_prefix, target_prefix)
+        if self.settings.storage_backend == "r2":
+            return self._copy_r2_prefix(source_prefix, target_prefix)
         return self._copy_local_prefix(source_prefix, target_prefix)
 
     def save_object(self, prefix: str, relative_path: str, data: bytes | str, content_type: str) -> str:
@@ -68,6 +79,8 @@ class StorageClient:
         payload = data.encode("utf-8") if isinstance(data, str) else data
         if self.settings.storage_backend == "gcs":
             return self._save_gcs_object(safe_prefix, safe_relative_path, payload, content_type)
+        if self.settings.storage_backend == "r2":
+            return self._save_r2_object(safe_prefix, safe_relative_path, payload, content_type)
         return self._save_local_object(safe_prefix, safe_relative_path, payload, content_type)
 
     def save_manifest(self, prefix: str, version_id: str, manifest_json: dict[str, Any] | str) -> str:
@@ -88,12 +101,16 @@ class StorageClient:
         safe_relative_path = validate_relative_path(relative_path)
         if self.settings.storage_backend == "gcs":
             return self._read_gcs_object(safe_prefix, safe_relative_path)
+        if self.settings.storage_backend == "r2":
+            return self._read_r2_object(safe_prefix, safe_relative_path)
         return self._read_local_object(safe_prefix, safe_relative_path)
 
     def list_manifests(self, prefix: str) -> list[str]:
         safe_prefix = validate_relative_path(prefix)
         if self.settings.storage_backend == "gcs":
             return self._list_gcs_manifests(safe_prefix)
+        if self.settings.storage_backend == "r2":
+            return self._list_r2_manifests(safe_prefix)
         return self._list_local_manifests(safe_prefix)
 
     def save_latest(self, prefix: str, latest_json: dict[str, Any] | str) -> str:
@@ -129,6 +146,8 @@ class StorageClient:
     def list_pack_prefixes_for_creator(self, creator_id: str | None = None) -> list[str]:
         if self.settings.storage_backend == "gcs":
             return self._list_gcs_pack_prefixes_for_creator(creator_id)
+        if self.settings.storage_backend == "r2":
+            return self._list_r2_pack_prefixes_for_creator(creator_id)
         return self._list_local_pack_prefixes_for_creator(creator_id)
 
     def _save_local(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
@@ -389,6 +408,203 @@ class StorageClient:
             _elapsed_ms(started),
         )
         return pack_prefixes
+
+    # ── R2 (Cloudflare) backend ──────────────────────────────────────────
+
+    def _r2_client(self):
+        if not self.settings.r2_endpoint:
+            raise ValueError("R2_ENDPOINT is required when STORAGE_BACKEND=r2")
+        if not self.settings.r2_bucket_name:
+            raise ValueError("R2_BUCKET_NAME is required when STORAGE_BACKEND=r2")
+        if not self.settings.r2_access_key_id:
+            raise ValueError("R2_ACCESS_KEY_ID is required when STORAGE_BACKEND=r2")
+        if not self.settings.r2_secret_access_key:
+            raise ValueError("R2_SECRET_ACCESS_KEY is required when STORAGE_BACKEND=r2")
+        return _cached_r2_client(
+            self.settings.r2_endpoint,
+            self.settings.r2_access_key_id,
+            self.settings.r2_secret_access_key,
+        )
+
+    def _save_r2(self, pack_id: str, files: list[GeneratedFile], storage_prefix: str | None = None) -> list[GeneratedFile]:
+        client = self._r2_client()
+        bucket = self.settings.r2_bucket_name
+        prefix = (storage_prefix or f"{self.settings.r2_prefix.strip('/')}/{pack_id}").strip("/")
+        public_base = self.settings.public_base_url.rstrip("/")
+        for file in files:
+            key = f"{prefix}/{file.name}"
+            client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=json.dumps(file.content, ensure_ascii=False, indent=2).encode("utf-8"),
+                ContentType="application/json; charset=utf-8",
+            )
+            record_storage_event(f"r2 saved: {key}")
+            file.url = f"{public_base}/{prefix}/{file.name}"
+        return files
+
+    def _save_r2_bytes(
+        self,
+        pack_id: str,
+        object_name: str,
+        data: bytes,
+        content_type: str,
+        storage_prefix: str | None = None,
+    ) -> str:
+        client = self._r2_client()
+        bucket = self.settings.r2_bucket_name
+        prefix = (storage_prefix or f"{self.settings.r2_prefix.strip('/')}/{pack_id}").strip("/")
+        relative_name = object_name.strip("/")
+        key = f"{prefix}/{relative_name}"
+        client.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
+        record_storage_event(f"r2 saved: {key} ({content_type})")
+        return f"{self.settings.public_base_url.rstrip('/')}/{prefix}/{relative_name}"
+
+    def _load_r2_json(self, pack_id: str, file_name: str, storage_prefix: str | None = None) -> dict:
+        prefix = (storage_prefix or f"{self.settings.r2_prefix.strip('/')}/{pack_id}").strip("/")
+        payload = self._read_r2_object(prefix, file_name.strip("/"))
+        return json.loads(payload.decode("utf-8"))
+
+    def _copy_r2_prefix(self, source_prefix: str, target_prefix: str) -> list[str]:
+        source = validate_relative_path(source_prefix.strip("/"))
+        target = validate_relative_path(target_prefix.strip("/"))
+        if target == source or target.startswith(f"{source}/"):
+            raise ValueError("copy destination must not be inside the source prefix")
+        client = self._r2_client()
+        bucket = self.settings.r2_bucket_name
+        copied: list[str] = []
+        pages = client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=f"{source}/")
+        for response in pages:
+            for obj in response.get("Contents", []):
+                relative = obj["Key"].removeprefix(f"{source}/")
+                if not relative:
+                    continue
+                dest_key = f"{target}/{relative}"
+                client.copy_object(
+                    CopySource={"Bucket": bucket, "Key": obj["Key"]},
+                    Bucket=bucket,
+                    Key=dest_key,
+                )
+                copied.append(dest_key)
+        record_storage_event(f"r2 copied prefix: {source_prefix} -> {target_prefix} ({len(copied)} objects)")
+        return copied
+
+    def _save_r2_object(self, prefix: str, relative_path: str, data: bytes, content_type: str) -> str:
+        client = self._r2_client()
+        bucket = self.settings.r2_bucket_name
+        key = f"{prefix}/{relative_path}"
+        client.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
+        record_storage_event(f"r2 saved v2 object: {key} ({content_type})")
+        return f"{self.settings.public_base_url.rstrip('/')}/{prefix}/{relative_path}"
+
+    def _read_r2_object(self, prefix: str, relative_path: str) -> bytes:
+        started = time.perf_counter()
+        client = self._r2_client()
+        client_ms = _elapsed_ms(started)
+        download_started = time.perf_counter()
+        bucket = self.settings.r2_bucket_name
+        key = f"{prefix}/{relative_path}"
+        try:
+            response = client.get_object(Bucket=bucket, Key=key)
+        except ClientError as exc:
+            # Do not hide AccessDenied, NoSuchBucket, or service failures as missing files.
+            if exc.response.get("Error", {}).get("Code") == "NoSuchKey":
+                raise FileNotFoundError(f"R2 object not found: {key}") from exc
+            raise
+        body = response["Body"]
+        try:
+            payload = body.read()
+        finally:
+            body.close()
+        logger.info(
+            "storage.r2_read_object prefix=%s relativePath=%s bytes=%s client_ms=%s download_ms=%s total_ms=%s",
+            prefix,
+            relative_path,
+            len(payload),
+            client_ms,
+            _elapsed_ms(download_started),
+            _elapsed_ms(started),
+        )
+        return payload
+
+    def _list_r2_manifests(self, prefix: str) -> list[str]:
+        client = self._r2_client()
+        bucket = self.settings.r2_bucket_name
+        manifests: list[str] = []
+        pages = client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=f"{prefix}/versions/")
+        for response in pages:
+            for obj in response.get("Contents", []):
+                relative = obj["Key"].removeprefix(f"{prefix}/")
+                if relative.endswith("/manifest.json"):
+                    manifests.append(relative)
+        return sorted(manifests)
+
+    def _list_r2_pack_prefixes_for_creator(self, creator_id: str | None = None) -> list[str]:
+        started = time.perf_counter()
+        client = self._r2_client()
+        client_ms = _elapsed_ms(started)
+        bucket = self.settings.r2_bucket_name
+        base = storage_base_prefix()
+
+        if creator_id:
+            validate_safe_token(creator_id)
+            creator_prefixes = [f"{base}/creators/{creator_id}/"]
+        else:
+            creators_prefix = f"{base}/creators/"
+            pages = client.get_paginator("list_objects_v2").paginate(
+                Bucket=bucket, Prefix=creators_prefix, Delimiter="/"
+            )
+            creator_prefixes = sorted(
+                entry["Prefix"] for page in pages for entry in page.get("CommonPrefixes", [])
+            )
+        creator_listing_ms = _elapsed_ms(started) - client_ms
+
+        pack_listing_started = time.perf_counter()
+        pack_prefixes: list[str] = []
+        for creator_prefix in creator_prefixes:
+            packs_prefix = f"{creator_prefix.rstrip('/')}/packs/"
+            pages = client.get_paginator("list_objects_v2").paginate(
+                Bucket=bucket, Prefix=packs_prefix, Delimiter="/"
+            )
+            pack_prefixes.extend(
+                entry["Prefix"].rstrip("/") for page in pages for entry in page.get("CommonPrefixes", [])
+            )
+        pack_prefixes.sort()
+        logger.info(
+            "storage.r2_pack_prefix_listing creatorId=%s creator_count=%s pack_count=%s client_ms=%s "
+            "creator_listing_ms=%s pack_listing_ms=%s total_ms=%s",
+            creator_id,
+            len(creator_prefixes),
+            len(pack_prefixes),
+            client_ms,
+            creator_listing_ms,
+            _elapsed_ms(pack_listing_started),
+            _elapsed_ms(started),
+        )
+        return pack_prefixes
+
+
+def _cached_r2_client(endpoint: str, access_key_id: str, secret_access_key: str):
+    return _cached_r2_client_inner(endpoint, access_key_id, secret_access_key, id(boto3.client))
+
+
+@lru_cache(maxsize=4)
+def _cached_r2_client_inner(endpoint: str, access_key_id: str, secret_access_key: str, client_factory_id: int):
+    del client_factory_id
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        region_name="auto",
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=8,
+            read_timeout=8,
+            retries={"mode": "standard", "max_attempts": 2},
+            s3={"addressing_style": "path"},
+        ),
+    )
 
 
 def _cached_gcs_bucket(bucket_name: str):

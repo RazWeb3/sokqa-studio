@@ -105,7 +105,7 @@ def test_document_parse_failure_saves_raw_and_does_not_persist_pack(tmp_path, mo
         )
     )
 
-    def broken_generate_json(self, _prompt, model=None, temperature=None, parse_context=None):
+    def broken_generate_json(self, _prompt, model=None, temperature=None, parse_context=None, response_schema=None):
         if parse_context is not None:
             parse_context.model = parse_context.model or model
         parsed, _method = parse_llm_json_or_raise(

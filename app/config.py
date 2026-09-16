@@ -11,13 +11,19 @@ class Settings(BaseSettings):
     app_env: str = "local"
     sokqa_author: str = "Sokqa Team"
     public_base_url: str = "http://localhost:8000/generated"
-    storage_backend: Literal["local", "gcs"] = "local"
+    storage_backend: Literal["local", "gcs", "r2"] = "local"
     local_storage_dir: str = "generated"
     tts_rules_path: str = "tts_rules.json"
     tts_user_rules_path: str = ""
     tts_reading_mode: Literal["none", "rule", "llm", "multilingual"] = "llm"
     gcs_bucket: str = ""
     gcs_prefix: str = "sokqa"
+    # R2 Storage (Cloudflare)
+    r2_endpoint: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
+    r2_prefix: str = "sokqa/packs"
     # Hackathon deployments may use readable values such as creator_demo.
     # Production creator IDs should be opaque random IDs, not emails or sequential values.
     default_creator_id: str = "creator_default"

@@ -32,14 +32,14 @@
   - `validate <slug>`: `validate_files` を機械検証のみで実行（LLM なし・無料）
   - `pull <slug>`: R2 の latest 対応オブジェクトを packs/<slug>/ に還流する（**再 import 直前の必須手順**。サイト側の品質修正・録音がローカル旧ドラフトの再 import で overwrite される事故を防ぐ）
   - `import <slug> --creator <id> [--content <id>]`: packs/ の JSON を読み、v1 manifest を PackManifestV2 互換へ補完して `import_pack_files` を呼ぶ（現行 tmp スクリプトの一般化。destination new/existing 自動判定）。import 時に配置版の versionId を pack 側 manifest に記録し、`pull`/`import` で R2 latest と突き合わせて乖離時は pull 必須とする
-  - `snapshot`: §4 の registry 同期を実行
+  - ~~`snapshot`: §4 の registry 同期を実行~~ → 不採用（§4・§8/§10 参照。中身は `pull` で取得）
   - `quality-check <slug> --mode text|tts --file <name>`: 既存 `/quality/*` サービス関数を直接呼ぶ。**明示実行時のみ Gemini を消費**（ファイル単位・任意実行でコスト抑制）
 - チャットからの指示例: 「pm_zeroichi_v1 の quiz を検→配置」→ `validate` → `import`。サイト UI と同じ検証を素通りしない導線が同じ service 関数に収束する
 - 検証: import は既存テスト（test_pack_importer 系）を踏襲。新規 CLI は薄いラッパーとし、`import` 経由の R2 配置が TestClient テストで再現可能であることを1本追加
 
 ## 3. Phase 1: 機械検証の公開ゲート化（L1・無料）
 
-- プレースホルダー検出（現 warning/quality）に**公開向けerror 化フラグ**を追加: 保存は現状どおり許可し、`snapshot`/レポート生成時に「公開不可」表示へ変換する（保存ゲート仕様は変更しない＝ §0-3 の区別を守る）
+- プレースホルダー検出（現 warning/quality）に**公開向けerror 化フラグ**を追加: 保存は現状どおり許可し、`validate`/レポート生成時に「公開不可（`publishReady=false`）」表示へ変換する（保存ゲート仕様は変更しない＝ §0-3 の区別を守る）
 - tts_rules 登録フロー: 実測された誤読（「担います→かついます」「後→ごと」等）をパック単位でなく**システムルールへ集約**する手順を HANDOFF 系文書に追記（コード変更不要・運用ルール化）
 - 出典台帳 `packs/<slug>/sources.json` スキーマ v0（Phase 4 の前提）:
 
@@ -56,7 +56,9 @@
 
 - 検証: スキーマは Pydantic で `app/schemas/pack_sources.py`。validate 時に同梱を warning として促す（存在必須にはしない。旧パック互換）
 
-## 4. Phase 2: R2 状況把握スナップショット（L2・片方向 pull）
+## 4. Phase 2: R2 状況把握スナップショット（L2・片方向 pull）— **不採用（§8/§10 参照）**
+
+> 2026-09-21 追記: 本節の registry 追跡・`snapshot` は実装後に不採用へ転換。コード・CLI サブコマンド・テスト・出力は全て削除済み。中身確認は `pull <slug>` のみで行う。以下は設計検討の歴史メモ。
 
 「完全同期」ではなく **manifest/latest の JSON のみを Git 追跡スナップショット**化する。音声・object 本体は対象外（体積の大半が MP3 のため）。
 
@@ -103,9 +105,10 @@
 ## 8. やらないこと（否定記録）
 
 - ~~ローカル↔R2 双方向同期~~ → 片方向 pull スナップショットに置換（§4）
+- ~~registry 要約スナップショット（`packs/registry/` の Git 追跡・`snapshot` コマンド）~~ → **実装後に不採用へ転換**（§10）。中身確認は `pull <slug>` のみで行い、コード・出力・テストとも削除済み（2026-09-21）。§4 の記述は歴史メモとして残す
 - ~~「スコア化しない」~~ → 撤回。就绪度スコアは導入。ただし LLM/Jev 単独スコアにしない・法的断定をスコアにしない（§6-7）
 - ~~チャット生成経路の禁止~~ → 撤回。Gemini 消費ゼロの検証済み導線を正規化（§2）
-- 作らない: 第二の manifest 正典 / pack-generator 前提の計画（HANDOFF §3 遵守）/ Jev への保存判断委譲（段階②完了まで）/ UI ダッシュボード新設（registry + CLI レポートで足りる。L3 表層は公開直前まで据え置き）
+- 作らない: 第二の manifest 正典 / pack-generator 前提の計画（HANDOFF §3 遵守）/ Jev への保存判断委譲（段階②完了まで）/ UI ダッシュボード新設（CLI と既存 pack_listing API で足りる。L3 表層は公開直前まで据え置き）
 
 ## 9. 着手順と承認ポイント
 
@@ -119,13 +122,13 @@
 ## 10. 実装状況（2026-09-21）
 
 **完了（Phase 0〜2・外部依存なし・Gemini 消費ゼロ）**
-- サービス層 `app/services/packops.py`: `validate_pack_dir`（公開ゲート `publishReady` 併記）/ `import_pack_dir`（v1→v2 補完・乖離検出・lock 書込・v1 manifest URL 還流）/ `pull_pack_dir`（R2 latest→ドラフト還流）/ `quality_check_pack_dir`（明示時のみ Gemini）/ `snapshot_registry`（片方向・決定論的）
-- CLI `scripts/packops.py`: `validate` / `pull` / `import` / `snapshot` / `quality-check` サブコマンド
+- サービス層 `app/services/packops.py`: `validate_pack_dir`（公開ゲート `publishReady` 併記）/ `import_pack_dir`（v1→v2 補完・乖離検出・lock 書込・v1 manifest URL 還流）/ `pull_pack_dir`（R2 latest→ドラフト還流）/ `quality_check_pack_dir`（明示時のみ Gemini）
+- CLI `scripts/packops.py`: `validate` / `pull` / `import` / `quality-check` サブコマンド
 - 出典台帳スキーマ v0 `app/schemas/pack_sources.py`（不在は warning 促し・error 化しない）
-- 公開ゲートは §0-3 を遵守: **保存は止めず** `publishReady`（placeholder 検出反映）として結果と registry に載せる
+- 公開ゲートは §0-3 を遵守: **保存は止めず** `publishReady`（placeholder 検出反映）として validate/import 結果に載せる
 - registry `packs/registry/<creator>/<content>.json` の Git 追跡化 → **不採用に転換**（2026-09-21）。全29パックの中身 JSON は実測 4.82 MB でサイズは問題にならないが、「diff ノイズで監査ログが見えなくなる」「読める中身が常駐して単方向 flow を崩す」を回避。要約スナップショットは残さず、中身は `pull <slug>` で必要な分だけ還流する方針
-  - `snapshot_registry` / CLI `snapshot` 自体は未使用の読取専用ケイパビリティとしてコードに残置（実行しない限り何も生成しない。不要なら削除可）
-- テスト `tests/test_packops.py` 5本（validate/import 乖離/snapshot 決定論性）。既存 944本含め全通過
+  - `snapshot_registry` / CLI `snapshot` / 関連テスト・registry 出力は**全て削除済み**（未使用コードを残さない方針。必要時に改めて作る）
+- テスト `tests/test_packops.py`（validate/import 乖離/publishゲート。snapshot 削除で残4本）。既存含め全通過
 - pm_zeroichi_v1 を実データで `validate`→`pull` 動作確認済み（〇〇2件のため `publishReady=false`）。snapshot は動作確認後に出力を削除（上記）
 
 **未着手（承認待ち）**

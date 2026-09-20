@@ -8,10 +8,9 @@ validate_files / quality_checker）を呼ぶ単一口径。裏口は作らない
   python scripts/packops.py validate pm_zeroichi_v1
   python scripts/packops.py pull pm_zeroichi_v1
   python scripts/packops.py import pm_zeroichi_v1 [--force]
-  python scripts/packops.py snapshot
   python scripts/packops.py quality-check pm_zeroichi_v1 --mode text --file quiz_pm_zeroichi_v1.json
 
-課金は quality-check のみ（Gemini 呼び出し）。validate / pull / import / snapshot は
+課金は quality-check のみ（Gemini 呼び出し）。validate / pull / import は
 LLM を使わない。import は packops.lock.json と R2 latest の乖離を検出したら拒否し、
 先行して pull を要求する。
 """
@@ -50,8 +49,6 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--creator", default=None, help="省略時は packops.lock.json から推定")
             p.add_argument("--content", default=None, help="省略時は lock か slug 名")
             p.add_argument("--force", action="store_true", help="乖離検出を無視して上書き配置")
-    p = sub.add_parser("snapshot")
-    p.add_argument("--packs-root", default=str(PACKS_ROOT))
     p = sub.add_parser("quality-check")
     p.add_argument("slug")
     p.add_argument("--mode", choices=("text", "tts"), required=True)
@@ -67,8 +64,6 @@ def main(argv: list[str] | None = None) -> int:
         result = packops.import_pack_dir(
             _slug_dir(args.slug), creator_id=args.creator, content_id=args.content, force=args.force
         )
-    elif args.command == "snapshot":
-        result = packops.snapshot_registry(packs_root=Path(args.packs_root))
     else:
         result = packops.quality_check_pack_dir(
             _slug_dir(args.slug), mode=args.mode, pack_name=args.file, max_issues=args.max_issues

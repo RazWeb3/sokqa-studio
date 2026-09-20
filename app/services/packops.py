@@ -1,6 +1,6 @@
-"""ヘッドレス運用（validate / pull / import / snapshot / quality-check）のサービス層。
+"""ヘッドレス運用（validate / pull / import / quality-check）のサービス層。
 
-docs/QUALITY_OPS_IMPLEMENTATION_PLAN.md §2/§4 の実装。設計上不変の前提:
+docs/QUALITY_OPS_IMPLEMENTATION_PLAN.md §2/§3 の実装。設計上不変の前提:
 - R2（storage）が現状の正典、packs/<slug>/ はドラフト源（入力）。data flow は
   draft→import→R2 と、import 直前の draft←pull←R2 のみ。
 - サイト UI と同一の service 関数（import_pack_files / validate_files / quality_checker）
@@ -29,14 +29,11 @@ from app.services.pack_paths import (
     doc_object_relative_path,
     pack_root_prefix,
     quiz_object_relative_path,
-    storage_base_prefix,
 )
 from app.services.storage_client import StorageClient
 
 LOCK_FILE_NAME = "packops.lock.json"
 SOURCES_FILE_NAME = "sources.json"
-REGISTRY_DIR_NAME = "registry"
-REGISTRY_SCHEMA_VERSION = 1
 
 
 def _now_iso() -> str:
@@ -351,117 +348,3 @@ def quality_check_pack_dir(
 
 def _read_local_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def build_registry_entry(
-    manifest: PackManifestV2,
-    manifest_url: str,
-    creator_id: str,
-    *,
-    draft_dir: Path | None = None,
-) -> dict[str, Any]:
-    # publishReady の判定根拠は2段階。ローカル ドラフトが latest と一致する場合は
-    # プレースホルダー検出を反映した機械検証（LLM なし）を使い、それ以外は
-    # 保存済み qualityStatus を近似値とする（plans §3 の公開ゲート化）。
-    publish_ready = manifest.qualityStatus == "valid"
-    basis = "stored_quality_status"
-    if draft_dir is not None:
-        try:
-            publish_ready = validate_pack_dir(draft_dir)["publishReady"]
-            basis = "local_draft_validation"
-        except Exception:  # ドラフト破損時は保存値へフォールバック（snapshot を止めない）
-            pass
-    return {
-        "schemaVersion": REGISTRY_SCHEMA_VERSION,
-        "creatorId": creator_id,
-        "contentId": manifest.contentId,
-        "versionId": manifest.versionId,
-        "revision": manifest.revision,
-        "title": manifest.title,
-        "qualityStatus": manifest.qualityStatus,
-        "publicationStatus": manifest.publicationStatus,
-        "publishReady": publish_ready,
-        "publishReadyBasis": basis,
-        "manifestUrl": manifest_url,
-        "generatedAt": manifest.generatedAt,
-        "items": [
-            {
-                "kind": item.kind,
-                "name": item.name,
-                "logicalId": item.logicalId,
-                "fileVersionId": item.fileVersionId,
-            }
-            for item in manifest.items
-        ],
-    }
-
-
-def snapshot_registry(
-    *,
-    packs_root: Path,
-    storage: StorageClient | None = None,
-) -> dict[str, Any]:
-    """R2 の全 latest を packs/registry/ へ片方向スナップショット（決定論的・読み取り専用）。"""
-    storage = storage or StorageClient()
-    registry_root = packs_root / REGISTRY_DIR_NAME
-    registry_root.mkdir(parents=True, exist_ok=True)
-    lock_index = _local_lock_index(packs_root)
-    written: list[str] = []
-    skipped: list[str] = []
-    for prefix in sorted(storage.list_pack_prefixes_for_creator(None)):
-        identity = _identity_from_prefix(prefix)
-        if identity is None:
-            continue
-        creator, content = identity
-        draft_version, draft_dir = lock_index.get((creator, content), (None, None))
-        try:
-            latest_data = storage.read_latest(prefix)
-            if latest_data is None:
-                skipped.append(f"{creator}/{content}: no latest pointer")
-                continue
-            latest = PackLatestV2.model_validate(latest_data)
-            manifest = PackManifestV2.model_validate(storage.read_manifest(prefix, latest.versionId))
-        except Exception as exc:  # 破損 latest は運用を止めない（pack_listing と同じ方針）
-            skipped.append(f"{creator}/{content}: {type(exc).__name__}")
-            continue
-        # ローカル ドラフトが latest 版と乖離している場合、検証結果は現状の反映
-        # ではないため draft_dir は使わない（draftSynced=false として表示）。
-        if draft_version != manifest.versionId:
-            draft_dir = None
-        entry = build_registry_entry(manifest, latest.manifestUrl, creator, draft_dir=draft_dir)
-        entry["draftSynced"] = draft_version == manifest.versionId and draft_version is not None
-        out_path = registry_root / creator / f"{content}.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(out_path, entry)
-        written.append(f"{creator}/{content}@{manifest.versionId}")
-    return {"written": written, "skipped": skipped, "registryRoot": str(registry_root)}
-
-
-def _local_lock_index(packs_root: Path) -> dict[tuple[str, str], tuple[str | None, Path | None]]:
-    index: dict[tuple[str, str], tuple[str | None, Path | None]] = {}
-    for lock_path in packs_root.glob(f"*/{LOCK_FILE_NAME}"):
-        try:
-            lock = json.loads(lock_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if lock.get("creatorId") and lock.get("contentId"):
-            index[(lock["creatorId"], lock["contentId"])] = (lock.get("versionId"), lock_path.parent)
-    return index
-
-
-def _identity_from_prefix(prefix: str) -> tuple[str, str] | None:
-    """<base>/creators/<creator>/packs/<content> を (creator, content) に分解する。
-
-    storage_base_prefix() は "sokqa/packs" を返す設定でも、実 prefix は "sokqa/..."
-    で配置される（pack_listing と同じ正規化）。両方の形を受け付ける。
-    """
-    parts = prefix.strip("/").split("/")
-    bases = [storage_base_prefix().strip("/").split("/")]
-    if bases[0][:2] == ["sokqa", "packs"]:
-        bases.append(bases[0][:1])
-    for base in bases:
-        # 形: <base>/creators/<creator>/packs/<content> → base + 4 セグメント
-        if len(parts) != len(base) + 4 or parts[: len(base)] != base or parts[len(base)] != "creators" or parts[len(base) + 2] != "packs":
-            continue
-        return parts[len(base) + 1], parts[len(base) + 3]
-    return None

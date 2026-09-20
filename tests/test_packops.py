@@ -118,23 +118,3 @@ def test_import_refuses_when_r2_diverged_and_allows_force(tmp_path, monkeypatch)
 
     forced = packops.import_pack_dir(draft, creator_id="creator_packops", force=True)
     assert forced["revision"] == 2
-
-
-def test_snapshot_is_deterministic_and_publish_aware(tmp_path, monkeypatch) -> None:
-    _configure_local_storage(tmp_path, monkeypatch)
-    draft = _make_draft(tmp_path, placeholder=True)
-    packops.import_pack_dir(draft, creator_id="creator_packops")
-    packs_root = tmp_path / "packs"
-
-    first = packops.snapshot_registry(packs_root=packs_root)
-    entry_path = packs_root / "registry" / "creator_packops" / "pm_test.json"
-    assert "creator_packops/pm_test" in " ".join(first["written"])
-    first_bytes = entry_path.read_bytes()
-    entry = json.loads(first_bytes.decode("utf-8"))
-    # ローカルドラフトが latest と一致 → プレースホルダー考慮した publishReady=false
-    assert entry["publishReady"] is False
-    assert entry["publishReadyBasis"] == "local_draft_validation"
-    assert entry["draftSynced"] is True
-
-    packops.snapshot_registry(packs_root=packs_root)
-    assert entry_path.read_bytes() == first_bytes  # 決定論性

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "creator_default",
+  "contentId": "cnt_35ea7efb30",
+  "versionId": "v20260713_085646",
+  "revision": 6,
+  "title": "ビジネスマナー基礎講座",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/creator_default/packs/cnt_35ea7efb30/versions/v20260713_085646/manifest.json",
+  "generatedAt": "2026-07-13T08:56:37+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_35ea7efb30_doc_01.json",
+      "logicalId": "cnt_35ea7efb30_doc_01",
+      "fileVersionId": "fv_20260713_085524_document_cnt_35ea7efb30_doc_01_3ae50ce1"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_35ea7efb30_doc_02.json",
+      "logicalId": "cnt_35ea7efb30_doc_02",
+      "fileVersionId": "fv_20260708_020743_document_cnt_35ea7efb30_doc_02_ed1ac0f5"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_35ea7efb30_doc_03.json",
+      "logicalId": "cnt_35ea7efb30_doc_03",
+      "fileVersionId": "fv_20260708_020744_document_cnt_35ea7efb30_doc_03_ac4e6e3f"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_35ea7efb30_doc_04.json",
+      "logicalId": "cnt_35ea7efb30_doc_04",
+      "fileVersionId": "fv_20260708_020745_document_cnt_35ea7efb30_doc_04_bbcd38d2"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_35ea7efb30_doc_05.json",
+      "logicalId": "cnt_35ea7efb30_doc_05",
+      "fileVersionId": "fv_20260708_012920_document_cnt_35ea7efb30_doc_05_727c2e3c"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_35ea7efb30_doc_06.json",
+      "logicalId": "cnt_35ea7efb30_doc_06",
+      "fileVersionId": "fv_20260708_020746_document_cnt_35ea7efb30_doc_06_6d4c06a8"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_35ea7efb30_quiz_range_01.json",
+      "logicalId": "cnt_35ea7efb30_quiz_range_01",
+      "fileVersionId": "fv_20260708_012922_quiz_cnt_35ea7efb30_quiz_range_01_7baee3a2"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_35ea7efb30_quiz_range_02.json",
+      "logicalId": "cnt_35ea7efb30_quiz_range_02",
+      "fileVersionId": "fv_20260713_085645_quiz_cnt_35ea7efb30_quiz_range_02_1cafba46"
+    }
+  ],
+  "draftSynced": false
+}

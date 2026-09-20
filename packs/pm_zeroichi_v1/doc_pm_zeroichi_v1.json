@@ -1,12 +1,16 @@
 {
+  "id": "pm-zeroichi-doc-01",
   "type": "document",
   "schemaVersion": 1,
-  "id": "pm-zeroichi-doc-01",
   "title": "プロジェクト管理ゼロイチ（初級）：P-SM 3級・CAPM への入口",
-  "language": "ja",
   "description": "特定の資格試験対策ではないプロジェクト管理の入門教材です。PMBOK 準拠の基礎（5つのプロセスグループと計画の道具）と Scrum Guide 準拠のアジャイル概要を、耳で学ぶ最初の1本としてまとめました。次のステップは P-SM 3級・CAPM（中級）、PMP（上級）。",
+  "language": "ja",
   "author": "Sokqa Studio Dev",
-  "globalTags": ["プロジェクト管理", "PM入門", "初級"],
+  "globalTags": [
+    "プロジェクト管理",
+    "PM入門",
+    "初級"
+  ],
   "documents": [
     {
       "id": "pm-zeroichi-doc-01--overview",
@@ -184,5 +188,6 @@
       "id": "pm-zeroichi-doc-03--hybrid",
       "text": "実際の現場では、前半はウォーターフォール、後半は反復型といった混合運用がよく見られます。方法論の信仰戦争に意味はなく、大事なのは、この状況で価値をどう早く届けるかです。この判断軸を持てれば、初級は卒業です。"
     }
-  ]
+  ],
+  "assetBaseUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/pm_zeroichi_v1"
 }

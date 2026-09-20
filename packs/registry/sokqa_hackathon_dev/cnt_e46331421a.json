@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_hackathon_dev",
+  "contentId": "cnt_e46331421a",
+  "versionId": "v20260727_135138",
+  "revision": 8,
+  "title": "ATQAデモ：このツール自身を検査してみる",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/cnt_e46331421a/versions/v20260727_135138/manifest.json",
+  "generatedAt": "2026-07-27T13:51:37+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "atqa-demo-sample.json",
+      "logicalId": "atqa-demo-sample",
+      "fileVersionId": "fv_20260727_135137_document_atqa-demo-sample_76994252"
+    }
+  ],
+  "draftSynced": false
+}

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_official",
+  "contentId": "cnt_8a35a79ab5",
+  "versionId": "v20260721_220856",
+  "revision": 14,
+  "title": "実務担当者のための健康・栄養・睡眠戦略",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_official/packs/cnt_8a35a79ab5/versions/v20260721_220856/manifest.json",
+  "generatedAt": "2026-07-21T22:08:55+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_8a35a79ab5_doc_01.json",
+      "logicalId": "cnt_8a35a79ab5_doc_01",
+      "fileVersionId": "fv_20260721_153641_document_cnt_8a35a79ab5_doc_01_b55d74d0"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_8a35a79ab5_doc_02.json",
+      "logicalId": "cnt_8a35a79ab5_doc_02",
+      "fileVersionId": "fv_20260721_154112_document_cnt_8a35a79ab5_doc_02_db4e2ee2"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_8a35a79ab5_doc_03.json",
+      "logicalId": "cnt_8a35a79ab5_doc_03",
+      "fileVersionId": "fv_20260721_154424_document_cnt_8a35a79ab5_doc_03_af57c269"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_8a35a79ab5_doc_04.json",
+      "logicalId": "cnt_8a35a79ab5_doc_04",
+      "fileVersionId": "fv_20260721_154559_document_cnt_8a35a79ab5_doc_04_ac555ac0"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_8a35a79ab5_doc_05.json",
+      "logicalId": "cnt_8a35a79ab5_doc_05",
+      "fileVersionId": "fv_20260721_154713_document_cnt_8a35a79ab5_doc_05_fc60d388"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_8a35a79ab5_doc_06.json",
+      "logicalId": "cnt_8a35a79ab5_doc_06",
+      "fileVersionId": "fv_20260721_154900_document_cnt_8a35a79ab5_doc_06_fc0aeac7"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_8a35a79ab5_quiz_range_01.json",
+      "logicalId": "cnt_8a35a79ab5_quiz_range_01",
+      "fileVersionId": "fv_20260721_220359_quiz_cnt_8a35a79ab5_quiz_range_01_f2c9de63"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_8a35a79ab5_quiz_range_02.json",
+      "logicalId": "cnt_8a35a79ab5_quiz_range_02",
+      "fileVersionId": "fv_20260721_220855_quiz_cnt_8a35a79ab5_quiz_range_02_677c5615"
+    }
+  ],
+  "draftSynced": false
+}

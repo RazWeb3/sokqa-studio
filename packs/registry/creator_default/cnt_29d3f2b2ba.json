@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "creator_default",
+  "contentId": "cnt_29d3f2b2ba",
+  "versionId": "v20260703_120620",
+  "revision": 5,
+  "title": "流れでつかむ日本の歴史：高校生向けアドバンストコース",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/creator_default/packs/cnt_29d3f2b2ba/versions/v20260703_120620/manifest.json",
+  "generatedAt": "2026-07-03T12:06:19+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_29d3f2b2ba_doc_01.json",
+      "logicalId": "cnt_29d3f2b2ba_doc_01",
+      "fileVersionId": "fv_20260703_120619_document_cnt_29d3f2b2ba_doc_01_4e23166b"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_29d3f2b2ba_doc_02.json",
+      "logicalId": "cnt_29d3f2b2ba_doc_02",
+      "fileVersionId": "fv_20260703_053315_document_cnt_29d3f2b2ba_doc_02_f196c6c9"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_29d3f2b2ba_doc_03.json",
+      "logicalId": "cnt_29d3f2b2ba_doc_03",
+      "fileVersionId": "fv_20260703_115434_document_cnt_29d3f2b2ba_doc_03_7883ec71"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_29d3f2b2ba_quiz_single_01.json",
+      "logicalId": "cnt_29d3f2b2ba_quiz_single_01",
+      "fileVersionId": "fv_20260703_053317_quiz_cnt_29d3f2b2ba_quiz_single_01_bb3a7219"
+    }
+  ],
+  "draftSynced": false
+}

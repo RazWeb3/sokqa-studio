@@ -3,7 +3,11 @@
   "type": "pack_manifest",
   "schemaVersion": 1,
   "title": "プロジェクト管理ゼロイチ（初級）：ドキュメント1本＋クイズ30問",
-  "globalTags": ["プロジェクト管理", "PM入門", "初級"],
+  "globalTags": [
+    "プロジェクト管理",
+    "PM入門",
+    "初級"
+  ],
   "description": "特定の資格試験対策ではないプロジェクト管理入門パックです。PMBOK 準拠の基礎と Scrum Guide 準拠のアジャイル概要を耳で学べ、次のステップは P-SM 3級・CAPM（中級）、PMP（上級）。テスト生成版のため内容のファクトチェック進行中。最終更新: 2026-09-20",
   "language": "ja",
   "author": "Sokqa Studio Dev",

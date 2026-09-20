@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_official",
+  "contentId": "cnt_6e621d9a73",
+  "versionId": "v20260721_153525",
+  "revision": 14,
+  "title": "科学の雑学・身近な科学",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_official/packs/cnt_6e621d9a73/versions/v20260721_153525/manifest.json",
+  "generatedAt": "2026-07-21T15:34:52+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_01.json",
+      "logicalId": "cnt_6e621d9a73_doc_01",
+      "fileVersionId": "fv_20260721_151248_document_cnt_6e621d9a73_doc_01_22f56d9d"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_02.json",
+      "logicalId": "cnt_6e621d9a73_doc_02",
+      "fileVersionId": "fv_20260721_151352_document_cnt_6e621d9a73_doc_02_8800d05d"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_03.json",
+      "logicalId": "cnt_6e621d9a73_doc_03",
+      "fileVersionId": "fv_20260721_151502_document_cnt_6e621d9a73_doc_03_e9b15b13"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_04.json",
+      "logicalId": "cnt_6e621d9a73_doc_04",
+      "fileVersionId": "fv_20260721_151625_document_cnt_6e621d9a73_doc_04_4cd69bc3"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_05.json",
+      "logicalId": "cnt_6e621d9a73_doc_05",
+      "fileVersionId": "fv_20260721_151742_document_cnt_6e621d9a73_doc_05_12ea5fff"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_06.json",
+      "logicalId": "cnt_6e621d9a73_doc_06",
+      "fileVersionId": "fv_20260721_151906_document_cnt_6e621d9a73_doc_06_2ba54c2d"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_07.json",
+      "logicalId": "cnt_6e621d9a73_doc_07",
+      "fileVersionId": "fv_20260721_152032_document_cnt_6e621d9a73_doc_07_5ca25539"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_08.json",
+      "logicalId": "cnt_6e621d9a73_doc_08",
+      "fileVersionId": "fv_20260721_152233_document_cnt_6e621d9a73_doc_08_a7c182da"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_6e621d9a73_doc_09.json",
+      "logicalId": "cnt_6e621d9a73_doc_09",
+      "fileVersionId": "fv_20260721_152435_document_cnt_6e621d9a73_doc_09_408520dd"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_6e621d9a73_quiz_range_01.json",
+      "logicalId": "cnt_6e621d9a73_quiz_range_01",
+      "fileVersionId": "fv_20260721_153144_quiz_cnt_6e621d9a73_quiz_range_01_d8d8a5c4"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_6e621d9a73_quiz_range_02.json",
+      "logicalId": "cnt_6e621d9a73_quiz_range_02",
+      "fileVersionId": "fv_20260721_153524_quiz_cnt_6e621d9a73_quiz_range_02_f0a5d477"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_6e621d9a73_quiz_integrated_review.json",
+      "logicalId": "cnt_6e621d9a73_quiz_integrated_review",
+      "fileVersionId": "fv_20260721_152812_quiz_cnt_6e621d9a73_quiz_integrated_review_09955d4c"
+    }
+  ],
+  "draftSynced": false
+}

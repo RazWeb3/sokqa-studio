@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_hackathon_dev",
+  "contentId": "cnt_45594e3f10",
+  "versionId": "v20260721_094007",
+  "revision": 13,
+  "title": "English Narration Scripts with Sokqa Pack Generator",
+  "qualityStatus": "warning",
+  "publicationStatus": "draft",
+  "publishReady": false,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/cnt_45594e3f10/versions/v20260721_094007/manifest.json",
+  "generatedAt": "2026-07-21T09:40:05+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_45594e3f10_doc_01.json",
+      "logicalId": "cnt_45594e3f10_doc_01",
+      "fileVersionId": "fv_20260721_094006_document_cnt_45594e3f10_doc_01_08914c59"
+    }
+  ],
+  "draftSynced": false
+}

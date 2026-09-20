@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_hackathon_dev",
+  "contentId": "cnt_e7eca569f8",
+  "versionId": "v20260716_235100",
+  "revision": 2,
+  "title": "ITパスポート：マネジメント系（開発とサービス管理）",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/cnt_e7eca569f8/versions/v20260716_235100/manifest.json",
+  "generatedAt": "2026-07-16T23:50:59+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "doc_01.json",
+      "logicalId": "doc_01",
+      "fileVersionId": "fv_20260716_235034_document_doc_01_51fba4e6"
+    },
+    {
+      "kind": "document",
+      "name": "doc_02.json",
+      "logicalId": "doc_02",
+      "fileVersionId": "fv_20260716_235032_document_doc_02_2b82c1e0"
+    },
+    {
+      "kind": "document",
+      "name": "doc_03.json",
+      "logicalId": "doc_03",
+      "fileVersionId": "fv_20260716_235033_document_doc_03_d71bde68"
+    },
+    {
+      "kind": "quiz",
+      "name": "quiz_01.json",
+      "logicalId": "quiz_01",
+      "fileVersionId": "fv_20260716_235059_quiz_quiz_01_7f627278"
+    }
+  ],
+  "draftSynced": false
+}

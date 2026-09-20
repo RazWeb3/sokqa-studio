@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_official",
+  "contentId": "cnt_2412f2861c",
+  "versionId": "v20260721_204116",
+  "revision": 17,
+  "title": "社会人のための防災・災害知識",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_official/packs/cnt_2412f2861c/versions/v20260721_204116/manifest.json",
+  "generatedAt": "2026-07-21T20:41:15+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_2412f2861c_doc_01.json",
+      "logicalId": "cnt_2412f2861c_doc_01",
+      "fileVersionId": "fv_20260721_134101_document_cnt_2412f2861c_doc_01_bf785e0d"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_2412f2861c_doc_02.json",
+      "logicalId": "cnt_2412f2861c_doc_02",
+      "fileVersionId": "fv_20260721_134305_document_cnt_2412f2861c_doc_02_cb953c6c"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_2412f2861c_doc_03.json",
+      "logicalId": "cnt_2412f2861c_doc_03",
+      "fileVersionId": "fv_20260721_134418_document_cnt_2412f2861c_doc_03_eb368ba3"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_2412f2861c_doc_04.json",
+      "logicalId": "cnt_2412f2861c_doc_04",
+      "fileVersionId": "fv_20260721_134749_document_cnt_2412f2861c_doc_04_580ce6ce"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_2412f2861c_doc_05.json",
+      "logicalId": "cnt_2412f2861c_doc_05",
+      "fileVersionId": "fv_20260721_134912_document_cnt_2412f2861c_doc_05_8b42c4fc"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_2412f2861c_doc_06.json",
+      "logicalId": "cnt_2412f2861c_doc_06",
+      "fileVersionId": "fv_20260721_135059_document_cnt_2412f2861c_doc_06_27d43aa7"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_2412f2861c_quiz_range_01.json",
+      "logicalId": "cnt_2412f2861c_quiz_range_01",
+      "fileVersionId": "fv_20260721_203357_quiz_cnt_2412f2861c_quiz_range_01_a7e43772"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_2412f2861c_quiz_range_02.json",
+      "logicalId": "cnt_2412f2861c_quiz_range_02",
+      "fileVersionId": "fv_20260721_204115_quiz_cnt_2412f2861c_quiz_range_02_bd0880ad"
+    }
+  ],
+  "draftSynced": false
+}

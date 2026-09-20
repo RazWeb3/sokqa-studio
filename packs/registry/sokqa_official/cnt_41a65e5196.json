@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_official",
+  "contentId": "cnt_41a65e5196",
+  "versionId": "v20260721_151124",
+  "revision": 16,
+  "title": "大学生のための実践英会話：旅行と日常をスマートに乗りこなす",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_official/packs/cnt_41a65e5196/versions/v20260721_151124/manifest.json",
+  "generatedAt": "2026-07-21T15:11:23+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_01.json",
+      "logicalId": "cnt_41a65e5196_doc_01",
+      "fileVersionId": "fv_20260721_141734_document_cnt_41a65e5196_doc_01_5918ec00"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_02.json",
+      "logicalId": "cnt_41a65e5196_doc_02",
+      "fileVersionId": "fv_20260721_141916_document_cnt_41a65e5196_doc_02_74adf17b"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_03.json",
+      "logicalId": "cnt_41a65e5196_doc_03",
+      "fileVersionId": "fv_20260721_142210_document_cnt_41a65e5196_doc_03_dbdd4b0c"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_04.json",
+      "logicalId": "cnt_41a65e5196_doc_04",
+      "fileVersionId": "fv_20260721_144419_document_cnt_41a65e5196_doc_04_2f01d325"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_05.json",
+      "logicalId": "cnt_41a65e5196_doc_05",
+      "fileVersionId": "fv_20260721_144702_document_cnt_41a65e5196_doc_05_1caf56bb"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_06.json",
+      "logicalId": "cnt_41a65e5196_doc_06",
+      "fileVersionId": "fv_20260721_144908_document_cnt_41a65e5196_doc_06_8b36e89b"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_07.json",
+      "logicalId": "cnt_41a65e5196_doc_07",
+      "fileVersionId": "fv_20260721_145147_document_cnt_41a65e5196_doc_07_b68c2ca7"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_08.json",
+      "logicalId": "cnt_41a65e5196_doc_08",
+      "fileVersionId": "fv_20260721_145441_document_cnt_41a65e5196_doc_08_5814cced"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_41a65e5196_doc_09.json",
+      "logicalId": "cnt_41a65e5196_doc_09",
+      "fileVersionId": "fv_20260721_145720_document_cnt_41a65e5196_doc_09_e64ba8fe"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_41a65e5196_quiz_range_01.json",
+      "logicalId": "cnt_41a65e5196_quiz_range_01",
+      "fileVersionId": "fv_20260721_150619_quiz_cnt_41a65e5196_quiz_range_01_0941823c"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_41a65e5196_quiz_range_02.json",
+      "logicalId": "cnt_41a65e5196_quiz_range_02",
+      "fileVersionId": "fv_20260721_151123_quiz_cnt_41a65e5196_quiz_range_02_16ff9673"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_41a65e5196_quiz_integrated_review.json",
+      "logicalId": "cnt_41a65e5196_quiz_integrated_review",
+      "fileVersionId": "fv_20260721_150205_quiz_cnt_41a65e5196_quiz_integrated_review_0f35bc0e"
+    }
+  ],
+  "draftSynced": false
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_hackathon_dev",
+  "contentId": "cnt_8f72ce631b",
+  "versionId": "v20260716_233259",
+  "revision": 1,
+  "title": "SokqaStudio 1. 資料ファイル 1",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/cnt_8f72ce631b/versions/v20260716_233259/manifest.json",
+  "generatedAt": "2026-07-16T23:32:58+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_1da0a3ec1a_doc_01.json",
+      "logicalId": "cnt_1da0a3ec1a_doc_01",
+      "fileVersionId": "fv_20260716_233258_document_cnt_1da0a3ec1a_doc_01_422181b5"
+    }
+  ],
+  "draftSynced": false
+}

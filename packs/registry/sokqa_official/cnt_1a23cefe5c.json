@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_official",
+  "contentId": "cnt_1a23cefe5c",
+  "versionId": "v20260721_132014",
+  "revision": 14,
+  "title": "中学生のための世界史・日本史教養パック",
+  "qualityStatus": "valid",
+  "publicationStatus": "draft",
+  "publishReady": true,
+  "publishReadyBasis": "stored_quality_status",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_official/packs/cnt_1a23cefe5c/versions/v20260721_132014/manifest.json",
+  "generatedAt": "2026-07-21T13:19:47+09:00",
+  "items": [
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_01.json",
+      "logicalId": "cnt_1a23cefe5c_doc_01",
+      "fileVersionId": "fv_20260721_123752_document_cnt_1a23cefe5c_doc_01_1bd767a0"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_02.json",
+      "logicalId": "cnt_1a23cefe5c_doc_02",
+      "fileVersionId": "fv_20260721_124221_document_cnt_1a23cefe5c_doc_02_f6dad29c"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_03.json",
+      "logicalId": "cnt_1a23cefe5c_doc_03",
+      "fileVersionId": "fv_20260721_124415_document_cnt_1a23cefe5c_doc_03_934214e3"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_04.json",
+      "logicalId": "cnt_1a23cefe5c_doc_04",
+      "fileVersionId": "fv_20260721_124540_document_cnt_1a23cefe5c_doc_04_12f984e5"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_05.json",
+      "logicalId": "cnt_1a23cefe5c_doc_05",
+      "fileVersionId": "fv_20260721_124942_document_cnt_1a23cefe5c_doc_05_e75a86ec"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_06.json",
+      "logicalId": "cnt_1a23cefe5c_doc_06",
+      "fileVersionId": "fv_20260721_125111_document_cnt_1a23cefe5c_doc_06_bdc49ed7"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_07.json",
+      "logicalId": "cnt_1a23cefe5c_doc_07",
+      "fileVersionId": "fv_20260721_125551_document_cnt_1a23cefe5c_doc_07_a048599f"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_08.json",
+      "logicalId": "cnt_1a23cefe5c_doc_08",
+      "fileVersionId": "fv_20260721_130336_document_cnt_1a23cefe5c_doc_08_500fb38e"
+    },
+    {
+      "kind": "document",
+      "name": "cnt_1a23cefe5c_doc_09.json",
+      "logicalId": "cnt_1a23cefe5c_doc_09",
+      "fileVersionId": "fv_20260721_130549_document_cnt_1a23cefe5c_doc_09_29a68326"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_1a23cefe5c_quiz_range_01.json",
+      "logicalId": "cnt_1a23cefe5c_quiz_range_01",
+      "fileVersionId": "fv_20260721_131218_quiz_cnt_1a23cefe5c_quiz_range_01_481bfa1f"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_1a23cefe5c_quiz_range_02.json",
+      "logicalId": "cnt_1a23cefe5c_quiz_range_02",
+      "fileVersionId": "fv_20260721_132013_quiz_cnt_1a23cefe5c_quiz_range_02_35eabf37"
+    },
+    {
+      "kind": "quiz",
+      "name": "cnt_1a23cefe5c_quiz_integrated_review.json",
+      "logicalId": "cnt_1a23cefe5c_quiz_integrated_review",
+      "fileVersionId": "fv_20260721_130906_quiz_cnt_1a23cefe5c_quiz_integrated_review_23be5add"
+    }
+  ],
+  "draftSynced": false
+}

@@ -1,6 +1,6 @@
 # Sokqa Studio 品質・運用・Jev 統合 実装計画書（マスタープラン）
 
-作成: 2026-09-21 / 状態: Phase 0〜2 実装済み（ブランチ `feat/packops-cli-registry`・§10 参照）。Phase 3 以降は承認待ち。
+作成: 2026-09-21 / 状態: Phase 0〜2 と Phase 5 層4（表記チェック）は main 実装済み（§10 参照）。Phase 3/4 と Phase 5 層2 は承認待ち。
 
 本書は以下の合意に基づくマスター計画書である。
 - Jev（Typesafe `jev-1.13.0`）の技術詳細・横置き設計・観測ログスキーマは **docs/typesafe-integration-plan.md が正本**。本書はそれを作り直さず、段階①〜③への参照のみとする。
@@ -131,7 +131,14 @@
 - テスト `tests/test_packops.py`（validate/import 乖離/publishゲート。snapshot 削除で残4本）。既存含め全通過
 - pm_zeroichi_v1 を実データで `validate`→`pull` 動作確認済み（〇〇2件のため `publishReady=false`）。snapshot は動作確認後に出力を削除（上記）
 
+**完了（Phase 5 層4・表記チェック・外部依存なし・Gemini 消費ゼロ）**
+- `app/services/ip_check.py`: 商標帰属（PMI系/Scrum/PRINCE2/ITIL/SAFe/アジャイルマニフェスト）・非公式免責・過去問・出典宣言の regex/field チェック。決定的・スキーマ非依存（文字列を再帰抽出）
+- §0-3/§0-4 遵守: **法的断定しない**。各所見は `blocking=false` で `validation.valid`/`qualityStatus`/`publishReady` とは合成せず、validate/import 結果に `ipFindings` / `ipReviewNeeded` として別枠併記
+- 深刻度: `escalate`（商標に帰属なし・過去問）/ `notice`（試験対策表現に免責なし）/ `info`（出典未登録）
+- テスト `tests/test_ip_check.py`（9本: 帰属あり/なし・免責・過去問・sources 突合・packops 統合で publishReady を縛らない）
+- pm_zeroichi_v1 実データ: doc の PMBOK/PMP/CAPM/Scrum/アジャイルマニフェストに帰属なし（escalate×3）＋「試験対策」に免責なし（notice）を検出、`ipReviewNeeded=true`
+
 **未着手（承認待ち）**
 - Phase 3（Jev 横置き）: typesafe 計画 段階①のスタブから。キー発行前は off/fake のみ
-- Phase 4（就绪度スコア v0）/ Phase 5（IP クリアランス 層4表記チェック→層2逐語重複）
+- Phase 4（就绪度スコア v0）/ Phase 5 層2（逐語重複・Scrum Guide n-gram 照合、`sources.json` 実データ確定が前提）
 - pm_zeroichi_v1 の `sources.json` 実データ: 実際の参照元確定（Fact チェックと一体）後にのみ記入。捏造しない

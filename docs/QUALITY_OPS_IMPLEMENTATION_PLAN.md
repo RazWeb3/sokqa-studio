@@ -1,6 +1,6 @@
 # Sokqa Studio 品質・運用・Jev 統合 実装計画書（マスタープラン）
 
-作成: 2026-09-21 / 状態: 承認待ちの計画のみ。本ファイルの新規作成以外にコード・設定は変更しない。
+作成: 2026-09-21 / 状態: Phase 0〜2 実装済み（ブランチ `feat/packops-cli-registry`・§10 参照）。Phase 3 以降は承認待ち。
 
 本書は以下の合意に基づくマスター計画書である。
 - Jev（Typesafe `jev-1.13.0`）の技術詳細・横置き設計・観測ログスキーマは **docs/typesafe-integration-plan.md が正本**。本書はそれを作り直さず、段階①〜③への参照のみとする。
@@ -115,3 +115,19 @@
 4. キー発行後: shadow 有効化（明示承認）→ 段階② → Phase 4 スコア v0 接続 → Phase 5 層2
 
 各段の完了条件は本書と typesafe 計画 §6 のうち**後から緩めない方**を優先する。
+
+## 10. 実装状況（2026-09-21）
+
+**完了（Phase 0〜2・外部依存なし・Gemini 消費ゼロ）**
+- サービス層 `app/services/packops.py`: `validate_pack_dir`（公開ゲート `publishReady` 併記）/ `import_pack_dir`（v1→v2 補完・乖離検出・lock 書込・v1 manifest URL 還流）/ `pull_pack_dir`（R2 latest→ドラフト還流）/ `quality_check_pack_dir`（明示時のみ Gemini）/ `snapshot_registry`（片方向・決定論的）
+- CLI `scripts/packops.py`: `validate` / `pull` / `import` / `snapshot` / `quality-check` サブコマンド
+- 出典台帳スキーマ v0 `app/schemas/pack_sources.py`（不在は warning 促し・error 化しない）
+- 公開ゲートは §0-3 を遵守: **保存は止めず** `publishReady`（placeholder 検出反映）として結果と registry に載せる
+- registry `packs/registry/<creator>/<content>.json` を Git 追跡化（29 パック・`publishReadyBasis` で判定根拠を明示）
+- テスト `tests/test_packops.py` 5本（validate/import 乖離/snapshot 決定論性）。既存 944本含め全通過
+- pm_zeroichi_v1 を実データで `validate`→`pull`→`snapshot` 動作確認済み（〇〇2件のため `publishReady=false`）
+
+**未着手（承認待ち）**
+- Phase 3（Jev 横置き）: typesafe 計画 段階①のスタブから。キー発行前は off/fake のみ
+- Phase 4（就绪度スコア v0）/ Phase 5（IP クリアランス 層4表記チェック→層2逐語重複）
+- pm_zeroichi_v1 の `sources.json` 実データ: 実際の参照元確定（Fact チェックと一体）後にのみ記入。捏造しない

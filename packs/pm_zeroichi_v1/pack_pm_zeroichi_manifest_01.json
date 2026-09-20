@@ -1,0 +1,20 @@
+{
+  "id": "pack_pm_zeroichi_manifest_01",
+  "type": "pack_manifest",
+  "schemaVersion": 1,
+  "title": "プロジェクト管理ゼロイチ（初級）：ドキュメント1本＋クイズ30問",
+  "globalTags": ["プロジェクト管理", "PM入門", "初級"],
+  "description": "特定の資格試験対策ではないプロジェクト管理入門パックです。PMBOK 準拠の基礎と Scrum Guide 準拠のアジャイル概要を耳で学べ、次のステップは P-SM 3級・CAPM（中級）、PMP（上級）。テスト生成版のため内容のファクトチェック進行中。最終更新: 2026-09-20",
+  "language": "ja",
+  "author": "Sokqa Studio Dev",
+  "items": [
+    {
+      "kind": "document",
+      "url": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/pm_zeroichi_v1/objects/doc/fv_20260920_232610_document_doc_pm_zeroichi_v1_87121a43.json"
+    },
+    {
+      "kind": "quiz",
+      "url": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/pm_zeroichi_v1/objects/quiz/fv_20260920_232611_quiz_quiz_pm_zeroichi_v1_26da6a5a.json"
+    }
+  ]
+}

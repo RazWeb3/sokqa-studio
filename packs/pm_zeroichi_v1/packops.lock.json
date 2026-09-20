@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "creatorId": "sokqa_hackathon_dev",
+  "contentId": "pm_zeroichi_v1",
+  "versionId": "v20260920_232612",
+  "revision": 2,
+  "importedAt": "2026-09-20T23:26:12+09:00",
+  "manifestUrl": "https://cdn.convly.jp/sokqa/creators/sokqa_hackathon_dev/packs/pm_zeroichi_v1/versions/v20260920_232612/manifest.json",
+  "note": "直近の R2 配置状態のスナップショット。packops の pull/乖離チェックが読み書きする"
+}

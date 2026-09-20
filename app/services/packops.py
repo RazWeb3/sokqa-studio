@@ -24,6 +24,7 @@ from app.schemas.request import (
     TtsRecordingTarget,
 )
 from app.schemas.sokqa import GeneratedFile
+from app.services.ip_check import check_ip_representation, summarize_ip
 from app.services.pack_importer import import_pack_files
 from app.services.pack_paths import (
     doc_object_relative_path,
@@ -102,14 +103,22 @@ def validate_pack_dir(slug_dir: Path) -> dict[str, Any]:
     validation = validate_files_for_draft(draft)
     errors = [error.model_dump(mode="json") for error in validation.errors]
     placeholder_hits = [e for e in errors if "placeholder" in str(e.get("message", ""))]
+    # 層4 表記チェック（法的断定しない所見）。§0-3 準守で validation.valid/qualityStatus/publishReady
+    # とは合成せず別枠で返す。escalate/notice があっても publishReady は動かさない。
+    ip_findings = check_ip_representation(draft.files, draft.sources)
+    ip_summary = summarize_ip(ip_findings)
     notes: list[str] = []
     if draft.sources is None:
         notes.append(f"{SOURCES_FILE_NAME} がない（出典台帳の同梱を推奨: plans §3）")
+    if ip_summary["reviewNeeded"]:
+        notes.append("表記チェックで公開前の人間レビュー所見あり（法的適否は本書では断定しない）")
     return {
         "valid": validation.valid,
         "publishReady": validation.valid and not placeholder_hits,
         "errors": errors,
         "placeholderHits": placeholder_hits,
+        "ipFindings": ip_findings,
+        "ipReviewNeeded": ip_summary["reviewNeeded"],
         "notes": notes,
         "files": [file.name for file in draft.files],
     }
@@ -209,6 +218,8 @@ def import_pack_dir(
         "qualityStatus": response.manifest.qualityStatus,
         "publishReady": gate["publishReady"],
         "placeholderHits": gate["placeholderHits"],
+        "ipFindings": gate["ipFindings"],
+        "ipReviewNeeded": gate["ipReviewNeeded"],
         "validation": response.validation.model_dump(mode="json"),
         "logs": response.logs,
     }

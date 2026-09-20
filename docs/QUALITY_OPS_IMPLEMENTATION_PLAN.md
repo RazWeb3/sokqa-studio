@@ -123,9 +123,10 @@
 - CLI `scripts/packops.py`: `validate` / `pull` / `import` / `snapshot` / `quality-check` サブコマンド
 - 出典台帳スキーマ v0 `app/schemas/pack_sources.py`（不在は warning 促し・error 化しない）
 - 公開ゲートは §0-3 を遵守: **保存は止めず** `publishReady`（placeholder 検出反映）として結果と registry に載せる
-- registry `packs/registry/<creator>/<content>.json` を Git 追跡化（29 パック・`publishReadyBasis` で判定根拠を明示）
+- registry `packs/registry/<creator>/<content>.json` の Git 追跡化 → **不採用に転換**（2026-09-21）。全29パックの中身 JSON は実測 4.82 MB でサイズは問題にならないが、「diff ノイズで監査ログが見えなくなる」「読める中身が常駐して単方向 flow を崩す」を回避。要約スナップショットは残さず、中身は `pull <slug>` で必要な分だけ還流する方針
+  - `snapshot_registry` / CLI `snapshot` 自体は未使用の読取専用ケイパビリティとしてコードに残置（実行しない限り何も生成しない。不要なら削除可）
 - テスト `tests/test_packops.py` 5本（validate/import 乖離/snapshot 決定論性）。既存 944本含め全通過
-- pm_zeroichi_v1 を実データで `validate`→`pull`→`snapshot` 動作確認済み（〇〇2件のため `publishReady=false`）
+- pm_zeroichi_v1 を実データで `validate`→`pull` 動作確認済み（〇〇2件のため `publishReady=false`）。snapshot は動作確認後に出力を削除（上記）
 
 **未着手（承認待ち）**
 - Phase 3（Jev 横置き）: typesafe 計画 段階①のスタブから。キー発行前は off/fake のみ

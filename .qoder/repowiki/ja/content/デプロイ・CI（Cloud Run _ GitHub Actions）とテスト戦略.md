@@ -4,6 +4,7 @@
 **この文書で参照しているファイル**
 - [Dockerfile](file://Dockerfile)
 - [.github/workflows/deploy-cloud-run.yml](file://.github/workflows/deploy-cloud-run.yml)
+- [.gitignore](file://.gitignore)
 - [main.py](file://main.py)
 - [tests/conftest.py](file://tests/conftest.py)
 - [tests/test_pack_importer.py](file://tests/test_pack_importer.py)
@@ -18,6 +19,7 @@
 - Cloud Run デプロイワークフローのトリガー設定を更新：push トリガーを無効化し、手動実行のみ有効化
 - ローカル運用期間中のデプロイポリシーに関する日本語コメントを追加
 - GitHub Actions UI からの「Run workflow」ボタンによる手動デプロイ手順を説明
+- **.gitignore の更新**: 日本語 repowiki メタデータディレクトリ (.qoder/repowiki/ja/meta/) をバージョン管理から除外する設定を追加
 
 ## 目次
 1. [導入](#導入)
@@ -36,8 +38,9 @@
 - Dockerfile が FastAPI アプリケーションをどのようにコンテナ化し、Cloud Run で実行可能にするか
 - .github/workflows/deploy-cloud-run.yml が **手動実行時のみ** Workload Identity を使って GCP に認証し、Cloud Run サービスを更新する流れ
 - tests/ 配下のテストが、ローカルストレージやモック LLM、R2 ストレージのスタブなどを使って、生成・品質チェック・TTS・保存系ロジックをどう検証しているか
+- バージョン管理システムでの不要なメタデータの除外設定
 
-**更新** 本番リリースまではローカル環境でのみ運用するため、自動デプロイを無効化し、開発者が意図的に手動実行する方式に変更しました。
+**更新** 本番リリースまではローカル環境でのみ運用するため、自動デプロイを無効化し、開発者が意図的に手動実行する方式に変更しました。また、ドキュメントシステムの効率化のため、日本語 repowiki メタデータをバージョン管理から除外する設定を追加しました。
 
 ## プロジェクト構造
 Sokqa Studio は FastAPI ベースのバックエンドと web/index.html の単一ページフロントエンドから構成されます。バックエンドのエントリポイントではルーターをマウントし、静的な生成物ディレクトリを公開しています。
@@ -62,11 +65,13 @@ A --> J["生成済みファイル公開<br/>/generated"]
 - コンテナイメージ: Python slim イメージ上に requirements.txt をインストールし、uvicorn で FastAPI アプリを実行
 - デプロイパイプライン: **手動実行時のみ** GitHub Actions から Workload Identity で GCP に認証し、Cloud Run サービスを更新
 - テスト基盤: conftest.py で全テスト前に設定をローカルストレージとモック LLM に固定し、外部書き込みを防ぐ
+- バージョン管理: .gitignore により不要なメタデータや一時ファイルを除外
 
 **セクション出典**
 - [Dockerfile:1-14](file://Dockerfile#L1-L14)
 - [.github/workflows/deploy-cloud-run.yml:1-26](file://.github/workflows/deploy-cloud-run.yml#L1-L26)
 - [tests/conftest.py:1-15](file://tests/conftest.py#L1-L15)
+- [.gitignore:27-29](file://.gitignore#L27-L29)
 
 ## アーキテクチャ概要
 Cloud Run へのデプロイは、**GitHub Actions UI から手動実行された場合のみ**トリガーされ、Workload Identity Provider を使用してサービスアカウントとして認証後、google-github-actions/deploy-cloudrun で指定サービス名・リージョンへデプロイします。
@@ -137,6 +142,29 @@ CR-->>Dev : デプロイ結果
 
 **セクション出典**
 - [.github/workflows/deploy-cloud-run.yml:1-26](file://.github/workflows/deploy-cloud-run.yml#L1-L26)
+
+### バージョン管理設定
+- .gitignore により、環境変数ファイル、仮想環境、ログファイル、一時ファイルなどを除外
+- AI ツールのメタデータディレクトリ (.trae/, .codex/, .agents/) を除外
+- Qoder 関連では `.qoder/` 直下を原則除外しつつ `repowiki/`（content・wiki_plan.yaml）は追跡対象に含め、その中でもツール状態ファイルの `ja/meta/` のみ除外
+- 音声ファイル (*.mp3, *.wav, *.ogg, *.m4a) を除外
+
+```mermaid
+flowchart TD
+GitIgnore[".gitignore 設定"] --> Exclude1["環境変数ファイル"]
+GitIgnore --> Exclude2["仮想環境"]
+GitIgnore --> Exclude3["AIツールメタデータ"]
+GitIgnore --> Exclude4["repowikiのja/meta/（ツール状態）"]
+GitIgnore --> Exclude5["音声ファイル"]
+Exclude1 --> CleanRepo["クリーンなリポジトリ"]
+Exclude2 --> CleanRepo
+Exclude3 --> CleanRepo
+Exclude4 --> CleanRepo
+Exclude5 --> CleanRepo
+```
+
+**セクション出典**
+- [.gitignore:1-31](file://.gitignore#L1-L31)
 
 ### テスト基盤と共通設定
 - conftest.py では全テスト前に settings を変更し、Gemini プロバイダを mock、ストレージバックエンドを local、ローカルストレージディレクトリを tmp_path に固定
@@ -285,19 +313,23 @@ Services --> LLM["gemini_client"]
 - Dockerfile では requirements.txt を先にコピーして pip install することでレイヤーキャッシュを活用し、ビルド時間を短縮
 - Cloud Run デプロイは最小限のステップで、Workload Identity 経由で安全に認証し、素早くイメージをデプロイ
 - テストはローカルストレージとモック LLM を使うため、外部依存による遅延や不安定性を排除
+- .gitignore により不要なファイルがコミットされないため、リポジトリサイズと転送時間の最適化
 
 ## トラブルシューティングガイド
 - **デプロイ失敗の場合**: Workload Identity Provider と Service Account のシークレット設定を確認し、リージョンとサービス名が正しいか確認
 - **手動デプロイの実行方法**: GitHub リポジトリの Actions タブから deploy-cloud-run ワークフローを選択し、「Run workflow」ボタンをクリック
 - **テスト失敗の場合**: conftest.py で設定されている storage_backend と gemini_provider が意図通り適用されているか確認
 - R2 アクセスエラー: テスト内では ClientError が適切に伝播することを確認しており、本番でも同様のエラーハンドリングが必要
+- **バージョン管理の問題**: .gitignore 設定により日本語 repowiki メタデータが除外されているため、意図しないメタデータのコミットを防止
 
 **セクション出典**
 - [.github/workflows/deploy-cloud-run.yml:11-25](file://.github/workflows/deploy-cloud-run.yml#L11-L25)
 - [tests/test_storage_r2.py:117-147](file://tests/test_storage_r2.py#L117-L147)
+- [.gitignore:27-29](file://.gitignore#L27-L29)
 
 ## 結論
 - Dockerfile は FastAPI アプリケーションを簡潔にコンテナ化し、Cloud Run で実行可能な形式に整えています
 - GitHub Actions ワークフローは、**本番リリースまでの間、手動実行のみ有効化**し、Workload Identity を使用した安全な認証と、指定サービスへのデプロイを実現しています
 - tests/ 配下の pytest テストは、ローカルストレージとモック LLM、R2 スタブを用いて、生成・品質・TTS・保存系のロジックを網羅的に検証しており、外部依存の影響を抑えつつ信頼性の高いテストスイートを提供しています
+- **.gitignore の更新**により、日本語 repowiki メタデータを含む不要なファイルが自動的に除外され、リポジトリのクリーンネスと管理の容易さが向上しています
 - **運用方針**: 開発中はローカル環境でのみ運用し、本番リリース時に初めて自動デプロイを有効化する計画です

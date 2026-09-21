@@ -108,7 +108,8 @@ JSONもチャット内に併記する。機械結果は `schemaVersion` を含�
       "location": {"file": "quiz.json", "path": "questions.0.explanation"},
       "basis": "agent_reading", "assessment": "needs_review",
       "message": "確認した具体的な問題", "evidence": "短い抜粋または一次資料URL",
-      "suggestion": "最小限の修正案", "relatedMachineFindingIds": [], "blocking": false
+      "suggestion": "最小限の修正案", "relatedMachineFindingIds": [],
+      "blocking": false, "requiresConfirmationBeforePublish": false
     }],
     "references": [{"url": "公式資料URL", "checkedAt": "確認日", "scope": "確認した条項・版"}],
     "limitations": ["実音声未試聴", "網羅的な著作物照合ではない"]
@@ -117,6 +118,7 @@ JSONもチャット内に併記する。機械結果は `schemaVersion` を含�
 ```
 
 - 長いJSONは、全所見を収めた本文を分割して提示するか、保存の許可を求める。ファイル保存は明示依頼時だけ行う。保存先を教材フォルダ内にしない（packopsが教材として読んでしまうため）。
+- **`blocking` は機械所見・agent所見を問わず常に `false`**。この値で公開可否や法的禁止を表さない（公開を止めないことが設計不変）。**公開前に人が必ず確認すべき**所見は、`blocking: true` にせず `requiresConfirmationBeforePublish: true` と `severity`・`message`・`suggestion` で表す。この合図も advisory 専用で、`publishReady` や既存の保存ゲートと合成しない。
 - サイト検査との比較を頼まれたら、提供された同じ版の結果に対して「両方で検出／チャットのみ／サイトのみ／誤検知候補」を表にする。現行サイト検査を勝手に再実行しない。
 - 所見がなければ「確認範囲で指摘なし」とし、「配布・販売可能」「著作権クリア」とは書かない。
 

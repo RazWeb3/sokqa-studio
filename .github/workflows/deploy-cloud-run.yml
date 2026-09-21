@@ -1,9 +1,10 @@
+# 本番リリースまではローカルのみで運用するため、push トリガーは無効化している。
+# Cloud Run への再デプロイが必要になったら、GitHub UI の Actions 画面から
+# 「Run workflow」で手動実行できる（workflow_dispatch のみ有効）。
 name: Deploy Cloud Run
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   deploy:

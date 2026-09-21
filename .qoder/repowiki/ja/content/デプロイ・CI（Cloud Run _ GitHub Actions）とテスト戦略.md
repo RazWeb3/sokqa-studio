@@ -12,6 +12,10 @@
 - [tests/test_tts_synthesizer.py](file://tests/test_tts_synthesizer.py)
 - [tests/test_storage_r2.py](file://tests/test_storage_r2.py)
 - [tests/test_gemini_client.py](file://tests/test_gemini_client.py)
+- [tests/test_pack_review.py](file://tests/test_pack_review.py)
+- [app/services/pack_review.py](file://app/services/pack_review.py)
+- [scripts/packops.py](file://scripts/packops.py)
+- [.qoder/skills/pack-review/SKILL.md](file://.qoder/skills/pack-review/SKILL.md)
 </cite>
 
 ## 更新概要
@@ -20,6 +24,7 @@
 - ローカル運用期間中のデプロイポリシーに関する日本語コメントを追加
 - GitHub Actions UI からの「Run workflow」ボタンによる手動デプロイ手順を説明
 - **.gitignore の更新**: 日本語 repowiki メタデータディレクトリ (.qoder/repowiki/ja/meta/) をバージョン管理から除外する設定を追加
+- **新しいパックレビュー機能のテストケース追加**: tests/test_pack_review.py に23件のテストケースが追加され、読み取り専用動作、決定論的出力生成、不正入力処理、セキュリティ考慮事項などが検証されている
 
 ## 目次
 1. [導入](#導入)
@@ -39,8 +44,9 @@
 - .github/workflows/deploy-cloud-run.yml が **手動実行時のみ** Workload Identity を使って GCP に認証し、Cloud Run サービスを更新する流れ
 - tests/ 配下のテストが、ローカルストレージやモック LLM、R2 ストレージのスタブなどを使って、生成・品質チェック・TTS・保存系ロジックをどう検証しているか
 - バージョン管理システムでの不要なメタデータの除外設定
+- **新しいパックレビュー機能**: ローカル読み取り専用の教材レビュー補助検査システムのテスト戦略
 
-**更新** 本番リリースまではローカル環境でのみ運用するため、自動デプロイを無効化し、開発者が意図的に手動実行する方式に変更しました。また、ドキュメントシステムの効率化のため、日本語 repowiki メタデータをバージョン管理から除外する設定を追加しました。
+**更新** 本番リリースまではローカル環境でのみ運用するため、自動デプロイを無効化し、開発者が意図的に手動実行する方式に変更しました。また、ドキュメントシステムの効率化のため、日本語 repowiki メタデータをバージョン管理から除外する設定を追加しました。**さらに、packs/<slug>/ ドラフト源の読み取り専用レビュー機能を追加し、外部APIを使用せずに機械的な所見検出を行うテストケースを実装しました。**
 
 ## プロジェクト構造
 Sokqa Studio は FastAPI ベースのバックエンドと web/index.html の単一ページフロントエンドから構成されます。バックエンドのエントリポイントではルーターをマウントし、静的な生成物ディレクトリを公開しています。
@@ -65,12 +71,15 @@ A --> J["生成済みファイル公開<br/>/generated"]
 - コンテナイメージ: Python slim イメージ上に requirements.txt をインストールし、uvicorn で FastAPI アプリを実行
 - デプロイパイプライン: **手動実行時のみ** GitHub Actions から Workload Identity で GCP に認証し、Cloud Run サービスを更新
 - テスト基盤: conftest.py で全テスト前に設定をローカルストレージとモック LLM に固定し、外部書き込みを防ぐ
+- **新しいパックレビュー機能**: ローカル読み取り専用の教材レビュー補助検査システム
 - バージョン管理: .gitignore により不要なメタデータや一時ファイルを除外
 
 **セクション出典**
 - [Dockerfile:1-14](file://Dockerfile#L1-L14)
 - [.github/workflows/deploy-cloud-run.yml:1-26](file://.github/workflows/deploy-cloud-run.yml#L1-L26)
 - [tests/conftest.py:1-15](file://tests/conftest.py#L1-L15)
+- [app/services/pack_review.py:1-285](file://app/services/pack_review.py#L1-L285)
+- [scripts/packops.py:1-103](file://scripts/packops.py#L1-L103)
 - [.gitignore:27-29](file://.gitignore#L27-L29)
 
 ## アーキテクチャ概要
@@ -144,9 +153,9 @@ CR-->>Dev : デプロイ結果
 - [.github/workflows/deploy-cloud-run.yml:1-26](file://.github/workflows/deploy-cloud-run.yml#L1-L26)
 
 ### バージョン管理設定
-- .gitignore により、環境変数ファイル、仮想環境、ログファイル、一時ファイルなどを除外
+- .gitignore により、環境変数ファイル、仮想環境、ログファイル、一時ファイルを除外
 - AI ツールのメタデータディレクトリ (.trae/, .codex/, .agents/) を除外
-- Qoder 関連では `.qoder/` 直下を原則除外しつつ `repowiki/`（content・wiki_plan.yaml）は追跡対象に含め、その中でもツール状態ファイルの `ja/meta/` のみ除外
+- Qoder の repowiki ディレクトリを除外しつつ、日本語メタデータのみ特別に除外
 - 音声ファイル (*.mp3, *.wav, *.ogg, *.m4a) を除外
 
 ```mermaid
@@ -154,7 +163,7 @@ flowchart TD
 GitIgnore[".gitignore 設定"] --> Exclude1["環境変数ファイル"]
 GitIgnore --> Exclude2["仮想環境"]
 GitIgnore --> Exclude3["AIツールメタデータ"]
-GitIgnore --> Exclude4["repowikiのja/meta/（ツール状態）"]
+GitIgnore --> Exclude4["日本語repowikiメタデータ"]
 GitIgnore --> Exclude5["音声ファイル"]
 Exclude1 --> CleanRepo["クリーンなリポジトリ"]
 Exclude2 --> CleanRepo
@@ -287,11 +296,45 @@ Save --> Raise["エラー送出"]
 - [tests/test_gemini_client.py:20-75](file://tests/test_gemini_client.py#L20-L75)
 - [tests/test_gemini_client.py:139-194](file://tests/test_gemini_client.py#L139-L194)
 
+### **新しいパックレビュー機能テスト**
+- **読み取り専用動作の検証**: 外部API（Gemini、StorageClient、ネットワーク接続）の使用を禁止し、オフラインでのみ動作することを保証
+- **決定論的出力生成**: 同じ入力に対して常に同じ結果を生成し、タイムスタンプとハッシュのみが変動することを検証
+- **不正入力処理**: 無効なJSON形式、スキーマ違反、不正なパラメータ値に対する適切なエラーハンドリング
+- **セキュリティ考慮事項**: XSS対策としてのHTMLエスケープ、信頼できないコンテンツのサニタイズ
+- **品質チェック機能**: 誤字脱字、用語の一貫性、視覚参照、IP表記、クイズ統計、TTS予測などの包括的な検査
+- **CLIインターフェース**: JSON形式とマークダウン形式の出力、オプション引数の検証、エラーメッセージの提供
+
+```mermaid
+sequenceDiagram
+participant Test as "テストケース"
+participant Review as "review_pack_dir"
+participant PackOps as "packops.validate"
+participant Validator as "既存バリデーター"
+Test->>Review : パックディレクトリを渡す
+Review->>PackOps : validate_pack_dir 呼び出し
+PackOps->>Validator : 既存バリデーター実行
+Validator-->>PackOps : 検証結果
+PackOps-->>Review : 既存検証結果
+Review->>Review : ローカル検査実行
+Review-->>Test : 決定論的なレポート
+```
+
+**図出典**
+- [tests/test_pack_review.py:40-62](file://tests/test_pack_review.py#L40-L62)
+- [app/services/pack_review.py:172-261](file://app/services/pack_review.py#L172-L261)
+
+**セクション出典**
+- [tests/test_pack_review.py:1-243](file://tests/test_pack_review.py#L1-L243)
+- [app/services/pack_review.py:1-285](file://app/services/pack_review.py#L1-L285)
+- [scripts/packops.py:60-81](file://scripts/packops.py#L60-L81)
+- [.qoder/skills/pack-review/SKILL.md:1-132](file://.qoder/skills/pack-review/SKILL.md#L1-L132)
+
 ## 依存関係分析
 - Dockerfile は requirements.txt に基づいてパッケージをインストールし、uvicorn で FastAPI アプリを実行
 - main.py は app/routes 配下のルーターをマウントし、/generated で生成ファイルを公開
 - テストは fastapi.testclient を使い、実際の HTTP サーバーなしでエンドポイントを呼び出す
 - R2 テストは boto3 Stubber で外部通信をシミュレートし、ネットワークアクセスを伴わない
+- **新しいパックレビュー機能は外部APIを使用せず、ローカルのみの処理で完結する設計**
 
 ```mermaid
 graph LR
@@ -302,17 +345,20 @@ Tests --> Config["app/config"]
 Tests --> Services["app/services/*"]
 Services --> Storage["storage_client"]
 Services --> LLM["gemini_client"]
+Services --> Review["pack_review (外部API不使用)"]
 ```
 
 **セクション出典**
 - [main.py:22-34](file://main.py#L22-L34)
 - [tests/test_storage_r2.py:13-18](file://tests/test_storage_r2.py#L13-L18)
 - [tests/test_gemini_client.py:10-17](file://tests/test_gemini_client.py#L10-L17)
+- [app/services/pack_review.py:1-5](file://app/services/pack_review.py#L1-L5)
 
 ## パフォーマンス考慮事項
 - Dockerfile では requirements.txt を先にコピーして pip install することでレイヤーキャッシュを活用し、ビルド時間を短縮
 - Cloud Run デプロイは最小限のステップで、Workload Identity 経由で安全に認証し、素早くイメージをデプロイ
 - テストはローカルストレージとモック LLM を使うため、外部依存による遅延や不安定性を排除
+- **.新しいパックレビュー機能は外部APIを一切使用しないため、ネットワーク遅延や課金の心配がない**
 - .gitignore により不要なファイルがコミットされないため、リポジトリサイズと転送時間の最適化
 
 ## トラブルシューティングガイド
@@ -321,15 +367,23 @@ Services --> LLM["gemini_client"]
 - **テスト失敗の場合**: conftest.py で設定されている storage_backend と gemini_provider が意図通り適用されているか確認
 - R2 アクセスエラー: テスト内では ClientError が適切に伝播することを確認しており、本番でも同様のエラーハンドリングが必要
 - **バージョン管理の問題**: .gitignore 設定により日本語 repowiki メタデータが除外されているため、意図しないメタデータのコミットを防止
+- **新しいパックレビュー機能の問題**: 
+  - `text_source` パラメータは "raw" または "corrected" のみ許可
+  - `max_findings` は正の整数である必要がある
+  - CLIエラー時は exit code 2 で終了し、エラー情報をstderrに出力
 
 **セクション出典**
 - [.github/workflows/deploy-cloud-run.yml:11-25](file://.github/workflows/deploy-cloud-run.yml#L11-L25)
 - [tests/test_storage_r2.py:117-147](file://tests/test_storage_r2.py#L117-L147)
 - [.gitignore:27-29](file://.gitignore#L27-L29)
+- [tests/test_pack_review.py:173-177](file://tests/test_pack_review.py#L173-L177)
+- [scripts/packops.py:76-81](file://scripts/packops.py#L76-L81)
 
 ## 結論
 - Dockerfile は FastAPI アプリケーションを簡潔にコンテナ化し、Cloud Run で実行可能な形式に整えています
 - GitHub Actions ワークフローは、**本番リリースまでの間、手動実行のみ有効化**し、Workload Identity を使用した安全な認証と、指定サービスへのデプロイを実現しています
 - tests/ 配下の pytest テストは、ローカルストレージとモック LLM、R2 スタブを用いて、生成・品質・TTS・保存系のロジックを網羅的に検証しており、外部依存の影響を抑えつつ信頼性の高いテストスイートを提供しています
 - **.gitignore の更新**により、日本語 repowiki メタデータを含む不要なファイルが自動的に除外され、リポジトリのクリーンネスと管理の容易さが向上しています
+- **新しいパックレビュー機能**は、外部APIを使用しない読み取り専用の教材レビュー補助検査システムとして実装され、23件のテストケースでその信頼性と安全性が検証されています
 - **運用方針**: 開発中はローカル環境でのみ運用し、本番リリース時に初めて自動デプロイを有効化する計画です
+- **パックレビューの利点**: ネットワーク接続不要、課金発生なし、決定論的な出力、セキュリティ上のリスク低減を実現しています

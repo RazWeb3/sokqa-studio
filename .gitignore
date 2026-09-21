@@ -26,5 +26,6 @@ nul
 .agents/
 .qoder/*
 !.qoder/repowiki/
+!.qoder/skills/
 .qoder/repowiki/ja/meta/
 pycache_tmp/

@@ -142,3 +142,15 @@
 - Phase 3（Jev 横置き）: typesafe 計画 段階①のスタブから。キー発行前は off/fake のみ
 - Phase 4（就绪度スコア v0）/ Phase 5 層2（逐語重複・Scrum Guide n-gram 照合、`sources.json` 実データ確定が前提）
 - pm_zeroichi_v1 の `sources.json` 実データ: 実際の参照元確定（Fact チェックと一体）後にのみ記入。捏造しない
+
+## 11. チャット教材レビューとサイト現状維持（2026-09-21追加）
+
+- audienceチェックボックス・配布用の出典自動追記・追加生成ガードは導入しない。サイトのUI/API/生成処理/保存ゲートは現状維持。
+- 規約の検討は `docs/OPERATOR_RISK_TERMS_GUIDELINES.md` を参照。規約だけで責任が消える、AI生成なら適法といった初期説明は訂正済み。法務確認は未完了。
+- プロジェクトスキル `.qoder/skills/pack-review/SKILL.md` と `app/services/pack_review.py` を追加。実行入口は `python scripts/packops.py review <slug>`。ローカル読み取り専用、Gemini/TTS API/R2は呼ばない。
+- 構造・placeholderは既存validatorを再利用。正解位置の統計、誤字の候補、表記の混在、重複ID、視覚参照、読み上げ予測、既存IPルールの候補をJSON/Markdownで返す。
+- 本文と全設問の意味・事実関係・解説整合・利用条件はチャットで確認する。機械検査には未実施の分析とスキップを明示し、所見数と上限による省略を分ける。
+- raw/correctedを明示して既存の録音用テキスト抽出を使う。実音声は未試聴。法的所見は根拠を確認してから報告し、既存IPルールの権利者名・追記例を無検証で流用しない。
+- サイトの検査結果との比較は、同一JSON内容hash・同一TTS対象を確認した上で行う。新しいサイトAPIやregistry/snapshotは追加しない。
+- §6のスコア案は未実装の過去案であり、本スキルの合格判定ではない。法的所見をスコアに合成して公開可と扱わない。今後の採用時には現行方針との再調整が必要。
+- 回帰テストは `tests/test_pack_review.py`。読み取り専用、外部接続禁止、既存ゲート不変、補正フォールバック、言語タグ、入力エラー、打切り表示を検証する。

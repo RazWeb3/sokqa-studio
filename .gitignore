@@ -24,5 +24,6 @@ nul
 .trae/
 .codex/
 .agents/
-.qoder/
+.qoder/*
+!.qoder/repowiki/
 pycache_tmp/
